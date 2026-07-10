@@ -1,8 +1,8 @@
 {
   "SchemaVersion": 1,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-10T22:21:37.5805540Z",
-  "RepositoryRevision": "2f6510059a6f63401d8b11e969b18ff5a897a175",
+  "RecordedAtUtc": "2026-07-10T22:28:16.5823690Z",
+  "RepositoryRevision": "88fae9d8f73a17314f401cabd88f1fc1747936bd",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
   "ShaderArtifacts": "Generated from triangle.vert and triangle.frag by render-backend/build.rs during the Cargo build.",
@@ -43,8 +43,8 @@
       "BackgroundSamplePixels": 104426,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "c9258c99b3020c70f3e635c373bddbba4ebdec535b5127a67c957f72468ef47d",
-        "d84289ae6f81e6b52c03dc5f25ab9ea1d77d2719f043532d3593f4b7372b7319"
+        "69edce1debe5edf63f4814d85321fd76ecc96d426a728f8e63f250783728641b",
+        "d22c571d3d3b74d4b5935a0fe219f82363a45344123d3d5decf1be13d994e2bc"
       ],
       "Captures": [
         "launch-a.png",
@@ -58,10 +58,10 @@
       "AspectRatio": 1.64,
       "TriangleSamplePixels": 40885,
       "BackgroundSamplePixels": 138517,
-      "MaterialDifferenceFraction": 1.1E-05,
+      "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "1fe42a5a7fca71e3bffb1b89d8c2418a60fa7a9bdf9fb098504f50c52520a0c4",
-        "1ab575854c9a053856dbf253e2fde7033e3002b73411c318c98868eec98809ba"
+        "be72b0bdb9d7883088225219937900cfb632621fceb7fb3da0bd19c7252684e5",
+        "e4b426fe71275a129b70ce058f5be1c6b6265495e960a42945a31cf4cd6889f2"
       ],
       "Captures": [
         "landscape-a.png",
@@ -77,8 +77,8 @@
       "BackgroundSamplePixels": 105503,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "c319c8617e064b372a7d8a6a58b1652146d56988086d23fec357d5678ed67f49",
-        "ab62df7be93f7441b5a1f4cee64a314b5e9b2dcf6b54e8441780a1ca1e818bae"
+        "e05747352291ab4f6a10786e9583dde08c9a8373af989218754d7c117310ef7b",
+        "f2029a4241f017772030186c04907f67db36c5ea3f5d43ee931ef38780e35fa5"
       ],
       "Captures": [
         "portrait-a.png",
@@ -94,8 +94,8 @@
       "BackgroundSamplePixels": 105503,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "b49c4e22e3a003688d1ecfffa90edc07df6938721444cb60eeffffc087197c32",
-        "3d9cff22e6030ac9a503e982841a84ebdfa79ee228439f5be9485feec50fe87c"
+        "16fbc94a1d0d413f9700f7dca232102a523195145e3b8c7e2b86734a9b2beba6",
+        "1f7cea3734a255bd8cebed3620da0f7776967264e01c42a2c72fc901c34ed113"
       ],
       "Captures": [
         "restored-a.png",
