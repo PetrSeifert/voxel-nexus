@@ -24,6 +24,12 @@ using System;
 using System.Runtime.InteropServices;
 
 public static class LifecycleWindow {
+    public const int ShowMinimized = 6;
+    public const int ShowRestored = 9;
+    public const uint CloseMessage = 0x0010;
+    public const uint KeepPositionAndSize = 0x0013;
+    public static readonly IntPtr Topmost = new IntPtr(-1);
+
     public delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -111,6 +117,15 @@ function Invoke-Cargo {
     }
 }
 
+function Stop-LifecycleProcess {
+    param([System.Diagnostics.Process]$Process)
+
+    if (-not $Process.HasExited) {
+        $Process.Kill()
+        $Process.WaitForExit()
+    }
+}
+
 function Invoke-CapturedProcess {
     param(
         [string]$Executable,
@@ -135,8 +150,7 @@ function Invoke-CapturedProcess {
         throw "Could not start $Executable"
     }
     if (-not $process.WaitForExit($TimeoutMilliseconds)) {
-        $process.Kill()
-        $process.WaitForExit()
+        Stop-LifecycleProcess -Process $process
         throw "$Executable exceeded the $TimeoutMilliseconds ms timeout"
     }
     $standardOutput = $process.StandardOutput.ReadToEnd()
@@ -192,7 +206,7 @@ function Save-ClientCapture {
         [string]$Name
     )
 
-    if (-not [LifecycleWindow]::SetWindowPos($Window, [IntPtr](-1), 0, 0, 0, 0, 0x0013)) {
+    if (-not [LifecycleWindow]::SetWindowPos($Window, [LifecycleWindow]::Topmost, 0, 0, 0, 0, [LifecycleWindow]::KeepPositionAndSize)) {
         throw "Could not keep the desktop demo visible for capture."
     }
     Start-Sleep -Milliseconds 100
@@ -381,24 +395,23 @@ try {
         throw "The resize proof did not cover both landscape and portrait aspect ratios."
     }
 
-    [LifecycleWindow]::ShowWindowAsync($window, 6) | Out-Null
+    [LifecycleWindow]::ShowWindowAsync($window, [LifecycleWindow]::ShowMinimized) | Out-Null
     Start-Sleep -Seconds 1
     if (-not [LifecycleWindow]::IsIconic($window)) {
         throw "The desktop demo did not enter the minimized state."
     }
-    [LifecycleWindow]::ShowWindowAsync($window, 9) | Out-Null
+    [LifecycleWindow]::ShowWindowAsync($window, [LifecycleWindow]::ShowRestored) | Out-Null
     Start-Sleep -Seconds 1
     if ([LifecycleWindow]::IsIconic($window)) {
         throw "The desktop demo did not restore from the minimized state."
     }
     $captures += Capture-StablePresentation -Window $window -Name "restored"
 
-    if (-not [LifecycleWindow]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
+    if (-not [LifecycleWindow]::PostMessage($window, [LifecycleWindow]::CloseMessage, [IntPtr]::Zero, [IntPtr]::Zero)) {
         throw "Could not request a normal desktop-demo window close."
     }
     if (-not $demoProcess.WaitForExit(10000)) {
-        $demoProcess.Kill()
-        $demoProcess.WaitForExit()
+        Stop-LifecycleProcess -Process $demoProcess
         throw "The desktop demo did not exit within 10 seconds of a normal close."
     }
     $demoStandardOutput = $demoProcess.StandardOutput.ReadToEnd()
@@ -465,7 +478,6 @@ try {
 finally {
     Pop-Location
     if ($null -ne (Get-Variable demoProcess -ErrorAction SilentlyContinue) -and -not $demoProcess.HasExited) {
-        $demoProcess.Kill()
-        $demoProcess.WaitForExit()
+        Stop-LifecycleProcess -Process $demoProcess
     }
 }
