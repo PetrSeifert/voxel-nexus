@@ -230,65 +230,8 @@ impl RenderBackend {
     }
 
     pub fn draw_frame(&mut self) -> Result<(), BackendError> {
-        let device = &self.device;
-        unsafe {
-            device
-                .wait_for_fences(&[self.rendering.frame_fence], true, u64::MAX)
-                .map_err(BackendError::WaitForFrame)?;
-        }
-        let (image_index, _) = unsafe {
-            self.rendering.swapchain_loader.acquire_next_image(
-                self.rendering.swapchain,
-                u64::MAX,
-                self.rendering.image_available,
-                vk::Fence::null(),
-            )
-        }
-        .map_err(BackendError::AcquireSwapchainImage)?;
-        unsafe {
-            device
-                .reset_fences(&[self.rendering.frame_fence])
-                .map_err(BackendError::ResetFrame)?;
-            device
-                .reset_command_buffer(
-                    self.rendering.command_buffer,
-                    vk::CommandBufferResetFlags::empty(),
-                )
-                .map_err(BackendError::ResetFrame)?;
-        }
-        self.rendering.record_commands(image_index)?;
-
-        let wait_semaphores = [self.rendering.image_available];
-        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = [self.rendering.command_buffer];
-        let signal_semaphores = [self.rendering.render_finished];
-        let submit_info = vk::SubmitInfo::default()
-            .wait_semaphores(&wait_semaphores)
-            .wait_dst_stage_mask(&wait_stages)
-            .command_buffers(&command_buffers)
-            .signal_semaphores(&signal_semaphores);
-        unsafe {
-            device
-                .queue_submit(
-                    self.graphics_queue,
-                    &[submit_info],
-                    self.rendering.frame_fence,
-                )
-                .map_err(BackendError::SubmitFrame)?;
-        }
-
-        let swapchains = [self.rendering.swapchain];
-        let image_indices = [image_index];
-        let present_info = vk::PresentInfoKHR::default()
-            .wait_semaphores(&signal_semaphores)
-            .swapchains(&swapchains)
-            .image_indices(&image_indices);
-        unsafe {
-            self.rendering
-                .swapchain_loader
-                .queue_present(self.presentation_queue, &present_info)
-                .map_err(BackendError::PresentFrame)?;
-        }
+        self.rendering
+            .draw_frame(self.graphics_queue, self.presentation_queue)?;
         let validation_error_count = self.validation_error_count();
         if validation_error_count > 0 {
             return Err(BackendError::ValidationErrors {
@@ -403,7 +346,7 @@ struct RenderingResources {
     command_pool: vk::CommandPool,
     command_buffer: vk::CommandBuffer,
     image_available: vk::Semaphore,
-    render_finished: vk::Semaphore,
+    render_finished: Vec<vk::Semaphore>,
     frame_fence: vk::Fence,
     extent: vk::Extent2D,
 }
@@ -428,7 +371,7 @@ impl RenderingResources {
             command_pool: vk::CommandPool::null(),
             command_buffer: vk::CommandBuffer::null(),
             image_available: vk::Semaphore::null(),
-            render_finished: vk::Semaphore::null(),
+            render_finished: Vec::new(),
             frame_fence: vk::Fence::null(),
             extent: vk::Extent2D::default(),
         };
@@ -688,11 +631,79 @@ impl RenderingResources {
         let semaphore_info = vk::SemaphoreCreateInfo::default();
         self.image_available = unsafe { self.device.create_semaphore(&semaphore_info, None) }
             .map_err(BackendError::CreateFrameSynchronization)?;
-        self.render_finished = unsafe { self.device.create_semaphore(&semaphore_info, None) }
-            .map_err(BackendError::CreateFrameSynchronization)?;
+        for _ in &self.framebuffers {
+            let render_finished = unsafe { self.device.create_semaphore(&semaphore_info, None) }
+                .map_err(BackendError::CreateFrameSynchronization)?;
+            self.render_finished.push(render_finished);
+        }
         let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
         self.frame_fence = unsafe { self.device.create_fence(&fence_info, None) }
             .map_err(BackendError::CreateFrameSynchronization)?;
+        Ok(())
+    }
+
+    fn draw_frame(
+        &mut self,
+        graphics_queue: vk::Queue,
+        presentation_queue: vk::Queue,
+    ) -> Result<(), BackendError> {
+        unsafe {
+            self.device
+                .wait_for_fences(&[self.frame_fence], true, u64::MAX)
+                .map_err(BackendError::WaitForFrame)?;
+        }
+        let (image_index, _) = unsafe {
+            self.swapchain_loader.acquire_next_image(
+                self.swapchain,
+                u64::MAX,
+                self.image_available,
+                vk::Fence::null(),
+            )
+        }
+        .map_err(BackendError::AcquireSwapchainImage)?;
+        let image_index_usize = usize::try_from(image_index)
+            .map_err(|_| BackendError::SubmitFrame(vk::Result::ERROR_UNKNOWN))?;
+        let render_finished = self
+            .render_finished
+            .get(image_index_usize)
+            .copied()
+            .ok_or(BackendError::SubmitFrame(vk::Result::ERROR_UNKNOWN))?;
+        unsafe {
+            self.device
+                .reset_fences(&[self.frame_fence])
+                .map_err(BackendError::ResetFrame)?;
+            self.device
+                .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
+                .map_err(BackendError::ResetFrame)?;
+        }
+        self.record_commands(image_index)?;
+
+        let wait_semaphores = [self.image_available];
+        let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+        let command_buffers = [self.command_buffer];
+        let signal_semaphores = [render_finished];
+        let submit_info = vk::SubmitInfo::default()
+            .wait_semaphores(&wait_semaphores)
+            .wait_dst_stage_mask(&wait_stages)
+            .command_buffers(&command_buffers)
+            .signal_semaphores(&signal_semaphores);
+        unsafe {
+            self.device
+                .queue_submit(graphics_queue, &[submit_info], self.frame_fence)
+                .map_err(BackendError::SubmitFrame)?;
+        }
+
+        let swapchains = [self.swapchain];
+        let image_indices = [image_index];
+        let present_info = vk::PresentInfoKHR::default()
+            .wait_semaphores(&signal_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(&image_indices);
+        unsafe {
+            self.swapchain_loader
+                .queue_present(presentation_queue, &present_info)
+                .map_err(BackendError::PresentFrame)?;
+        }
         Ok(())
     }
 
@@ -751,8 +762,8 @@ impl Drop for RenderingResources {
             if self.frame_fence != vk::Fence::null() {
                 self.device.destroy_fence(self.frame_fence, None);
             }
-            if self.render_finished != vk::Semaphore::null() {
-                self.device.destroy_semaphore(self.render_finished, None);
+            for render_finished in &self.render_finished {
+                self.device.destroy_semaphore(*render_finished, None);
             }
             if self.image_available != vk::Semaphore::null() {
                 self.device.destroy_semaphore(self.image_available, None);
