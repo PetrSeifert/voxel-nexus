@@ -1,0 +1,118 @@
+{
+  "SchemaVersion": 1,
+  "Scope": "Runtime execution proven only on this Windows development machine.",
+  "RecordedAtUtc": "2026-07-10T22:21:37.5805540Z",
+  "RepositoryRevision": "2f6510059a6f63401d8b11e969b18ff5a897a175",
+  "BuildProfile": "dev (unoptimized + debuginfo)",
+  "BuildCommand": "cargo build --locked --package desktop-demo",
+  "ShaderArtifacts": "Generated from triangle.vert and triangle.frag by render-backend/build.rs during the Cargo build.",
+  "ValidationContext": "VK_LAYER_KHRONOS_validation required and enabled by the application.",
+  "ValidationWarnings": 0,
+  "ValidationErrors": 0,
+  "ProcessExitCode": 0,
+  "Machine": {
+    "OperatingSystem": "Microsoft Windows 11 Pro",
+    "OperatingSystemVersion": "10.0.26200",
+    "Rust": "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
+    "Cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)",
+    "VulkanSdk": "C:\\VulkanSDK\\1.4.309.0"
+  },
+  "VulkanRuntime": {
+    "Device": "NVIDIA GeForce RTX 4070",
+    "DriverVersion": "2497200128 (0x94d84000)",
+    "ApiVersion": "1.4.329"
+  },
+  "RuntimeContextLog": "desktop-demo.stdout.log",
+  "ValidationLog": "desktop-demo.stderr.log",
+  "Lifecycle": [
+    "launch",
+    "landscape resize",
+    "portrait resize",
+    "minimize",
+    "restore",
+    "normal close",
+    "clean process exit"
+  ],
+  "Presentations": [
+    {
+      "State": "launch",
+      "Width": 884,
+      "Height": 611,
+      "AspectRatio": 1.447,
+      "TriangleSamplePixels": 30826,
+      "BackgroundSamplePixels": 104426,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "c9258c99b3020c70f3e635c373bddbba4ebdec535b5127a67c957f72468ef47d",
+        "d84289ae6f81e6b52c03dc5f25ab9ea1d77d2719f043532d3593f4b7372b7319"
+      ],
+      "Captures": [
+        "launch-a.png",
+        "launch-b.png"
+      ]
+    },
+    {
+      "State": "landscape",
+      "Width": 1084,
+      "Height": 661,
+      "AspectRatio": 1.64,
+      "TriangleSamplePixels": 40885,
+      "BackgroundSamplePixels": 138517,
+      "MaterialDifferenceFraction": 1.1E-05,
+      "CaptureSha256": [
+        "1fe42a5a7fca71e3bffb1b89d8c2418a60fa7a9bdf9fb098504f50c52520a0c4",
+        "1ab575854c9a053856dbf253e2fde7033e3002b73411c318c98868eec98809ba"
+      ],
+      "Captures": [
+        "landscape-a.png",
+        "landscape-b.png"
+      ]
+    },
+    {
+      "State": "portrait",
+      "Width": 634,
+      "Height": 861,
+      "AspectRatio": 0.736,
+      "TriangleSamplePixels": 31124,
+      "BackgroundSamplePixels": 105503,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "c319c8617e064b372a7d8a6a58b1652146d56988086d23fec357d5678ed67f49",
+        "ab62df7be93f7441b5a1f4cee64a314b5e9b2dcf6b54e8441780a1ca1e818bae"
+      ],
+      "Captures": [
+        "portrait-a.png",
+        "portrait-b.png"
+      ]
+    },
+    {
+      "State": "restored",
+      "Width": 634,
+      "Height": 861,
+      "AspectRatio": 0.736,
+      "TriangleSamplePixels": 31124,
+      "BackgroundSamplePixels": 105503,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "b49c4e22e3a003688d1ecfffa90edc07df6938721444cb60eeffffc087197c32",
+        "3d9cff22e6030ac9a503e982841a84ebdfa79ee228439f5be9485feec50fe87c"
+      ],
+      "Captures": [
+        "restored-a.png",
+        "restored-b.png"
+      ]
+    }
+  ],
+  "UnsupportedPrerequisites": [
+    {
+      "Case": "vulkan-1.2",
+      "ExitCode": 1,
+      "StandardError": "unsupported-vulkan-1.2.stderr.log"
+    },
+    {
+      "Case": "presentation",
+      "ExitCode": 1,
+      "StandardError": "unsupported-presentation.stderr.log"
+    }
+  ]
+}

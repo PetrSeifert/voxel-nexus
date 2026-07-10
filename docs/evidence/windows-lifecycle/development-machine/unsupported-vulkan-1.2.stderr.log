@@ -1,0 +1,2 @@
+Voxel Nexus could not start: no suitable Vulkan device was found:
+- Deterministic Vulkan 1.2 device: supports Vulkan 1.2.0, but Vulkan 1.3 or newer is required; update the graphics driver or use a Vulkan 1.3-capable GPU
