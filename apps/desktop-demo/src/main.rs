@@ -19,8 +19,8 @@ use winit::window::{Window, WindowAttributes, WindowId};
 #[cfg(target_os = "windows")]
 #[derive(Default)]
 struct DesktopApplication {
-    window: Option<Window>,
     backend: Option<RenderBackend>,
+    window: Option<Window>,
     startup_error: Option<String>,
 }
 
