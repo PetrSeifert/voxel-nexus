@@ -179,8 +179,7 @@ pub unsafe trait PresentationAdapter {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FrameOutcome {
-    Presented,
-    RedrawNeeded,
+    Redraw,
     RetryLater,
     Suspended,
 }
@@ -270,14 +269,13 @@ impl RenderBackend {
         let Some(rendering) = &mut self.rendering else {
             return self.ensure_validation_clean(FrameOutcome::Suspended);
         };
-        let outcome = match rendering.draw_frame(self.graphics_queue, self.presentation_queue)? {
-            PresentationOutcome::Presented => FrameOutcome::Presented,
+        match rendering.draw_frame(self.graphics_queue, self.presentation_queue)? {
+            PresentationOutcome::Presented => {}
             PresentationOutcome::Invalidated => {
                 self.swapchain_needs_recreation = true;
-                FrameOutcome::RedrawNeeded
             }
-        };
-        self.ensure_validation_clean(outcome)
+        }
+        self.ensure_validation_clean(FrameOutcome::Redraw)
     }
 
     fn recreate_swapchain(&mut self) -> Result<bool, BackendError> {

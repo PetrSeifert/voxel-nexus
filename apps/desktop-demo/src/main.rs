@@ -148,7 +148,7 @@ impl ApplicationHandler for DesktopApplication {
                     None => FrameOutcome::Suspended,
                 };
                 match outcome {
-                    FrameOutcome::Presented | FrameOutcome::RedrawNeeded => {
+                    FrameOutcome::Redraw => {
                         self.presentation_retry_at = None;
                         if let Some(window) = &self.window {
                             window.request_redraw();
