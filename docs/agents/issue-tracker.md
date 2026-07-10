@@ -43,3 +43,21 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: `gh issue edit <n> --add-assignee @me` — the session's first write.
 - **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+
+### Safe database-ID handling
+
+GitHub's sub-issue and dependency mutations require numeric issue **database ids**. Capture the `gh api --jq .id` stdout and consume it in the same shell invocation. Validate it before mutating. Never extract the first integer from an outer tool result: tool metadata such as `Exit code: 0` can be mistaken for the id.
+
+```powershell
+$subIssueDatabaseId = gh api repos/<owner>/<repo>/issues/<child> --jq '.id'
+if ($subIssueDatabaseId -notmatch '^\d+$') {
+    throw "Invalid sub-issue database id: $subIssueDatabaseId"
+}
+gh api --method POST repos/<owner>/<repo>/issues/<map>/sub_issues -F sub_issue_id="$subIssueDatabaseId"
+
+$blockerDatabaseId = gh api repos/<owner>/<repo>/issues/<blocker> --jq '.id'
+if ($blockerDatabaseId -notmatch '^\d+$') {
+    throw "Invalid blocker database id: $blockerDatabaseId"
+}
+gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id="$blockerDatabaseId"
+```
