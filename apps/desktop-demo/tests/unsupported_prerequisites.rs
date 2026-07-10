@@ -36,7 +36,7 @@ fn vulkan_1_2_failure_reaches_the_application_boundary() -> Result<(), Box<dyn s
     let output = run_diagnostic("vulkan-1.2")?;
     let standard_error = String::from_utf8(output.stderr)?;
 
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert!(standard_error.contains("Voxel Nexus could not start"));
     assert!(standard_error.contains("supports Vulkan 1.2.0, but Vulkan 1.3 or newer is required"));
     assert!(standard_error.contains("update the graphics driver"));
@@ -50,7 +50,7 @@ fn missing_presentation_failure_reaches_the_application_boundary()
     let output = run_diagnostic("presentation")?;
     let standard_error = String::from_utf8(output.stderr)?;
 
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(1));
     assert!(standard_error.contains("Voxel Nexus could not start"));
     assert!(standard_error.contains("VK_KHR_swapchain device extension is unavailable"));
     assert!(standard_error.contains("no queue family can present to the window surface"));

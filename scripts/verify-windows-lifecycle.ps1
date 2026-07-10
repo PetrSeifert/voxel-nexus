@@ -350,7 +350,7 @@ try {
             -Arguments @("--verify-unsupported-prerequisite", $case) `
             -StandardOutputPath (Join-Path $evidencePath "unsupported-$case.stdout.log") `
             -StandardErrorPath (Join-Path $evidencePath "unsupported-$case.stderr.log")
-        if ($caseResult.ExitCode -eq 0 -or $caseResult.StandardError -notmatch "Voxel Nexus could not start") {
+        if ($caseResult.ExitCode -ne 1 -or $caseResult.StandardError -notmatch "Voxel Nexus could not start") {
             throw "Unsupported-prerequisite case $case did not produce the expected clean failure."
         }
         if ($caseResult.StandardError -match "panicked") {
