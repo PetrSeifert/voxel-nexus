@@ -1,9 +1,9 @@
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
+use render_backend::{DeviceCandidate, QueueFamilyCapabilities};
 #[cfg(target_os = "windows")]
 use render_backend::{FrameOutcome, RenderBackend};
-#[cfg(target_os = "windows")]
 use std::process::ExitCode;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
@@ -186,6 +186,9 @@ impl ApplicationHandler for DesktopApplication {
 
 #[cfg(target_os = "windows")]
 fn run() -> Result<(), String> {
+    if let Some(diagnostic_result) = unsupported_prerequisite_diagnostic(std::env::args().skip(1)) {
+        return diagnostic_result;
+    }
     let event_loop =
         EventLoop::new().map_err(|error| format!("could not start the event loop: {error}"))?;
     let mut application = DesktopApplication::default();
@@ -195,6 +198,58 @@ fn run() -> Result<(), String> {
     match application.application_error {
         Some(error) => Err(error),
         None => Ok(()),
+    }
+}
+
+fn unsupported_prerequisite_diagnostic(
+    mut arguments: impl Iterator<Item = String>,
+) -> Option<Result<(), String>> {
+    if arguments.next().as_deref() != Some("--verify-unsupported-prerequisite") {
+        return None;
+    }
+    let result = match arguments.next().as_deref() {
+        Some("vulkan-1.2") => verify_rejected_candidate(DeviceCandidate {
+            name: "Deterministic Vulkan 1.2 device".to_owned(),
+            api_version: ash::vk::make_api_version(0, 1, 2, 0),
+            driver_version: 1,
+            supports_swapchain: true,
+            has_surface_formats: true,
+            has_present_modes: true,
+            queue_families: vec![QueueFamilyCapabilities {
+                supports_graphics: true,
+                supports_presentation: true,
+            }],
+        }),
+        Some("presentation") => verify_rejected_candidate(DeviceCandidate {
+            name: "Deterministic device without presentation".to_owned(),
+            api_version: ash::vk::API_VERSION_1_3,
+            driver_version: 1,
+            supports_swapchain: false,
+            has_surface_formats: false,
+            has_present_modes: false,
+            queue_families: vec![QueueFamilyCapabilities {
+                supports_graphics: true,
+                supports_presentation: false,
+            }],
+        }),
+        Some(case) => Err(format!(
+            "unknown unsupported-prerequisite diagnostic {case:?}; expected vulkan-1.2 or presentation"
+        )),
+        None => Err(
+            "missing unsupported-prerequisite diagnostic; expected vulkan-1.2 or presentation"
+                .to_owned(),
+        ),
+    };
+    Some(result)
+}
+
+fn verify_rejected_candidate(candidate: DeviceCandidate) -> Result<(), String> {
+    match render_backend::select_device(vec![candidate]) {
+        Ok(candidate) => Err(format!(
+            "the deterministic unsupported-prerequisite diagnostic unexpectedly accepted {}",
+            candidate.name
+        )),
+        Err(error) => Err(error.to_string()),
     }
 }
 
@@ -210,6 +265,16 @@ fn main() -> ExitCode {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn main() {
+fn main() -> ExitCode {
+    if let Some(result) = unsupported_prerequisite_diagnostic(std::env::args().skip(1)) {
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Voxel Nexus could not start: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     eprintln!("The Voxel Nexus desktop demo currently supports Windows only.");
+    ExitCode::SUCCESS
 }

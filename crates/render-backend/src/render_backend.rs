@@ -71,11 +71,109 @@ pub enum SwapchainConfigurationState {
     Ready(SwapchainConfiguration),
 }
 
-#[derive(Clone, Debug, Error, Eq, PartialEq)]
-pub enum DeviceSelectionError {
-    #[error("no Vulkan 1.3 device with presentation support is available")]
-    NoSuitableDevice,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DeviceRequirement {
+    VulkanApi13 { available_version: u32 },
+    SwapchainExtension,
+    SurfaceFormats,
+    PresentModes,
+    GraphicsQueue,
+    PresentationQueue,
 }
+
+impl fmt::Display for DeviceRequirement {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::VulkanApi13 { available_version } => write!(
+                formatter,
+                "supports Vulkan {}.{}.{}, but Vulkan 1.3 or newer is required",
+                vk::api_version_major(*available_version),
+                vk::api_version_minor(*available_version),
+                vk::api_version_patch(*available_version)
+            ),
+            Self::SwapchainExtension => {
+                write!(
+                    formatter,
+                    "the VK_KHR_swapchain device extension is unavailable"
+                )
+            }
+            Self::SurfaceFormats => {
+                write!(
+                    formatter,
+                    "the presentation surface exposes no image formats"
+                )
+            }
+            Self::PresentModes => {
+                write!(
+                    formatter,
+                    "the presentation surface exposes no presentation modes"
+                )
+            }
+            Self::GraphicsQueue => write!(formatter, "no queue family supports graphics"),
+            Self::PresentationQueue => {
+                write!(
+                    formatter,
+                    "no queue family can present to the window surface"
+                )
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeviceRejection {
+    pub device_name: String,
+    pub unmet_requirements: Vec<DeviceRequirement>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeviceSelectionError {
+    pub candidates: Vec<DeviceRejection>,
+}
+
+impl fmt::Display for DeviceSelectionError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.candidates.is_empty() {
+            return write!(
+                formatter,
+                "no Vulkan physical devices were found; install a Vulkan 1.3-capable graphics driver"
+            );
+        }
+        write!(formatter, "no suitable Vulkan device was found:")?;
+        for candidate in &self.candidates {
+            write!(formatter, "\n- {}: ", candidate.device_name)?;
+            for (index, requirement) in candidate.unmet_requirements.iter().enumerate() {
+                if index > 0 {
+                    write!(formatter, "; ")?;
+                }
+                write!(formatter, "{requirement}")?;
+            }
+            if candidate
+                .unmet_requirements
+                .iter()
+                .any(|requirement| matches!(requirement, DeviceRequirement::VulkanApi13 { .. }))
+            {
+                write!(
+                    formatter,
+                    "; update the graphics driver or use a Vulkan 1.3-capable GPU"
+                )?;
+            }
+            if candidate
+                .unmet_requirements
+                .iter()
+                .any(|requirement| !matches!(requirement, DeviceRequirement::VulkanApi13 { .. }))
+            {
+                write!(
+                    formatter,
+                    "; update the graphics driver or use a GPU and desktop session with Vulkan presentation support"
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for DeviceSelectionError {}
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum SwapchainConfigurationError {
@@ -208,10 +306,7 @@ impl RenderBackend {
         let presentation = create_instance_surface(entry, application_name, adapter)?;
 
         let inspected_devices = inspect_devices(&presentation)?;
-        let selected_device = inspected_devices
-            .into_iter()
-            .find(|inspected_device| inspected_device.candidate.is_suitable())
-            .ok_or(DeviceSelectionError::NoSuitableDevice)?;
+        let selected_device = select_inspected_device(inspected_devices)?;
         let device = LogicalDevice::new(&presentation.instance, &selected_device)?;
         let graphics_queue =
             unsafe { device.get_device_queue(selected_device.graphics_queue_family_index, 0) };
@@ -1138,30 +1233,74 @@ fn create_shader_module(
         .map_err(BackendError::CreateShaderModule)
 }
 
-impl DeviceCandidate {
-    fn is_suitable(&self) -> bool {
-        self.api_version >= vk::API_VERSION_1_3
-            && self.supports_swapchain
-            && self.has_surface_formats
-            && self.has_present_modes
-            && self
-                .queue_families
-                .iter()
-                .any(|queue_family| queue_family.supports_graphics)
-            && self
-                .queue_families
-                .iter()
-                .any(|queue_family| queue_family.supports_presentation)
+fn qualify_device(candidate: &DeviceCandidate) -> Result<(), DeviceRejection> {
+    let mut unmet_requirements = Vec::new();
+    if candidate.api_version < vk::API_VERSION_1_3 {
+        unmet_requirements.push(DeviceRequirement::VulkanApi13 {
+            available_version: candidate.api_version,
+        });
+    }
+    if !candidate.supports_swapchain {
+        unmet_requirements.push(DeviceRequirement::SwapchainExtension);
+    }
+    if !candidate.has_surface_formats {
+        unmet_requirements.push(DeviceRequirement::SurfaceFormats);
+    }
+    if !candidate.has_present_modes {
+        unmet_requirements.push(DeviceRequirement::PresentModes);
+    }
+    if !candidate
+        .queue_families
+        .iter()
+        .any(|queue_family| queue_family.supports_graphics)
+    {
+        unmet_requirements.push(DeviceRequirement::GraphicsQueue);
+    }
+    if !candidate
+        .queue_families
+        .iter()
+        .any(|queue_family| queue_family.supports_presentation)
+    {
+        unmet_requirements.push(DeviceRequirement::PresentationQueue);
+    }
+    if unmet_requirements.is_empty() {
+        Ok(())
+    } else {
+        Err(DeviceRejection {
+            device_name: candidate.name.clone(),
+            unmet_requirements,
+        })
     }
 }
 
 pub fn select_device(
     candidates: Vec<DeviceCandidate>,
 ) -> Result<DeviceCandidate, DeviceSelectionError> {
-    candidates
-        .into_iter()
-        .find(DeviceCandidate::is_suitable)
-        .ok_or(DeviceSelectionError::NoSuitableDevice)
+    select_qualified_device(candidates, |candidate| candidate)
+}
+
+fn select_inspected_device(
+    inspected_devices: Vec<InspectedDevice>,
+) -> Result<InspectedDevice, DeviceSelectionError> {
+    select_qualified_device(inspected_devices, |inspected_device| {
+        &inspected_device.candidate
+    })
+}
+
+fn select_qualified_device<Item>(
+    items: Vec<Item>,
+    device_candidate: impl Fn(&Item) -> &DeviceCandidate,
+) -> Result<Item, DeviceSelectionError> {
+    let mut rejections = Vec::new();
+    for item in items {
+        match qualify_device(device_candidate(&item)) {
+            Ok(()) => return Ok(item),
+            Err(rejection) => rejections.push(rejection),
+        }
+    }
+    Err(DeviceSelectionError {
+        candidates: rejections,
+    })
 }
 
 pub fn select_swapchain_configuration(
