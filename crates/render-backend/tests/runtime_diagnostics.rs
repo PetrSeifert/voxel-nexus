@@ -10,6 +10,6 @@ fn runtime_context_reports_device_driver_and_api_versions() {
 
     assert_eq!(
         context.to_string(),
-        "Vulkan device: Example GPU\nDriver version: 16909060 (0x01020304)\nVulkan API version: 1.3.280"
+        "Vulkan device: Example GPU\nDriver version: 16909060 (0x01020304)\nVulkan API version: 1.3.280\nVulkan validation: enabled"
     );
 }

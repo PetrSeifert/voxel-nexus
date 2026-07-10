@@ -21,7 +21,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 struct DesktopApplication {
     backend: Option<RenderBackend>,
     window: Option<Window>,
-    startup_error: Option<String>,
+    application_error: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -35,28 +35,45 @@ impl ApplicationHandler for DesktopApplication {
         let window = match event_loop.create_window(attributes) {
             Ok(window) => window,
             Err(error) => {
-                self.startup_error = Some(format!("could not create the demo window: {error}"));
+                self.application_error = Some(format!("could not create the demo window: {error}"));
                 event_loop.exit();
                 return;
             }
         };
         let adapter = WindowsPresentationAdapter::new(&window);
-        let backend = match RenderBackend::initialize(c"Voxel Nexus Desktop Demo", &adapter) {
+        let drawable_size = window.inner_size();
+        let initial_drawable_extent = ash::vk::Extent2D {
+            width: drawable_size.width,
+            height: drawable_size.height,
+        };
+        let backend = match RenderBackend::initialize(
+            c"Voxel Nexus Desktop Demo",
+            &adapter,
+            initial_drawable_extent,
+        ) {
             Ok(backend) => backend,
             Err(error) => {
-                self.startup_error = Some(error.to_string());
+                self.application_error = Some(error.to_string());
                 event_loop.exit();
                 return;
             }
         };
         let diagnostic_report = backend.runtime_context().to_string();
         println!("{diagnostic_report}");
+        let runtime_context = backend.runtime_context();
         window.set_title(&format!(
-            "Voxel Nexus Vulkan Demo | {}",
-            diagnostic_report.replace('\n', " | ")
+            "Voxel Nexus Vulkan Demo | {} | Vulkan {}.{}.{} | Validation errors: {}",
+            runtime_context.device_name,
+            ash::vk::api_version_major(runtime_context.api_version),
+            ash::vk::api_version_minor(runtime_context.api_version),
+            ash::vk::api_version_patch(runtime_context.api_version),
+            backend.validation_error_count()
         ));
         self.backend = Some(backend);
         self.window = Some(window);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
     }
 
     fn window_event(
@@ -65,8 +82,21 @@ impl ApplicationHandler for DesktopApplication {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
-        if event == WindowEvent::CloseRequested {
-            event_loop.exit();
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::RedrawRequested => {
+                if let Some(backend) = &mut self.backend
+                    && let Err(error) = backend.draw_frame()
+                {
+                    self.application_error = Some(error.to_string());
+                    event_loop.exit();
+                    return;
+                }
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -79,7 +109,7 @@ fn run() -> Result<(), String> {
     event_loop
         .run_app(&mut application)
         .map_err(|error| format!("the desktop event loop failed: {error}"))?;
-    match application.startup_error {
+    match application.application_error {
         Some(error) => Err(error),
         None => Ok(()),
     }
