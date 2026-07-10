@@ -181,6 +181,7 @@ pub unsafe trait PresentationAdapter {
 pub enum FrameOutcome {
     Presented,
     RedrawNeeded,
+    RetryLater,
     Suspended,
 }
 
@@ -261,7 +262,10 @@ impl RenderBackend {
             return self.ensure_validation_clean(FrameOutcome::Suspended);
         }
         if self.swapchain_needs_recreation || self.rendering.is_none() {
-            self.recreate_swapchain()?;
+            let swapchain_ready = self.recreate_swapchain()?;
+            if !swapchain_ready {
+                return self.ensure_validation_clean(FrameOutcome::RetryLater);
+            }
         }
         let Some(rendering) = &mut self.rendering else {
             return self.ensure_validation_clean(FrameOutcome::Suspended);
@@ -276,7 +280,7 @@ impl RenderBackend {
         self.ensure_validation_clean(outcome)
     }
 
-    fn recreate_swapchain(&mut self) -> Result<(), BackendError> {
+    fn recreate_swapchain(&mut self) -> Result<bool, BackendError> {
         unsafe { self.device.device_wait_idle() }.map_err(BackendError::WaitForDevice)?;
         let old_swapchain = self
             .rendering
@@ -289,9 +293,10 @@ impl RenderBackend {
             self.drawable_extent,
             old_swapchain,
         )?;
+        let swapchain_ready = rendering.is_some();
         self.rendering = rendering;
-        self.swapchain_needs_recreation = false;
-        Ok(())
+        self.swapchain_needs_recreation = !swapchain_ready;
+        Ok(swapchain_ready)
     }
 
     fn ensure_validation_clean(&self, outcome: FrameOutcome) -> Result<FrameOutcome, BackendError> {

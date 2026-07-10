@@ -6,13 +6,15 @@ use render_backend::{FrameOutcome, RenderBackend};
 #[cfg(target_os = "windows")]
 use std::process::ExitCode;
 #[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+#[cfg(target_os = "windows")]
 use windows_adapter::WindowsPresentationAdapter;
 #[cfg(target_os = "windows")]
 use winit::application::ApplicationHandler;
 #[cfg(target_os = "windows")]
 use winit::event::WindowEvent;
 #[cfg(target_os = "windows")]
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 #[cfg(target_os = "windows")]
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -23,6 +25,26 @@ struct DesktopApplication {
     window: Option<Window>,
     application_error: Option<String>,
     drawable_occluded: bool,
+    presentation_retry_at: Option<Instant>,
+}
+
+#[cfg(target_os = "windows")]
+const PRESENTATION_RETRY_DELAY: Duration = Duration::from_millis(100);
+
+#[cfg(target_os = "windows")]
+impl DesktopApplication {
+    fn set_drawable_extent(&mut self, drawable_extent: ash::vk::Extent2D) {
+        if let Some(backend) = &mut self.backend {
+            backend.set_drawable_extent(drawable_extent);
+        }
+        self.presentation_retry_at = None;
+        if drawable_extent.width > 0
+            && drawable_extent.height > 0
+            && let Some(window) = &self.window
+        {
+            window.request_redraw();
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -94,15 +116,7 @@ impl ApplicationHandler for DesktopApplication {
                         height: drawable_size.height,
                     }
                 };
-                if let Some(backend) = &mut self.backend {
-                    backend.set_drawable_extent(drawable_extent);
-                }
-                if drawable_extent.width > 0
-                    && drawable_extent.height > 0
-                    && let Some(window) = &self.window
-                {
-                    window.request_redraw();
-                }
+                self.set_drawable_extent(drawable_extent);
             }
             WindowEvent::Occluded(occluded) => {
                 self.drawable_occluded = occluded;
@@ -119,16 +133,7 @@ impl ApplicationHandler for DesktopApplication {
                         height: drawable_size.height,
                     }
                 };
-                if let Some(backend) = &mut self.backend {
-                    backend.set_drawable_extent(drawable_extent);
-                }
-                if !occluded
-                    && drawable_extent.width > 0
-                    && drawable_extent.height > 0
-                    && let Some(window) = &self.window
-                {
-                    window.request_redraw();
-                }
+                self.set_drawable_extent(drawable_extent);
             }
             WindowEvent::RedrawRequested => {
                 let outcome = match &mut self.backend {
@@ -142,13 +147,39 @@ impl ApplicationHandler for DesktopApplication {
                     },
                     None => FrameOutcome::Suspended,
                 };
-                if outcome != FrameOutcome::Suspended
-                    && let Some(window) = &self.window
-                {
-                    window.request_redraw();
+                match outcome {
+                    FrameOutcome::Presented | FrameOutcome::RedrawNeeded => {
+                        self.presentation_retry_at = None;
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
+                    }
+                    FrameOutcome::RetryLater => {
+                        self.presentation_retry_at =
+                            Some(Instant::now() + PRESENTATION_RETRY_DELAY);
+                    }
+                    FrameOutcome::Suspended => {
+                        self.presentation_retry_at = None;
+                    }
                 }
             }
             _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(retry_at) = self.presentation_retry_at else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        };
+        if Instant::now() < retry_at {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(retry_at));
+            return;
+        }
+        self.presentation_retry_at = None;
+        event_loop.set_control_flow(ControlFlow::Wait);
+        if let Some(window) = &self.window {
+            window.request_redraw();
         }
     }
 }
