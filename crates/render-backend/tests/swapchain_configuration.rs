@@ -1,5 +1,5 @@
 use ash::vk;
-use render_backend::{SurfaceSupport, select_swapchain_configuration};
+use render_backend::{SurfaceSupport, SwapchainConfigurationState, select_swapchain_configuration};
 
 fn surface_support() -> SurfaceSupport {
     SurfaceSupport {
@@ -39,13 +39,16 @@ fn surface_support() -> SurfaceSupport {
 #[test]
 fn swapchain_uses_the_initial_drawable_extent_and_stable_presentation()
 -> Result<(), Box<dyn std::error::Error>> {
-    let configuration = select_swapchain_configuration(
+    let state = select_swapchain_configuration(
         &surface_support(),
         vk::Extent2D {
             width: 1280,
             height: 720,
         },
     )?;
+    let SwapchainConfigurationState::Ready(configuration) = state else {
+        return Err("a nonzero drawable should configure a swapchain".into());
+    };
 
     assert_eq!(
         configuration.extent,
@@ -73,13 +76,16 @@ fn swapchain_respects_a_surface_fixed_extent() -> Result<(), Box<dyn std::error:
         height: 600,
     };
 
-    let configuration = select_swapchain_configuration(
+    let state = select_swapchain_configuration(
         &support,
         vk::Extent2D {
             width: 1280,
             height: 720,
         },
     )?;
+    let SwapchainConfigurationState::Ready(configuration) = state else {
+        return Err("a nonzero fixed surface should configure a swapchain".into());
+    };
 
     assert_eq!(
         configuration.extent,
@@ -88,5 +94,15 @@ fn swapchain_respects_a_surface_fixed_extent() -> Result<(), Box<dyn std::error:
             height: 600,
         }
     );
+    Ok(())
+}
+
+#[test]
+fn zero_sized_drawable_suspends_swapchain_configuration() -> Result<(), Box<dyn std::error::Error>>
+{
+    let configuration =
+        select_swapchain_configuration(&surface_support(), vk::Extent2D::default())?;
+
+    assert_eq!(configuration, SwapchainConfigurationState::Suspended);
     Ok(())
 }

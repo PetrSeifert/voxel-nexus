@@ -65,6 +65,12 @@ pub struct SwapchainConfiguration {
     pub pre_transform: vk::SurfaceTransformFlagsKHR,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SwapchainConfigurationState {
+    Suspended,
+    Ready(SwapchainConfiguration),
+}
+
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum DeviceSelectionError {
     #[error("no Vulkan 1.3 device with presentation support is available")]
@@ -135,6 +141,8 @@ pub enum BackendError {
     CreateFrameSynchronization(vk::Result),
     #[error("could not wait for the previous Vulkan frame: {0}")]
     WaitForFrame(vk::Result),
+    #[error("could not wait for the Vulkan device before rebuilding presentation: {0}")]
+    WaitForDevice(vk::Result),
     #[error("could not acquire the next Vulkan presentation image: {0}")]
     AcquireSwapchainImage(vk::Result),
     #[error("could not reset Vulkan frame synchronization: {0}")]
@@ -169,13 +177,23 @@ pub unsafe trait PresentationAdapter {
     ) -> Result<vk::SurfaceKHR, String>;
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FrameOutcome {
+    Presented,
+    RedrawNeeded,
+    Suspended,
+}
+
 pub struct RenderBackend {
-    rendering: RenderingResources,
+    rendering: Option<RenderingResources>,
     device: LogicalDevice,
     presentation: InstanceSurface,
+    selected_device: InspectedDevice,
     graphics_queue: vk::Queue,
     presentation_queue: vk::Queue,
     runtime_context: RuntimeContext,
+    drawable_extent: vk::Extent2D,
+    swapchain_needs_recreation: bool,
 }
 
 impl RenderBackend {
@@ -204,9 +222,10 @@ impl RenderBackend {
             &device,
             &selected_device,
             initial_drawable_extent,
+            vk::SwapchainKHR::null(),
         )?;
         let runtime_context = RuntimeContext {
-            device_name: selected_device.candidate.name,
+            device_name: selected_device.candidate.name.clone(),
             driver_version: selected_device.candidate.driver_version,
             api_version: selected_device.candidate.api_version,
         };
@@ -215,9 +234,12 @@ impl RenderBackend {
             rendering,
             device,
             presentation,
+            selected_device,
             graphics_queue,
             presentation_queue,
             runtime_context,
+            drawable_extent: initial_drawable_extent,
+            swapchain_needs_recreation: false,
         })
     }
 
@@ -229,16 +251,57 @@ impl RenderBackend {
         self.presentation.validation_diagnostics.error_count()
     }
 
-    pub fn draw_frame(&mut self) -> Result<(), BackendError> {
-        self.rendering
-            .draw_frame(self.graphics_queue, self.presentation_queue)?;
+    pub fn set_drawable_extent(&mut self, drawable_extent: vk::Extent2D) {
+        self.drawable_extent = drawable_extent;
+        self.swapchain_needs_recreation = true;
+    }
+
+    pub fn draw_frame(&mut self) -> Result<FrameOutcome, BackendError> {
+        if drawable_extent_is_zero(self.drawable_extent) {
+            return self.ensure_validation_clean(FrameOutcome::Suspended);
+        }
+        if self.swapchain_needs_recreation || self.rendering.is_none() {
+            self.recreate_swapchain()?;
+        }
+        let Some(rendering) = &mut self.rendering else {
+            return self.ensure_validation_clean(FrameOutcome::Suspended);
+        };
+        let outcome = match rendering.draw_frame(self.graphics_queue, self.presentation_queue)? {
+            PresentationOutcome::Presented => FrameOutcome::Presented,
+            PresentationOutcome::Invalidated => {
+                self.swapchain_needs_recreation = true;
+                FrameOutcome::RedrawNeeded
+            }
+        };
+        self.ensure_validation_clean(outcome)
+    }
+
+    fn recreate_swapchain(&mut self) -> Result<(), BackendError> {
+        unsafe { self.device.device_wait_idle() }.map_err(BackendError::WaitForDevice)?;
+        let old_swapchain = self
+            .rendering
+            .as_ref()
+            .map_or(vk::SwapchainKHR::null(), |rendering| rendering.swapchain);
+        let rendering = RenderingResources::new(
+            &self.presentation,
+            &self.device,
+            &self.selected_device,
+            self.drawable_extent,
+            old_swapchain,
+        )?;
+        self.rendering = rendering;
+        self.swapchain_needs_recreation = false;
+        Ok(())
+    }
+
+    fn ensure_validation_clean(&self, outcome: FrameOutcome) -> Result<FrameOutcome, BackendError> {
         let validation_error_count = self.validation_error_count();
         if validation_error_count > 0 {
             return Err(BackendError::ValidationErrors {
                 count: validation_error_count,
             });
         }
-        Ok(())
+        Ok(outcome)
     }
 }
 
@@ -316,6 +379,7 @@ impl Drop for InstanceSurface {
     }
 }
 
+#[derive(Clone)]
 struct InspectedDevice {
     physical_device: vk::PhysicalDevice,
     candidate: DeviceCandidate,
@@ -351,13 +415,26 @@ struct RenderingResources {
     extent: vk::Extent2D,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PresentationOutcome {
+    Presented,
+    Invalidated,
+}
+
 impl RenderingResources {
     fn new(
         presentation: &InstanceSurface,
         device: &ash::Device,
         selected_device: &InspectedDevice,
         initial_drawable_extent: vk::Extent2D,
-    ) -> Result<Self, BackendError> {
+        old_swapchain: vk::SwapchainKHR,
+    ) -> Result<Option<Self>, BackendError> {
+        let surface_support = query_surface_support(presentation, selected_device.physical_device)?;
+        let configuration =
+            select_swapchain_configuration(&surface_support, initial_drawable_extent)?;
+        let SwapchainConfigurationState::Ready(configuration) = configuration else {
+            return Ok(None);
+        };
         let swapchain_loader = ash::khr::swapchain::Device::new(&presentation.instance, device);
         let mut resources = Self {
             device: device.clone(),
@@ -376,11 +453,8 @@ impl RenderingResources {
             extent: vk::Extent2D::default(),
         };
 
-        let surface_support = query_surface_support(presentation, selected_device.physical_device)?;
-        let configuration =
-            select_swapchain_configuration(&surface_support, initial_drawable_extent)?;
         resources.extent = configuration.extent;
-        resources.create_swapchain(presentation, selected_device, &configuration)?;
+        resources.create_swapchain(presentation, selected_device, &configuration, old_swapchain)?;
         let images = unsafe {
             resources
                 .swapchain_loader
@@ -393,7 +467,7 @@ impl RenderingResources {
         resources.create_framebuffers()?;
         resources.create_commands(selected_device.graphics_queue_family_index)?;
         resources.create_synchronization()?;
-        Ok(resources)
+        Ok(Some(resources))
     }
 
     fn create_swapchain(
@@ -401,6 +475,7 @@ impl RenderingResources {
         presentation: &InstanceSurface,
         selected_device: &InspectedDevice,
         configuration: &SwapchainConfiguration,
+        old_swapchain: vk::SwapchainKHR,
     ) -> Result<(), BackendError> {
         let queue_family_indices = [
             selected_device.graphics_queue_family_index,
@@ -417,6 +492,7 @@ impl RenderingResources {
             .pre_transform(configuration.pre_transform)
             .composite_alpha(configuration.composite_alpha)
             .present_mode(configuration.present_mode)
+            .old_swapchain(old_swapchain)
             .clipped(true);
         if queue_family_indices[0] != queue_family_indices[1] {
             create_info = create_info
@@ -646,21 +722,26 @@ impl RenderingResources {
         &mut self,
         graphics_queue: vk::Queue,
         presentation_queue: vk::Queue,
-    ) -> Result<(), BackendError> {
+    ) -> Result<PresentationOutcome, BackendError> {
         unsafe {
             self.device
                 .wait_for_fences(&[self.frame_fence], true, u64::MAX)
                 .map_err(BackendError::WaitForFrame)?;
         }
-        let (image_index, _) = unsafe {
+        let (image_index, acquire_suboptimal) = match unsafe {
             self.swapchain_loader.acquire_next_image(
                 self.swapchain,
                 u64::MAX,
                 self.image_available,
                 vk::Fence::null(),
             )
-        }
-        .map_err(BackendError::AcquireSwapchainImage)?;
+        } {
+            Ok(acquired_image) => acquired_image,
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                return Ok(PresentationOutcome::Invalidated);
+            }
+            Err(error) => return Err(BackendError::AcquireSwapchainImage(error)),
+        };
         let image_index_usize = usize::try_from(image_index)
             .map_err(|_| BackendError::SubmitFrame(vk::Result::ERROR_UNKNOWN))?;
         let render_finished = self
@@ -699,12 +780,19 @@ impl RenderingResources {
             .wait_semaphores(&signal_semaphores)
             .swapchains(&swapchains)
             .image_indices(&image_indices);
-        unsafe {
+        let present_suboptimal = match unsafe {
             self.swapchain_loader
                 .queue_present(presentation_queue, &present_info)
-                .map_err(BackendError::PresentFrame)?;
+        } {
+            Ok(suboptimal) => suboptimal,
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
+            Err(error) => return Err(BackendError::PresentFrame(error)),
+        };
+        if acquire_suboptimal || present_suboptimal {
+            Ok(PresentationOutcome::Invalidated)
+        } else {
+            Ok(PresentationOutcome::Presented)
         }
-        Ok(())
     }
 
     fn record_commands(&self, image_index: u32) -> Result<(), BackendError> {
@@ -1076,7 +1164,10 @@ pub fn select_device(
 pub fn select_swapchain_configuration(
     support: &SurfaceSupport,
     drawable_extent: vk::Extent2D,
-) -> Result<SwapchainConfiguration, SwapchainConfigurationError> {
+) -> Result<SwapchainConfigurationState, SwapchainConfigurationError> {
+    if drawable_extent_is_zero(drawable_extent) {
+        return Ok(SwapchainConfigurationState::Suspended);
+    }
     let surface_format = support
         .formats
         .iter()
@@ -1127,7 +1218,7 @@ pub fn select_swapchain_configuration(
             .contains(*mode)
     })
     .ok_or(SwapchainConfigurationError::NoCompositeAlphaMode)?;
-    Ok(SwapchainConfiguration {
+    let configuration = SwapchainConfiguration {
         extent,
         image_count,
         format: surface_format.format,
@@ -1135,5 +1226,14 @@ pub fn select_swapchain_configuration(
         present_mode,
         composite_alpha,
         pre_transform: support.capabilities.current_transform,
-    })
+    };
+    if drawable_extent_is_zero(configuration.extent) {
+        Ok(SwapchainConfigurationState::Suspended)
+    } else {
+        Ok(SwapchainConfigurationState::Ready(configuration))
+    }
+}
+
+fn drawable_extent_is_zero(extent: vk::Extent2D) -> bool {
+    extent.width == 0 || extent.height == 0
 }

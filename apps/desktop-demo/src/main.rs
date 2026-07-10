@@ -2,7 +2,7 @@
 mod windows_adapter;
 
 #[cfg(target_os = "windows")]
-use render_backend::RenderBackend;
+use render_backend::{FrameOutcome, RenderBackend};
 #[cfg(target_os = "windows")]
 use std::process::ExitCode;
 #[cfg(target_os = "windows")]
@@ -22,6 +22,7 @@ struct DesktopApplication {
     backend: Option<RenderBackend>,
     window: Option<Window>,
     application_error: Option<String>,
+    drawable_occluded: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -84,15 +85,66 @@ impl ApplicationHandler for DesktopApplication {
     ) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::RedrawRequested => {
-                if let Some(backend) = &mut self.backend
-                    && let Err(error) = backend.draw_frame()
-                {
-                    self.application_error = Some(error.to_string());
-                    event_loop.exit();
-                    return;
+            WindowEvent::Resized(drawable_size) => {
+                let drawable_extent = if self.drawable_occluded {
+                    ash::vk::Extent2D::default()
+                } else {
+                    ash::vk::Extent2D {
+                        width: drawable_size.width,
+                        height: drawable_size.height,
+                    }
+                };
+                if let Some(backend) = &mut self.backend {
+                    backend.set_drawable_extent(drawable_extent);
                 }
-                if let Some(window) = &self.window {
+                if drawable_extent.width > 0
+                    && drawable_extent.height > 0
+                    && let Some(window) = &self.window
+                {
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::Occluded(occluded) => {
+                self.drawable_occluded = occluded;
+                let drawable_extent = if occluded {
+                    ash::vk::Extent2D::default()
+                } else {
+                    let drawable_size = self
+                        .window
+                        .as_ref()
+                        .map(Window::inner_size)
+                        .unwrap_or_default();
+                    ash::vk::Extent2D {
+                        width: drawable_size.width,
+                        height: drawable_size.height,
+                    }
+                };
+                if let Some(backend) = &mut self.backend {
+                    backend.set_drawable_extent(drawable_extent);
+                }
+                if !occluded
+                    && drawable_extent.width > 0
+                    && drawable_extent.height > 0
+                    && let Some(window) = &self.window
+                {
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                let outcome = match &mut self.backend {
+                    Some(backend) => match backend.draw_frame() {
+                        Ok(outcome) => outcome,
+                        Err(error) => {
+                            self.application_error = Some(error.to_string());
+                            event_loop.exit();
+                            return;
+                        }
+                    },
+                    None => FrameOutcome::Suspended,
+                };
+                if outcome != FrameOutcome::Suspended
+                    && let Some(window) = &self.window
+                {
                     window.request_redraw();
                 }
             }
