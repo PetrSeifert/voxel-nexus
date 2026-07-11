@@ -479,6 +479,11 @@ struct DesktopApplication {
 
 #[cfg(target_os = "windows")]
 const PRESENTATION_RETRY_DELAY: Duration = Duration::from_millis(100);
+#[cfg(target_os = "windows")]
+const STEADY_MEASUREMENT_EXTENT: ash::vk::Extent2D = ash::vk::Extent2D {
+    width: 1920,
+    height: 1080,
+};
 
 #[cfg(target_os = "windows")]
 impl DesktopApplication {
@@ -787,7 +792,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             Some(MeasurementMode::SteadyState)
         ) {
             attributes = attributes
-                .with_inner_size(winit::dpi::PhysicalSize::new(1920, 1080))
+                .with_inner_size(winit::dpi::PhysicalSize::new(
+                    STEADY_MEASUREMENT_EXTENT.width,
+                    STEADY_MEASUREMENT_EXTENT.height,
+                ))
                 .with_decorations(false);
         }
         let window = match event_loop.create_window(attributes) {
@@ -804,7 +812,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 .as_ref()
                 .map(|measurement| measurement.mode),
             Some(MeasurementMode::SteadyState)
-        ) && let Err(error) = set_measurement_extent(&window)
+        ) && let Err(error) = set_measurement_extent(&window, STEADY_MEASUREMENT_EXTENT)
         {
             self.application_error = Some(error);
             event_loop.exit();
@@ -914,9 +922,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             "Vulkan drawable extent: {}x{}",
             presentation_extent.width, presentation_extent.height
         );
-        if options.gpu_timestamps_enabled
-            && (presentation_extent.width != 1920 || presentation_extent.height != 1080)
-        {
+        if options.gpu_timestamps_enabled && presentation_extent != STEADY_MEASUREMENT_EXTENT {
             self.application_error = Some(format!(
                 "steady-state measurement requires an actual 1920x1080 presentation extent, but Vulkan configured {}x{}",
                 presentation_extent.width, presentation_extent.height
@@ -1001,7 +1007,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     Some(MeasurementMode::SteadyState)
                 );
                 let drawable_size = if steady_measurement
-                    && (drawable_size.width != 1920 || drawable_size.height != 1080)
+                    && (drawable_size.width != STEADY_MEASUREMENT_EXTENT.width
+                        || drawable_size.height != STEADY_MEASUREMENT_EXTENT.height)
                 {
                     let Some(window) = &self.window else {
                         self.fail(
@@ -1010,12 +1017,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         );
                         return;
                     };
-                    if let Err(error) = set_measurement_extent(window) {
+                    if let Err(error) = set_measurement_extent(window, STEADY_MEASUREMENT_EXTENT) {
                         self.fail(event_loop, error);
                         return;
                     }
                     let corrected_size = window.inner_size();
-                    if corrected_size.width != 1920 || corrected_size.height != 1080 {
+                    if corrected_size.width != STEADY_MEASUREMENT_EXTENT.width
+                        || corrected_size.height != STEADY_MEASUREMENT_EXTENT.height
+                    {
                         self.fail(
                             event_loop,
                             format!(
@@ -1096,8 +1105,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         .as_ref()
                         .map(|measurement| measurement.mode),
                     Some(MeasurementMode::SteadyState)
-                ) && !presentation_extent
-                    .is_some_and(|extent| extent.width == 1920 && extent.height == 1080)
+                ) && presentation_extent != Some(STEADY_MEASUREMENT_EXTENT)
                 {
                     self.fail(
                         event_loop,
