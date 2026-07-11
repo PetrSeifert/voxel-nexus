@@ -1,5 +1,5 @@
     Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
      Running tests\unsupported_prerequisites.rs (target\debug\deps\unsupported_prerequisites-a6cd7529d2ff04b7.exe)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
      Running tests\render_path_failures.rs (target\debug\deps\render_path_failures-ef4b9fad47c136c8.exe)

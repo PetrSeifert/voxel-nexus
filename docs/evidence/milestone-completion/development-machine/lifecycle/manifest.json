@@ -1,8 +1,8 @@
 {
   "SchemaVersion": 3,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-11T21:08:08.7757661Z",
-  "RepositoryRevision": "1d75c5408bfd9cb281c4dea82e55b155d26ed062",
+  "RecordedAtUtc": "2026-07-11T21:26:13.3447308Z",
+  "RepositoryRevision": "37a6bb3328516e4447a8a4057e2d66153a616f86",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
   "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
@@ -75,8 +75,8 @@
       "BackgroundSamplePixels": 118290,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c",
-        "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c"
+        "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a",
+        "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a"
       ],
       "Captures": [
         "launch-a.png",
@@ -94,8 +94,8 @@
       "BackgroundSamplePixels": 159550,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "1654f0cd4d698f1fa1ca4ed4f991b713455eadbf4f759d1189f5c3a49f783765",
-        "1654f0cd4d698f1fa1ca4ed4f991b713455eadbf4f759d1189f5c3a49f783765"
+        "bb80277f6155b43120acd60b55a9b3808b09e1bfe61a27b11c8d25e29c9fae5b",
+        "bb80277f6155b43120acd60b55a9b3808b09e1bfe61a27b11c8d25e29c9fae5b"
       ],
       "Captures": [
         "landscape-a.png",
@@ -113,8 +113,8 @@
       "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681",
-        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681"
+        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb",
+        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb"
       ],
       "Captures": [
         "portrait-a.png",
@@ -132,8 +132,8 @@
       "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681",
-        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681"
+        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb",
+        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb"
       ],
       "Captures": [
         "restored-a.png",
@@ -200,8 +200,8 @@
         "BackgroundSamplePixels": 118290,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c",
-          "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c"
+          "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a",
+          "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a"
         ],
         "Captures": [
           "launch-a.png",
@@ -292,8 +292,8 @@
         "BackgroundSamplePixels": 51129,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "e97b76442edb2d5f3bd99bea5f30c27072934b6de689b0aae1354f49c672f5ca",
-          "e97b76442edb2d5f3bd99bea5f30c27072934b6de689b0aae1354f49c672f5ca"
+          "8c4343d6b10c958902ecd560e09e0e5f4f8302a6651414efaeadbffbcf40af42",
+          "8c4343d6b10c958902ecd560e09e0e5f4f8302a6651414efaeadbffbcf40af42"
         ],
         "Captures": [
           "cavity-a.png",
@@ -384,8 +384,8 @@
         "BackgroundSamplePixels": 59565,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "709694b262f09079d1c003784710ef63658e9872f0db7e0e288c5e0a6721e557",
-          "709694b262f09079d1c003784710ef63658e9872f0db7e0e288c5e0a6721e557"
+          "1bacccf186d0037bff3578fc81faad44919bfc428fdd36e02086ef4b6c61413a",
+          "1bacccf186d0037bff3578fc81faad44919bfc428fdd36e02086ef4b6c61413a"
         ],
         "Captures": [
           "boundary-a.png",
@@ -476,8 +476,8 @@
         "BackgroundSamplePixels": 96367,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "d3ff4f8d699badbe63a0f3a9762e414f56bd44042ce5e8a9b02b87301fd6702e",
-          "d3ff4f8d699badbe63a0f3a9762e414f56bd44042ce5e8a9b02b87301fd6702e"
+          "987991ca2a09960542aa9e0e29e7f19bd2eef30a006b92e1b5f33d39eb6a86bf",
+          "987991ca2a09960542aa9e0e29e7f19bd2eef30a006b92e1b5f33d39eb6a86bf"
         ],
         "Captures": [
           "move-midpoint-a.png",
@@ -569,8 +569,8 @@
       "BackgroundSamplePixels": 117828,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "f3702b3ee46bb93ddd93fd237600eb16fa04c0b625f8f67d276d55284ce5fba4",
-        "f3702b3ee46bb93ddd93fd237600eb16fa04c0b625f8f67d276d55284ce5fba4"
+        "ced0781f33f925f440d12773f9ddaf450af22adb02944f4d4caa876b645b63ec",
+        "ced0781f33f925f440d12773f9ddaf450af22adb02944f4d4caa876b645b63ec"
       ],
       "Captures": [
         "winding-diagnostic-a.png",

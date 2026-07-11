@@ -1,8 +1,8 @@
 {
   "SchemaVersion": 1,
   "Scope": "Descriptive runtime evidence for this recorded Windows development machine only.",
-  "RecordedAtUtc": "2026-07-11T21:10:40.5009689Z",
-  "RepositoryRevision": "1d75c5408bfd9cb281c4dea82e55b155d26ed062",
+  "RecordedAtUtc": "2026-07-11T21:28:46.0397099Z",
+  "RepositoryRevision": "37a6bb3328516e4447a8a4057e2d66153a616f86",
   "BuildProfile": "release",
   "BuildCommand": "cargo build --locked --release --package desktop-demo --package measurement-evidence",
   "Machine": {
@@ -134,10 +134,10 @@
         "Samples": [
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 512.1335,
-            "UploadInstallMilliseconds": 1.9926000000000386,
-            "PresentationMilliseconds": 0.6930999999999585,
-            "TotalMilliseconds": 514.8192,
+            "DerivationMilliseconds": 501.14360000000005,
+            "UploadInstallMilliseconds": 2.051499999999976,
+            "PresentationMilliseconds": 0.6707999999999288,
+            "TotalMilliseconds": 503.86589999999995,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -151,10 +151,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 446.59860000000003,
-            "UploadInstallMilliseconds": 2.02170000000001,
-            "PresentationMilliseconds": 0.8654999999999404,
-            "TotalMilliseconds": 449.4858,
+            "DerivationMilliseconds": 480.7881,
+            "UploadInstallMilliseconds": 2.093300000000056,
+            "PresentationMilliseconds": 0.8313999999999737,
+            "TotalMilliseconds": 483.7128,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -168,10 +168,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 476.7314,
-            "UploadInstallMilliseconds": 1.8915000000000077,
-            "PresentationMilliseconds": 0.6607999999999379,
-            "TotalMilliseconds": 479.28369999999995,
+            "DerivationMilliseconds": 476.8485,
+            "UploadInstallMilliseconds": 2.165300000000002,
+            "PresentationMilliseconds": 0.7694999999999936,
+            "TotalMilliseconds": 479.7833,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -185,10 +185,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 457.2484,
-            "UploadInstallMilliseconds": 2.4598000000000297,
-            "PresentationMilliseconds": 0.8048999999999751,
-            "TotalMilliseconds": 460.5131,
+            "DerivationMilliseconds": 533.3548999999999,
+            "UploadInstallMilliseconds": 2.3518000000000256,
+            "PresentationMilliseconds": 0.9242000000000417,
+            "TotalMilliseconds": 536.6309,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -202,10 +202,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 457.0325,
-            "UploadInstallMilliseconds": 1.8951999999999884,
-            "PresentationMilliseconds": 0.5971999999999866,
-            "TotalMilliseconds": 459.5249,
+            "DerivationMilliseconds": 511.76529999999997,
+            "UploadInstallMilliseconds": 2.475399999999979,
+            "PresentationMilliseconds": 0.8272000000000617,
+            "TotalMilliseconds": 515.0679,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -219,10 +219,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 468.4873,
-            "UploadInstallMilliseconds": 2.8081999999999994,
-            "PresentationMilliseconds": 0.9200999999999908,
-            "TotalMilliseconds": 472.2156,
+            "DerivationMilliseconds": 552.8818,
+            "UploadInstallMilliseconds": 2.250099999999975,
+            "PresentationMilliseconds": 0.6548000000000229,
+            "TotalMilliseconds": 555.7867,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -236,10 +236,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 461.9967,
-            "UploadInstallMilliseconds": 2.6003000000000043,
-            "PresentationMilliseconds": 0.707300000000032,
-            "TotalMilliseconds": 465.3043,
+            "DerivationMilliseconds": 481.1786,
+            "UploadInstallMilliseconds": 2.299599999999998,
+            "PresentationMilliseconds": 0.8242999999999938,
+            "TotalMilliseconds": 484.3025,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -253,10 +253,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 461.77230000000003,
-            "UploadInstallMilliseconds": 1.9594999999999914,
-            "PresentationMilliseconds": 0.5705999999999563,
-            "TotalMilliseconds": 464.3024,
+            "DerivationMilliseconds": 530.9599000000001,
+            "UploadInstallMilliseconds": 2.265199999999936,
+            "PresentationMilliseconds": 0.8048000000000002,
+            "TotalMilliseconds": 534.0299,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -270,10 +270,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 445.0863,
-            "UploadInstallMilliseconds": 1.7495000000000118,
-            "PresentationMilliseconds": 0.5727999999999724,
-            "TotalMilliseconds": 447.4086,
+            "DerivationMilliseconds": 503.20149999999995,
+            "UploadInstallMilliseconds": 2.42390000000006,
+            "PresentationMilliseconds": 0.7998000000000047,
+            "TotalMilliseconds": 506.4252,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -287,10 +287,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 450.8186,
-            "UploadInstallMilliseconds": 2.2434000000000083,
-            "PresentationMilliseconds": 0.6724999999999568,
-            "TotalMilliseconds": 453.73449999999997,
+            "DerivationMilliseconds": 493.8928,
+            "UploadInstallMilliseconds": 2.0382999999999925,
+            "PresentationMilliseconds": 0.8465999999999667,
+            "TotalMilliseconds": 496.7777,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -305,27 +305,27 @@
         ],
         "Derivation": {
           "count": 10,
-          "median": 459.51035,
-          "p95": 512.1335,
-          "maximum": 512.1335
+          "median": 502.17255,
+          "p95": 552.8818,
+          "maximum": 552.8818
         },
         "UploadInstall": {
           "count": 10,
-          "median": 2.007150000000024,
-          "p95": 2.8081999999999994,
-          "maximum": 2.8081999999999994
+          "median": 2.2576499999999555,
+          "p95": 2.475399999999979,
+          "maximum": 2.475399999999979
         },
         "Presentation": {
           "count": 10,
-          "median": 0.6827999999999577,
-          "p95": 0.9200999999999908,
-          "maximum": 0.9200999999999908
+          "median": 0.814549999999997,
+          "p95": 0.9242000000000417,
+          "maximum": 0.9242000000000417
         },
         "Total": {
           "count": 10,
-          "median": 462.40774999999996,
-          "p95": 514.8192,
-          "maximum": 514.8192
+          "median": 505.14554999999996,
+          "p95": 555.7867,
+          "maximum": 555.7867
         }
       },
       "SteadyState": {
@@ -339,16 +339,16 @@
         "PresentationThrottlingEnabled": false,
         "RawFile": "steady-state-64.jsonl",
         "CpuFrame": {
-          "count": 92465,
-          "median": 0.211,
-          "p95": 0.466,
-          "maximum": 35.6602
+          "count": 112240,
+          "median": 0.2024,
+          "p95": 0.3960999999999999,
+          "maximum": 1.0379
         },
         "GpuFrame": {
-          "count": 92465,
-          "median": 0.154752,
-          "p95": 0.155424,
-          "maximum": 0.180288
+          "count": 112240,
+          "median": 0.154688,
+          "p95": 0.155264,
+          "maximum": 0.180832
         }
       }
     },
@@ -433,10 +433,10 @@
         "Samples": [
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 456.6212,
-            "UploadInstallMilliseconds": 2.363200000000006,
-            "PresentationMilliseconds": 0.9681999999999675,
-            "TotalMilliseconds": 459.95259999999996,
+            "DerivationMilliseconds": 449.2346,
+            "UploadInstallMilliseconds": 2.7270000000000323,
+            "PresentationMilliseconds": 0.6467000000000098,
+            "TotalMilliseconds": 452.60830000000004,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -450,10 +450,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 470.082,
-            "UploadInstallMilliseconds": 2.1756000000000313,
-            "PresentationMilliseconds": 1.0092999999999392,
-            "TotalMilliseconds": 473.26689999999996,
+            "DerivationMilliseconds": 450.72240000000005,
+            "UploadInstallMilliseconds": 1.9814999999999259,
+            "PresentationMilliseconds": 0.6132000000000062,
+            "TotalMilliseconds": 453.3171,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -467,10 +467,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 457.60260000000005,
-            "UploadInstallMilliseconds": 2.3466999999999416,
-            "PresentationMilliseconds": 0.8250999999999635,
-            "TotalMilliseconds": 460.77439999999996,
+            "DerivationMilliseconds": 482.2557,
+            "UploadInstallMilliseconds": 2.61099999999999,
+            "PresentationMilliseconds": 0.6605999999999881,
+            "TotalMilliseconds": 485.52729999999997,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -484,10 +484,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 469.63480000000004,
-            "UploadInstallMilliseconds": 2.810299999999984,
-            "PresentationMilliseconds": 0.7657999999999561,
-            "TotalMilliseconds": 473.2109,
+            "DerivationMilliseconds": 495.9439,
+            "UploadInstallMilliseconds": 2.8752000000000066,
+            "PresentationMilliseconds": 0.5621999999999616,
+            "TotalMilliseconds": 499.38129999999995,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -501,10 +501,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 465.5059,
-            "UploadInstallMilliseconds": 1.9656999999999698,
-            "PresentationMilliseconds": 0.8505000000000678,
-            "TotalMilliseconds": 468.32210000000003,
+            "DerivationMilliseconds": 453.0853,
+            "UploadInstallMilliseconds": 2.0808000000000106,
+            "PresentationMilliseconds": 0.7224999999999682,
+            "TotalMilliseconds": 455.8886,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -518,10 +518,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 516.5267,
-            "UploadInstallMilliseconds": 1.8367000000000644,
-            "PresentationMilliseconds": 0.6455999999999449,
-            "TotalMilliseconds": 519.009,
+            "DerivationMilliseconds": 466.6576,
+            "UploadInstallMilliseconds": 3.0457000000000107,
+            "PresentationMilliseconds": 0.8109999999999786,
+            "TotalMilliseconds": 470.5143,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -535,10 +535,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 452.5954,
-            "UploadInstallMilliseconds": 2.2752000000000407,
-            "PresentationMilliseconds": 1.0972999999999615,
-            "TotalMilliseconds": 455.9679,
+            "DerivationMilliseconds": 471.9566,
+            "UploadInstallMilliseconds": 2.8027000000000157,
+            "PresentationMilliseconds": 0.7006999999999834,
+            "TotalMilliseconds": 475.46,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -552,10 +552,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 474.7847,
-            "UploadInstallMilliseconds": 2.5410000000000537,
-            "PresentationMilliseconds": 0.8323999999999501,
-            "TotalMilliseconds": 478.1581,
+            "DerivationMilliseconds": 519.439,
+            "UploadInstallMilliseconds": 2.3115000000000236,
+            "PresentationMilliseconds": 0.6548000000000229,
+            "TotalMilliseconds": 522.4053,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -569,10 +569,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 467.6706,
-            "UploadInstallMilliseconds": 2.96610000000004,
-            "PresentationMilliseconds": 0.8788999999999874,
-            "TotalMilliseconds": 471.5156,
+            "DerivationMilliseconds": 466.68219999999997,
+            "UploadInstallMilliseconds": 2.782600000000059,
+            "PresentationMilliseconds": 0.6370000000000005,
+            "TotalMilliseconds": 470.1018,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -586,10 +586,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 493.8149,
-            "UploadInstallMilliseconds": 3.3507999999999925,
-            "PresentationMilliseconds": 0.6666999999999916,
-            "TotalMilliseconds": 497.8324,
+            "DerivationMilliseconds": 480.9921,
+            "UploadInstallMilliseconds": 2.193899999999985,
+            "PresentationMilliseconds": 0.6451000000000136,
+            "TotalMilliseconds": 483.8311,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -604,27 +604,27 @@
         ],
         "Derivation": {
           "count": 10,
-          "median": 468.6527,
-          "p95": 516.5267,
-          "maximum": 516.5267
+          "median": 469.3194,
+          "p95": 519.439,
+          "maximum": 519.439
         },
         "UploadInstall": {
           "count": 10,
-          "median": 2.354949999999974,
-          "p95": 3.3507999999999925,
-          "maximum": 3.3507999999999925
+          "median": 2.669000000000011,
+          "p95": 3.0457000000000107,
+          "maximum": 3.0457000000000107
         },
         "Presentation": {
           "count": 10,
-          "median": 0.8414500000000089,
-          "p95": 1.0972999999999615,
-          "maximum": 1.0972999999999615
+          "median": 0.6507500000000164,
+          "p95": 0.8109999999999786,
+          "maximum": 0.8109999999999786
         },
         "Total": {
           "count": 10,
-          "median": 472.36325,
-          "p95": 519.009,
-          "maximum": 519.009
+          "median": 472.98715,
+          "p95": 522.4053,
+          "maximum": 522.4053
         }
       },
       "SteadyState": {
@@ -638,16 +638,16 @@
         "PresentationThrottlingEnabled": false,
         "RawFile": "steady-state-128.jsonl",
         "CpuFrame": {
-          "count": 40340,
-          "median": 0.6503,
-          "p95": 0.9396,
-          "maximum": 1.6103999999999998
+          "count": 40515,
+          "median": 0.6473,
+          "p95": 0.9729,
+          "maximum": 1.4843
         },
         "GpuFrame": {
-          "count": 40340,
-          "median": 0.590912,
-          "p95": 0.592288,
-          "maximum": 0.64512
+          "count": 40515,
+          "median": 0.591008,
+          "p95": 0.591968,
+          "maximum": 0.630592
         }
       }
     },
@@ -732,10 +732,10 @@
         "Samples": [
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 651.3069,
-            "UploadInstallMilliseconds": 4.435299999999984,
-            "PresentationMilliseconds": 0.6206999999999425,
-            "TotalMilliseconds": 656.3629,
+            "DerivationMilliseconds": 662.1614,
+            "UploadInstallMilliseconds": 4.541000000000054,
+            "PresentationMilliseconds": 0.6911999999999807,
+            "TotalMilliseconds": 667.3936,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -749,10 +749,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 678.0823,
-            "UploadInstallMilliseconds": 4.177299999999946,
-            "PresentationMilliseconds": 0.696100000000115,
-            "TotalMilliseconds": 682.9557000000001,
+            "DerivationMilliseconds": 652.6288,
+            "UploadInstallMilliseconds": 4.044900000000098,
+            "PresentationMilliseconds": 0.780399999999986,
+            "TotalMilliseconds": 657.4541,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -766,10 +766,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 642.0776999999999,
-            "UploadInstallMilliseconds": 4.8991000000000895,
-            "PresentationMilliseconds": 0.8635999999999058,
-            "TotalMilliseconds": 647.8403999999999,
+            "DerivationMilliseconds": 652.0602,
+            "UploadInstallMilliseconds": 4.080900000000042,
+            "PresentationMilliseconds": 0.5703999999999496,
+            "TotalMilliseconds": 656.7115,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -783,10 +783,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 645.7617,
-            "UploadInstallMilliseconds": 5.149199999999951,
-            "PresentationMilliseconds": 0.7789000000000215,
-            "TotalMilliseconds": 651.6898,
+            "DerivationMilliseconds": 662.4341000000001,
+            "UploadInstallMilliseconds": 4.545099999999934,
+            "PresentationMilliseconds": 0.6831000000000813,
+            "TotalMilliseconds": 667.6623000000001,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -800,10 +800,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 640.0448,
-            "UploadInstallMilliseconds": 6.669699999999921,
-            "PresentationMilliseconds": 0.5955000000001291,
-            "TotalMilliseconds": 647.3100000000001,
+            "DerivationMilliseconds": 647.6319000000001,
+            "UploadInstallMilliseconds": 5.547399999999925,
+            "PresentationMilliseconds": 0.7000000000000455,
+            "TotalMilliseconds": 653.8793000000001,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -817,10 +817,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 664.0947,
-            "UploadInstallMilliseconds": 5.884999999999991,
-            "PresentationMilliseconds": 0.9626000000000658,
-            "TotalMilliseconds": 670.9423,
+            "DerivationMilliseconds": 642.1857,
+            "UploadInstallMilliseconds": 6.246499999999969,
+            "PresentationMilliseconds": 0.7615000000000691,
+            "TotalMilliseconds": 649.1937,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -834,10 +834,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 669.1218,
-            "UploadInstallMilliseconds": 6.840399999999931,
-            "PresentationMilliseconds": 0.8040000000000873,
-            "TotalMilliseconds": 676.7662,
+            "DerivationMilliseconds": 664.0001,
+            "UploadInstallMilliseconds": 7.796500000000037,
+            "PresentationMilliseconds": 0.8735000000000355,
+            "TotalMilliseconds": 672.6701,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -851,10 +851,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 679.9848,
-            "UploadInstallMilliseconds": 4.4411000000001195,
-            "PresentationMilliseconds": 0.6035999999999149,
-            "TotalMilliseconds": 685.0295,
+            "DerivationMilliseconds": 728.3873,
+            "UploadInstallMilliseconds": 4.571799999999939,
+            "PresentationMilliseconds": 0.7578000000000884,
+            "TotalMilliseconds": 733.7169,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -868,10 +868,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 684.3964,
-            "UploadInstallMilliseconds": 5.459299999999985,
-            "PresentationMilliseconds": 0.7795999999999594,
-            "TotalMilliseconds": 690.6352999999999,
+            "DerivationMilliseconds": 624.0686,
+            "UploadInstallMilliseconds": 4.40280000000007,
+            "PresentationMilliseconds": 0.6249000000000251,
+            "TotalMilliseconds": 629.0963,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -885,10 +885,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 678.4288,
-            "UploadInstallMilliseconds": 4.5996000000000095,
-            "PresentationMilliseconds": 0.7772999999999683,
-            "TotalMilliseconds": 683.8057,
+            "DerivationMilliseconds": 673.0923,
+            "UploadInstallMilliseconds": 4.241499999999974,
+            "PresentationMilliseconds": 0.6945999999999231,
+            "TotalMilliseconds": 678.0283999999999,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -903,27 +903,27 @@
         ],
         "Derivation": {
           "count": 10,
-          "median": 666.60825,
-          "p95": 684.3964,
-          "maximum": 684.3964
+          "median": 657.3951,
+          "p95": 728.3873,
+          "maximum": 728.3873
         },
         "UploadInstall": {
           "count": 10,
-          "median": 5.02415000000002,
-          "p95": 6.840399999999931,
-          "maximum": 6.840399999999931
+          "median": 4.543049999999994,
+          "p95": 7.796500000000037,
+          "maximum": 7.796500000000037
         },
         "Presentation": {
           "count": 10,
-          "median": 0.7780999999999949,
-          "p95": 0.9626000000000658,
-          "maximum": 0.9626000000000658
+          "median": 0.6972999999999843,
+          "p95": 0.8735000000000355,
+          "maximum": 0.8735000000000355
         },
         "Total": {
           "count": 10,
-          "median": 673.8542500000001,
-          "p95": 690.6352999999999,
-          "maximum": 690.6352999999999
+          "median": 662.42385,
+          "p95": 733.7169,
+          "maximum": 733.7169
         }
       },
       "SteadyState": {
@@ -937,16 +937,16 @@
         "PresentationThrottlingEnabled": false,
         "RawFile": "steady-state-256.jsonl",
         "CpuFrame": {
-          "count": 10923,
-          "median": 2.6868,
-          "p95": 3.0505,
-          "maximum": 3.527
+          "count": 11012,
+          "median": 2.6463,
+          "p95": 3.064,
+          "maximum": 3.9061
         },
         "GpuFrame": {
-          "count": 10923,
-          "median": 2.547712,
-          "p95": 2.967392,
-          "maximum": 3.404896
+          "count": 11012,
+          "median": 2.546496,
+          "p95": 2.972256,
+          "maximum": 3.405728
         }
       }
     }
@@ -954,8 +954,8 @@
   "RawFiles": [
     {
       "File": "aggregation-output.json",
-      "Sha256": "734c61da1d0dba2c332f74a451506a38081e89f94b04b0ba1ec819e378004294",
-      "Bytes": 2475
+      "Sha256": "16b8e7b523ffd859c597c97372fae1734d8c9bfce5f9389228d035adf7d72163",
+      "Bytes": 2451
     },
     {
       "File": "aggregation.stderr.log",
@@ -969,8 +969,8 @@
     },
     {
       "File": "build.stderr.log",
-      "Sha256": "92e06e4842c2fa9a2139c34892b15d58451290c4ed4fe3a60c23f8f551bc9ec1",
-      "Bytes": 62
+      "Sha256": "5b956701aec4a50b66020fc339fcdd3860b1c83fbb7f62324c9971c3178d6949",
+      "Bytes": 114
     },
     {
       "File": "build.stdout.log",
@@ -979,18 +979,18 @@
     },
     {
       "File": "canonical-generation.stderr.log",
-      "Sha256": "fadb8df88e88fa94bf591e4d20ba919da61c424d043076ae216785e83b569af8",
+      "Sha256": "afebb0d7c475bafc9b9ac6b8471bf9d1aed89d8e6628ad662b723a044b272311",
       "Bytes": 149
     },
     {
       "File": "canonical-generation.stdout.log",
-      "Sha256": "f9515e949db4bd119235f1a9a5b19b2e62da233d236fa36d5febdba08ee52975",
+      "Sha256": "9ce6d0f36e7826b093aec704fe6e8b28f4b340348419a278226a65640938cf64",
       "Bytes": 362
     },
     {
       "File": "comparison.svg",
-      "Sha256": "7d56f96f88247fe908cac4d08d1c9ee852da30508372bd56b24f4529f574fcc3",
-      "Bytes": 2692
+      "Sha256": "905d38abb8a0dac219dcb65641686d44265b25fbab89eea9d3c310f4fc294234",
+      "Bytes": 2693
     },
     {
       "File": "diagnostics.json",
@@ -999,8 +999,8 @@
     },
     {
       "File": "first-correct-frame-128-01.jsonl",
-      "Sha256": "423e690ea77c590929e49f84192cc25c177cf6ca3ea8395cc50eeb6316f70bb7",
-      "Bytes": 487
+      "Sha256": "05f0fcd149c133048d76d7573a7ec97af8c77767aa5ece4df123aaaeb7bba977",
+      "Bytes": 497
     },
     {
       "File": "first-correct-frame-128-01.stderr.log",
@@ -1014,8 +1014,8 @@
     },
     {
       "File": "first-correct-frame-128-02.jsonl",
-      "Sha256": "1709f1d4a962173b9904a0c6d8d9f9f9b10564552adea31b949ecac30359b3bb",
-      "Bytes": 486
+      "Sha256": "97baf3415325358003eeee7f59d2e3064aa03baa4e1f5a82a2ef645d67648151",
+      "Bytes": 487
     },
     {
       "File": "first-correct-frame-128-02.stderr.log",
@@ -1029,8 +1029,8 @@
     },
     {
       "File": "first-correct-frame-128-03.jsonl",
-      "Sha256": "e0d4bd4a7576b6242786027fe910ae731a9b7cdea20b996121b0b95cfcfb8d25",
-      "Bytes": 497
+      "Sha256": "6a5381f7479d3b8c3f479f03ef1c16b4e50a3d190d2da4597224b74a9e1b71ed",
+      "Bytes": 487
     },
     {
       "File": "first-correct-frame-128-03.stderr.log",
@@ -1044,7 +1044,7 @@
     },
     {
       "File": "first-correct-frame-128-04.jsonl",
-      "Sha256": "46c2a15defbbd013bb6947d95dc6dfadec74926d4366bf600efaf0bf3ba053a0",
+      "Sha256": "053b010d97a0ca2487389f2290040c6d2ffd72035608ebd0a4b0123dbebce1e4",
       "Bytes": 487
     },
     {
@@ -1059,8 +1059,8 @@
     },
     {
       "File": "first-correct-frame-128-05.jsonl",
-      "Sha256": "6331b8fe5aa3be7d6fbc93434f5de5d9d2b648cd49844ca04bf3c6b99d0488c1",
-      "Bytes": 497
+      "Sha256": "0df85fe84b382d5a1da1d17080c387e67486fbdadfc08ca4252f49054f69da67",
+      "Bytes": 487
     },
     {
       "File": "first-correct-frame-128-05.stderr.log",
@@ -1074,8 +1074,8 @@
     },
     {
       "File": "first-correct-frame-128-06.jsonl",
-      "Sha256": "c676cbce799304c4d515d19a3fd21d36b973b7279b21fff601835ad0a1979a4c",
-      "Bytes": 485
+      "Sha256": "68f14cdf6b55e3a41fe3246a47a179ff513fe7ce3c4c4ec282d8ad627c7728e4",
+      "Bytes": 477
     },
     {
       "File": "first-correct-frame-128-06.stderr.log",
@@ -1089,8 +1089,8 @@
     },
     {
       "File": "first-correct-frame-128-07.jsonl",
-      "Sha256": "93a71572cf8381b5f965c1e47e6234ee7170568d9270edaeec29071f609dace3",
-      "Bytes": 477
+      "Sha256": "788286443d9cd0137d1545e88ef6c8df68c23a464710c52e05865147470327cf",
+      "Bytes": 475
     },
     {
       "File": "first-correct-frame-128-07.stderr.log",
@@ -1104,8 +1104,8 @@
     },
     {
       "File": "first-correct-frame-128-08.jsonl",
-      "Sha256": "e6fc426fc3522fdb7ac480f91fe4b3462ce3e0738b2f7157c7487756fec98935",
-      "Bytes": 487
+      "Sha256": "27c7b99f605773e6912333b6159ba849d5e216fffea9e3afc9785cb4f6efc2b4",
+      "Bytes": 476
     },
     {
       "File": "first-correct-frame-128-08.stderr.log",
@@ -1119,8 +1119,8 @@
     },
     {
       "File": "first-correct-frame-128-09.jsonl",
-      "Sha256": "2c71cefec78262d8799470d0ad0e83c44da6af137c6fa59857185f05c0191590",
-      "Bytes": 477
+      "Sha256": "b172ed139363b051b562daf4cac293e06795b09e0287e0eee2b9ac2f221d24fb",
+      "Bytes": 487
     },
     {
       "File": "first-correct-frame-128-09.stderr.log",
@@ -1134,8 +1134,8 @@
     },
     {
       "File": "first-correct-frame-128-10.jsonl",
-      "Sha256": "c442c0e4dada6d25a1f25a332350541b0661405190a37dead45d6060a5e2b4e7",
-      "Bytes": 477
+      "Sha256": "2e1edca20f1ad7090f809317802ca25676b6a41cdf7952e2902539e16209b5c2",
+      "Bytes": 476
     },
     {
       "File": "first-correct-frame-128-10.stderr.log",
@@ -1149,7 +1149,7 @@
     },
     {
       "File": "first-correct-frame-256-01.jsonl",
-      "Sha256": "a5655ae0028515877eef9182997d4d4251c8aa4413f4a5ca292c6a29f5fa5cb1",
+      "Sha256": "03815bc9f3a6a5651df45bfb2e68d24733b174f252a6f5682d399e13939d3be9",
       "Bytes": 480
     },
     {
@@ -1164,8 +1164,8 @@
     },
     {
       "File": "first-correct-frame-256-02.jsonl",
-      "Sha256": "5787a04a69f4c4bd487f25ad8c62d26b5a5facfface2e93bb079bfb637318442",
-      "Bytes": 489
+      "Sha256": "9a74aab52e718b8002e4f59b2f1e82c2a6733143c4c823a42ce3973048b845ea",
+      "Bytes": 480
     },
     {
       "File": "first-correct-frame-256-02.stderr.log",
@@ -1179,8 +1179,8 @@
     },
     {
       "File": "first-correct-frame-256-03.jsonl",
-      "Sha256": "3a89e53ed5a932954fcea8ef87ba1be4d441da7e8bb6a325ea80e9bb52192b2d",
-      "Bytes": 498
+      "Sha256": "c52b5552041202a5f399e551caa97d94dc959c80b76df1f3c872e17866683a65",
+      "Bytes": 480
     },
     {
       "File": "first-correct-frame-256-03.stderr.log",
@@ -1194,8 +1194,8 @@
     },
     {
       "File": "first-correct-frame-256-04.jsonl",
-      "Sha256": "626859e786b3b9c7d005990658a98f3b924efa3e5dfecc355f48d9be86d57314",
-      "Bytes": 480
+      "Sha256": "833fd9704f4c55694da50a55108c953178a28974199a52ec0ceaf4ea500f92ad",
+      "Bytes": 498
     },
     {
       "File": "first-correct-frame-256-04.stderr.log",
@@ -1209,7 +1209,7 @@
     },
     {
       "File": "first-correct-frame-256-05.jsonl",
-      "Sha256": "c8bf3edc00e86d42b352f4599da561d00cf6ab5da260ca42c3a1f73a34770d77",
+      "Sha256": "e4703ee3e4305590849c53ce04ac406ac178f30c1d2bead086a6492930fd7b46",
       "Bytes": 498
     },
     {
@@ -1224,7 +1224,7 @@
     },
     {
       "File": "first-correct-frame-256-06.jsonl",
-      "Sha256": "7be076dc9854f42f26b87d7c1cd281c5aa677a9ff30b7428606c7c4cd0e68af9",
+      "Sha256": "dd71cde974296d1ccbfb7f0d240adb2d5820ee9ef01bdf39c929fe364850be1a",
       "Bytes": 480
     },
     {
@@ -1239,8 +1239,8 @@
     },
     {
       "File": "first-correct-frame-256-07.jsonl",
-      "Sha256": "69c1bf03fe025676f9c5e1c2ac500cb2f75a2ba61d7cf50ea8668d1e85dd171a",
-      "Bytes": 489
+      "Sha256": "8b7c3abf157cce2b368449642b40214d421ff9e624d82132a60d86c4cc03c150",
+      "Bytes": 480
     },
     {
       "File": "first-correct-frame-256-07.stderr.log",
@@ -1254,7 +1254,7 @@
     },
     {
       "File": "first-correct-frame-256-08.jsonl",
-      "Sha256": "2cf8f9e9d89c43d204c23d1c226bdad3e5c560b4e68d86a788ebe1d872784616",
+      "Sha256": "6797ee57f1efc469ce9df274d3deab10612c9cd9ba3789130d8ca873f36a05b3",
       "Bytes": 489
     },
     {
@@ -1269,8 +1269,8 @@
     },
     {
       "File": "first-correct-frame-256-09.jsonl",
-      "Sha256": "1e466c9055657ec03ef659fa305c1c1180c4194c598a9ef02556329255f46f4e",
-      "Bytes": 489
+      "Sha256": "096163fe240cb1d596640f14b78f6264003e2387cf29d40ddef16beffa4b4e04",
+      "Bytes": 480
     },
     {
       "File": "first-correct-frame-256-09.stderr.log",
@@ -1284,8 +1284,8 @@
     },
     {
       "File": "first-correct-frame-256-10.jsonl",
-      "Sha256": "25bdb3d858f6b54c36e604d4880415c5a31e453fbb65f41c607d5585cb88cc5d",
-      "Bytes": 480
+      "Sha256": "76b103bbb55b10632378d152e33981a4948b62e355717a27917e2fb00c5cce59",
+      "Bytes": 489
     },
     {
       "File": "first-correct-frame-256-10.stderr.log",
@@ -1299,8 +1299,8 @@
     },
     {
       "File": "first-correct-frame-64-01.jsonl",
-      "Sha256": "9a281120e62e4b55e83c7b2537bc188ea5b60f4fb9f784bc4820366b8126e20d",
-      "Bytes": 481
+      "Sha256": "b152d348bfe6926a87ec3ce5136d0a5c8c8d31361871cb0e66fddfffc3728ffe",
+      "Bytes": 492
     },
     {
       "File": "first-correct-frame-64-01.stderr.log",
@@ -1314,8 +1314,8 @@
     },
     {
       "File": "first-correct-frame-64-02.jsonl",
-      "Sha256": "2bcdd332bf20f8374a12598ce97bf3ee6d0e209a1d08c1b18370e3b100c0d394",
-      "Bytes": 492
+      "Sha256": "1d4ce5e6fed8dbd231dc3708800fe1e09b9cc40c0a90f4a542f267d3221bdd36",
+      "Bytes": 482
     },
     {
       "File": "first-correct-frame-64-02.stderr.log",
@@ -1329,8 +1329,8 @@
     },
     {
       "File": "first-correct-frame-64-03.jsonl",
-      "Sha256": "c1ee2aadfaffb1003578e56a1413b58791ec41709068a6bdedfa0b8181014903",
-      "Bytes": 482
+      "Sha256": "1ac3beb49b8e1c28095a33dc69d39e879aa3340c15b67a852786726de40574f2",
+      "Bytes": 472
     },
     {
       "File": "first-correct-frame-64-03.stderr.log",
@@ -1344,8 +1344,8 @@
     },
     {
       "File": "first-correct-frame-64-04.jsonl",
-      "Sha256": "9099280d833279e245e2585fa5761d7a1a1381885ece7f7c3422a4d71cea40e7",
-      "Bytes": 482
+      "Sha256": "7542970d302f0f61383569d13e81c3305dd7b0cecfe406ec29715ddcf205bec8",
+      "Bytes": 481
     },
     {
       "File": "first-correct-frame-64-04.stderr.log",
@@ -1359,8 +1359,8 @@
     },
     {
       "File": "first-correct-frame-64-05.jsonl",
-      "Sha256": "7261d538d0742d2adcbb4135ecf527ad268bb5eebb70d6301fd09a092b9da827",
-      "Bytes": 472
+      "Sha256": "db4963c99d3677ebed5cf0836ec41c84eaabaf5fc5e76aa6e6dd32c09ca06002",
+      "Bytes": 482
     },
     {
       "File": "first-correct-frame-64-05.stderr.log",
@@ -1374,7 +1374,7 @@
     },
     {
       "File": "first-correct-frame-64-06.jsonl",
-      "Sha256": "1ab3c5a13c4a5a4c0efea646a64bd725a9e1a889239c691044ef09e60f2cf07c",
+      "Sha256": "71fd06e59103d21377497082494b2e0f80f8fd238cec29c5ead9a7b192887e58",
       "Bytes": 472
     },
     {
@@ -1389,8 +1389,8 @@
     },
     {
       "File": "first-correct-frame-64-07.jsonl",
-      "Sha256": "6bfe471b60651e0a46848026e26b2de85109d2eb555628304ff3265b7152111a",
-      "Bytes": 471
+      "Sha256": "34a42e06716216f9c41a0050c266cd3fc33eefac08e90e075c13a6e02b7879fa",
+      "Bytes": 472
     },
     {
       "File": "first-correct-frame-64-07.stderr.log",
@@ -1404,8 +1404,8 @@
     },
     {
       "File": "first-correct-frame-64-08.jsonl",
-      "Sha256": "3b53ee4e69ae8184c22235bb103b36121c8d7a866d373ebea3e1ff6309bb8651",
-      "Bytes": 482
+      "Sha256": "d597e357ff8e7af73aafd7160205e468998b82287d4e082f00fb8691b2f57cdb",
+      "Bytes": 481
     },
     {
       "File": "first-correct-frame-64-08.stderr.log",
@@ -1419,8 +1419,8 @@
     },
     {
       "File": "first-correct-frame-64-09.jsonl",
-      "Sha256": "7ac875773b44602e6e9bcfac94579e2049a5cb5868cf3b79472dc4e53700d09e",
-      "Bytes": 472
+      "Sha256": "5493926e64444a621e75351149ae41ae0a758d0168e6a8df19ad3329275986bf",
+      "Bytes": 482
     },
     {
       "File": "first-correct-frame-64-09.stderr.log",
@@ -1434,8 +1434,8 @@
     },
     {
       "File": "first-correct-frame-64-10.jsonl",
-      "Sha256": "6b627f3cf5ddc46f3c4ee8f03dd63bd793f05c1a5f0122d29daed1c639065f1a",
-      "Bytes": 481
+      "Sha256": "e69aef1783fd0ad43bd71f4f6674c0d602afe75d4a16df4246b6d79fb97b86c9",
+      "Bytes": 472
     },
     {
       "File": "first-correct-frame-64-10.stderr.log",
@@ -1449,7 +1449,7 @@
     },
     {
       "File": "measurement-contract.stderr.log",
-      "Sha256": "3108482eaaeb60fc1f0c3a234c3e78329c38cab60b981ded6a55bf1f401bd5bf",
+      "Sha256": "6e407f0abd1ec4c3aa35ff37f786f17aef57d3c932c4660d27fd8ceb5aad74be",
       "Bytes": 315
     },
     {
@@ -1459,18 +1459,18 @@
     },
     {
       "File": "semantic-face-oracles.stderr.log",
-      "Sha256": "49937b608c913e5bf54cd7fb04af06903feca4fadb7cbcbfdee5a1a0e5163aab",
+      "Sha256": "1b72f3e8f5948adacb00387e0d9e2b4352eb882bde53c4522a4f49110c429af3",
       "Bytes": 149
     },
     {
       "File": "semantic-face-oracles.stdout.log",
-      "Sha256": "ff219125f7585a0898ae08c2a695bdfc79ca3b8f1857152b140d28b1e31c6283",
+      "Sha256": "9dcc8e00c8a4d1a160ef30dd839229b0df35dacb3415611b5fd569750f5b6ae4",
       "Bytes": 704
     },
     {
       "File": "steady-state-128.jsonl",
-      "Sha256": "5441b2760d7791e02b3b9864d952f15bed2d50605b406390eff7627aa8702078",
-      "Bytes": 3649426
+      "Sha256": "c971408637228609b4aa050f28254b388eafd1fe7a567a84577ba9e388b4821f",
+      "Bytes": 3665404
     },
     {
       "File": "steady-state-128.stderr.log",
@@ -1484,8 +1484,8 @@
     },
     {
       "File": "steady-state-256.jsonl",
-      "Sha256": "f0f124fce35713315869b85d931b071f8ad5b62af644931c8a0c0d7c5c7e79c6",
-      "Bytes": 983112
+      "Sha256": "a8416ad1ca59c0acef597bf03c650e40c1b158f9f7abf5e2d9b7bbfb11f9b4b5",
+      "Bytes": 991980
     },
     {
       "File": "steady-state-256.stderr.log",
@@ -1499,8 +1499,8 @@
     },
     {
       "File": "steady-state-64.jsonl",
-      "Sha256": "54d05ad47b89f58a0a5c79f3ef847ae0f128e34b6734aad2285c867a8360ce70",
-      "Bytes": 8406072
+      "Sha256": "f166b7a625fa8bb534b954b2c1b89305a752b620b6c7a53348c8856846720176",
+      "Bytes": 10218586
     },
     {
       "File": "steady-state-64.stderr.log",

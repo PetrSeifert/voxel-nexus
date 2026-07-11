@@ -1,4 +1,4 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.23s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.27s
      Running unittests src\canonical_inspection.rs (target\debug\deps\canonical_inspection-b85af3955ce82fc6.exe)
      Running tests\camera.rs (target\debug\deps\camera-6a41ce4de0ce883e.exe)
      Running unittests src\canonical_scene.rs (target\debug\deps\canonical_scene-ee9533bde30e20ba.exe)

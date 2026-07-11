@@ -12,13 +12,13 @@
     {
       "Meaning": "window minimized",
       "StartSeconds": 4,
-      "EndSeconds": 5.808
+      "EndSeconds": 5.934
     },
     {
       "Meaning": "window cleanly closed",
-      "StartSeconds": 34.47,
+      "StartSeconds": 34.802,
       "EndSeconds": "end of clip"
     }
   ],
-  "Filter": "crop=634:642:28:20,drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='between(t\\,4.000\\,5.808)+gte(t\\,34.470)'"
+  "Filter": "crop=634:642:28:20,drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='between(t\\,4.000\\,5.934)+gte(t\\,34.802)'"
 }

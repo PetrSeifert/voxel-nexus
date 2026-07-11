@@ -1,62 +1,62 @@
 [
   {
     "Event": "worker_paused",
-    "ElapsedSeconds": 1.115,
-    "RecordedAtUtc": "2026-07-11T21:06:55.5078245Z"
+    "ElapsedSeconds": 1.135,
+    "RecordedAtUtc": "2026-07-11T21:24:58.0528814Z"
   },
   {
     "Event": "landscape_resize_while_paused",
-    "ElapsedSeconds": 2.133,
-    "RecordedAtUtc": "2026-07-11T21:06:56.5246783Z"
+    "ElapsedSeconds": 2.151,
+    "RecordedAtUtc": "2026-07-11T21:24:59.0662480Z"
   },
   {
     "Event": "portrait_resize_while_paused",
-    "ElapsedSeconds": 3.155,
-    "RecordedAtUtc": "2026-07-11T21:06:57.5458170Z"
+    "ElapsedSeconds": 3.183,
+    "RecordedAtUtc": "2026-07-11T21:25:00.0982262Z"
   },
   {
     "Event": "minimized_while_paused",
-    "ElapsedSeconds": 4.222,
-    "RecordedAtUtc": "2026-07-11T21:06:58.6135765Z"
+    "ElapsedSeconds": 4.29,
+    "RecordedAtUtc": "2026-07-11T21:25:01.2053530Z"
   },
   {
     "Event": "restored_while_paused",
-    "ElapsedSeconds": 5.308,
-    "RecordedAtUtc": "2026-07-11T21:06:59.6994399Z"
+    "ElapsedSeconds": 5.434,
+    "RecordedAtUtc": "2026-07-11T21:25:02.3500475Z"
   },
   {
     "Event": "first_matching_revision_frame",
-    "ElapsedSeconds": 14.441,
-    "RecordedAtUtc": "2026-07-11T21:07:08.8318850Z"
+    "ElapsedSeconds": 15.022,
+    "RecordedAtUtc": "2026-07-11T21:25:11.9374854Z"
   },
   {
     "Event": "fixed_pose_overview",
-    "ElapsedSeconds": 29.429,
-    "RecordedAtUtc": "2026-07-11T21:07:23.8202177Z"
+    "ElapsedSeconds": 29.693,
+    "RecordedAtUtc": "2026-07-11T21:25:26.6089777Z"
   },
   {
     "Event": "fixed_pose_cavity",
-    "ElapsedSeconds": 30.499,
-    "RecordedAtUtc": "2026-07-11T21:07:24.8902647Z"
+    "ElapsedSeconds": 30.762,
+    "RecordedAtUtc": "2026-07-11T21:25:27.6779724Z"
   },
   {
     "Event": "fixed_pose_boundary",
-    "ElapsedSeconds": 31.568,
-    "RecordedAtUtc": "2026-07-11T21:07:25.9588173Z"
+    "ElapsedSeconds": 31.829,
+    "RecordedAtUtc": "2026-07-11T21:25:28.7445315Z"
   },
   {
     "Event": "deterministic_camera_move_started",
-    "ElapsedSeconds": 32.574,
-    "RecordedAtUtc": "2026-07-11T21:07:26.9656077Z"
+    "ElapsedSeconds": 32.838,
+    "RecordedAtUtc": "2026-07-11T21:25:29.7536832Z"
   },
   {
     "Event": "deterministic_camera_move_completed",
-    "ElapsedSeconds": 33.317,
-    "RecordedAtUtc": "2026-07-11T21:07:27.7079654Z"
+    "ElapsedSeconds": 33.627,
+    "RecordedAtUtc": "2026-07-11T21:25:30.5424421Z"
   },
   {
     "Event": "clean_close",
-    "ElapsedSeconds": 34.47,
-    "RecordedAtUtc": "2026-07-11T21:07:28.8611985Z"
+    "ElapsedSeconds": 34.802,
+    "RecordedAtUtc": "2026-07-11T21:25:31.7173402Z"
   }
 ]

@@ -1,4 +1,4 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
      Running unittests src\voxel_frontend.rs (target\debug\deps\voxel_frontend-00fdc6d8183c790d.exe)
      Running tests\publication.rs (target\debug\deps\publication-f44aa622079099e2.exe)
      Running tests\validation.rs (target\debug\deps\validation-72797cd2df9b3ff9.exe)

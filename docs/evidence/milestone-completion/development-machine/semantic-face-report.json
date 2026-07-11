@@ -11,15 +11,11 @@
   "Passed": true,
   "Cases": [
     {
-      "Name": "one_voxel_produces_six_scene_space_material_colored_faces",
-      "Result": "passed"
-    },
-    {
-      "Name": "adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation",
-      "Result": "passed"
-    },
-    {
       "Name": "adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color",
+      "Result": "passed"
+    },
+    {
+      "Name": "empty_volume_produces_an_empty_complete_artifact",
       "Result": "passed"
     },
     {
@@ -27,7 +23,11 @@
       "Result": "passed"
     },
     {
-      "Name": "empty_volume_produces_an_empty_complete_artifact",
+      "Name": "adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation",
+      "Result": "passed"
+    },
+    {
+      "Name": "one_voxel_produces_six_scene_space_material_colored_faces",
       "Result": "passed"
     },
     {

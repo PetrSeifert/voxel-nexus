@@ -1,11 +1,11 @@
 
 running 7 tests
+test render_path_installs_one_complete_revision_tagged_artifact ... ok
 test empty_volume_produces_an_empty_complete_artifact ... ok
 test one_voxel_produces_six_scene_space_material_colored_faces ... ok
-test render_path_installs_one_complete_revision_tagged_artifact ... ok
+test occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permutation ... ok
 test adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation ... ok
 test adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color ... ok
-test occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permutation ... ok
 test hollow_three_cube_includes_outer_boundary_and_inner_cavity_faces_for_every_batch_permutation ... ok
 
 test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

@@ -1,8 +1,8 @@
 {
   "SchemaVersion": 3,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-11T21:13:56.1660104Z",
-  "RepositoryRevision": "1d75c5408bfd9cb281c4dea82e55b155d26ed062",
+  "RecordedAtUtc": "2026-07-11T21:31:56.7821930Z",
+  "RepositoryRevision": "37a6bb3328516e4447a8a4057e2d66153a616f86",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
   "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
@@ -78,11 +78,11 @@
       "WarmMaterialSamplePixels": 5423,
       "GreenMaterialSamplePixels": 3274,
       "BlueMaterialSamplePixels": 11155,
-      "BackgroundSamplePixels": 159550,
+      "BackgroundSamplePixels": 159549,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "b6dd944c922368b55f849ac8c0c07ba65bd8d39945c04f8a72137a4a9f0cfc20",
-        "b6dd944c922368b55f849ac8c0c07ba65bd8d39945c04f8a72137a4a9f0cfc20"
+        "fc5b1161d8bc2488613d4dd35c24c6389b61b329e42a0bef404df6510469cdf0",
+        "fc5b1161d8bc2488613d4dd35c24c6389b61b329e42a0bef404df6510469cdf0"
       ],
       "Captures": [
         "landscape-a.png",
