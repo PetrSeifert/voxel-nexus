@@ -145,8 +145,8 @@ pub enum EvidenceError {
     },
     #[error("completion video metadata is invalid: {reason}")]
     InvalidVideo { reason: String },
-    #[error("completion video is missing required event {event}")]
-    MissingVideoEvent { event: String },
+    #[error("completion video event {event} has {actual} occurrences; expected exactly 1")]
+    InvalidVideoEventCount { event: String, actual: usize },
     #[error("artifact path is unsafe or empty: {path:?}")]
     UnsafeArtifactPath { path: String },
     #[error("artifact path occurs more than once: {path}")]
@@ -275,11 +275,17 @@ pub fn verify_manifest_contract(
                     .to_owned(),
         });
     }
-    let video_events = manifest.video.events.iter().collect::<BTreeSet<_>>();
     for event in REQUIRED_VIDEO_EVENTS {
-        if !video_events.contains(&event.to_string()) {
-            return Err(EvidenceError::MissingVideoEvent {
+        let actual = manifest
+            .video
+            .events
+            .iter()
+            .filter(|actual| actual.as_str() == *event)
+            .count();
+        if actual != 1 {
+            return Err(EvidenceError::InvalidVideoEventCount {
                 event: (*event).to_owned(),
+                actual,
             });
         }
     }

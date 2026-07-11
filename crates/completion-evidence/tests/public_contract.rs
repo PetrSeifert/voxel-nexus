@@ -137,6 +137,21 @@ fn completion_contract_rejects_missing_raw_streams() -> Result<(), Box<dyn std::
 }
 
 #[test]
+fn completion_contract_rejects_duplicate_video_events() -> Result<(), Box<dyn std::error::Error>> {
+    let mut manifest = valid_manifest();
+    manifest.video.events.push("worker_paused".to_owned());
+
+    let error = match verify_manifest_contract(&manifest) {
+        Ok(_) => return Err("duplicate video event was accepted".into()),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("worker_paused"));
+    assert!(error.to_string().contains("2 occurrences"));
+    Ok(())
+}
+
+#[test]
 fn hash_inventory_rejects_changed_artifacts() -> Result<(), Box<dyn std::error::Error>> {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let root = std::env::temp_dir().join(format!(

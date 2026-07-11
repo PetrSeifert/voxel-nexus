@@ -348,6 +348,13 @@ Write-JsonFile -Path (Join-Path $evidencePath "video-privacy-filter.json") -Valu
     )
     Filter = $privacyFilter
 })
+$recorderCaptureScope = $lifecycleManifest.CompletionVideo.CaptureScope
+$retainedCaptureScope = "Continuous 634x642 privacy crop of the fixed demo-window intersection; minimized and post-close intervals are blacked from the recorded event timeline."
+$lifecycleManifest.CompletionVideo.CaptureScope = $retainedCaptureScope
+$lifecycleManifest.CompletionVideo | Add-Member -NotePropertyName RecorderCaptureScope -NotePropertyValue $recorderCaptureScope
+$lifecycleManifest.CompletionVideo | Add-Member -NotePropertyName RetainedDimensions -NotePropertyValue @(634, 642)
+$lifecycleManifest.CompletionVideo | Add-Member -NotePropertyName PrivacyFilter -NotePropertyValue "../video-privacy-filter.json"
+Write-JsonFile -Path (Join-Path $evidencePath "lifecycle/manifest.json") -Value $lifecycleManifest
 $videoProbe = Invoke-CapturedProcess `
     -FilePath "ffprobe" `
     -Arguments @("-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt,width,height,avg_frame_rate:format=duration", "-of", "json", $videoPath) `
@@ -465,7 +472,7 @@ $manifest = [ordered]@{
     )
     video = [ordered]@{
         path = "lifecycle/milestone-proof.mkv"
-        capture_scope = "Continuous privacy crop of the fixed demo-window intersection; minimized and post-close intervals are blacked from the recorded event timeline."
+        capture_scope = $retainedCaptureScope
         duration_seconds = $videoDuration
         codec = $videoStream.codec_name
         pixel_format = $videoStream.pix_fmt
