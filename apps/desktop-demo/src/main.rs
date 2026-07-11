@@ -1,12 +1,13 @@
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
-use render_backend::{DeviceCandidate, QueueFamilyCapabilities};
+use render_backend::{BackendError, DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase};
 #[cfg(target_os = "windows")]
 use render_backend::{FrameOutcome, RenderBackend};
 use std::process::ExitCode;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
+use std::{error::Error, fmt};
 #[cfg(target_os = "windows")]
 use windows_adapter::WindowsPresentationAdapter;
 #[cfg(target_os = "windows")]
@@ -106,7 +107,14 @@ impl ApplicationHandler for DesktopApplication {
         event: WindowEvent,
     ) {
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                if let Some(backend) = &mut self.backend
+                    && let Err(error) = backend.shutdown()
+                {
+                    self.application_error = Some(error.to_string());
+                }
+                event_loop.exit();
+            }
             WindowEvent::Resized(drawable_size) => {
                 let drawable_extent = if self.drawable_occluded {
                     ash::vk::Extent2D::default()
@@ -186,6 +194,9 @@ impl ApplicationHandler for DesktopApplication {
 
 #[cfg(target_os = "windows")]
 fn run() -> Result<(), String> {
+    if let Some(diagnostic_result) = render_path_failure_diagnostic(std::env::args().skip(1)) {
+        return diagnostic_result;
+    }
     if let Some(diagnostic_result) = unsupported_prerequisite_diagnostic(std::env::args().skip(1)) {
         return diagnostic_result;
     }
@@ -199,6 +210,37 @@ fn run() -> Result<(), String> {
         Some(error) => Err(error),
         None => Ok(()),
     }
+}
+
+#[derive(Debug)]
+struct InjectedRenderPathFailure;
+
+impl fmt::Display for InjectedRenderPathFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("injected proof failure")
+    }
+}
+
+impl Error for InjectedRenderPathFailure {}
+
+fn render_path_failure_diagnostic(
+    mut arguments: impl Iterator<Item = String>,
+) -> Option<Result<(), String>> {
+    if arguments.next().as_deref() != Some("--verify-render-path-failure") {
+        return None;
+    }
+    let phase = match arguments.next().as_deref() {
+        Some("release") => Ok(RenderPathPhase::Release),
+        Some("configure") => Ok(RenderPathPhase::Configure),
+        Some("record") => Ok(RenderPathPhase::Record),
+        Some(phase) => Err(format!(
+            "unknown Render Path phase {phase:?}; expected release, configure, or record"
+        )),
+        None => Err("missing Render Path phase; expected release, configure, or record".to_owned()),
+    };
+    Some(phase.and_then(|phase| {
+        Err(BackendError::render_path_failure(phase, InjectedRenderPathFailure).to_string())
+    }))
 }
 
 fn unsupported_prerequisite_diagnostic(
@@ -266,6 +308,15 @@ fn main() -> ExitCode {
 
 #[cfg(not(target_os = "windows"))]
 fn main() -> ExitCode {
+    if let Some(result) = render_path_failure_diagnostic(std::env::args().skip(1)) {
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("Voxel Nexus could not start: {error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     if let Some(result) = unsupported_prerequisite_diagnostic(std::env::args().skip(1)) {
         return match result {
             Ok(()) => ExitCode::SUCCESS,

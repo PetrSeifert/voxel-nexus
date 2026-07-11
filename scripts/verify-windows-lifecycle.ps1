@@ -341,6 +341,7 @@ Push-Location $repositoryRoot
 try {
     Invoke-Cargo -Arguments @("build", "--locked", "--package", "desktop-demo")
     Invoke-Cargo -Arguments @("test", "--locked", "--package", "desktop-demo", "--test", "unsupported_prerequisites")
+    Invoke-Cargo -Arguments @("test", "--locked", "--package", "desktop-demo", "--test", "render_path_failures")
 
     $binaryPath = Join-Path $repositoryRoot "target\debug\desktop-demo.exe"
     $unsupportedCases = @()
@@ -360,6 +361,26 @@ try {
             Case = $case
             ExitCode = $caseResult.ExitCode
             StandardError = "unsupported-$case.stderr.log"
+        }
+    }
+
+    $renderPathFailures = @()
+    foreach ($phase in @("release", "configure", "record")) {
+        $phaseResult = Invoke-CapturedProcess `
+            -Executable $binaryPath `
+            -Arguments @("--verify-render-path-failure", $phase) `
+            -StandardOutputPath (Join-Path $evidencePath "render-path-$phase.stdout.log") `
+            -StandardErrorPath (Join-Path $evidencePath "render-path-$phase.stderr.log")
+        if ($phaseResult.ExitCode -ne 1 -or $phaseResult.StandardError -notmatch "Render Path $phase failed: injected proof failure") {
+            throw "Render Path phase $phase did not preserve its phase and source failure at the application boundary."
+        }
+        if ($phaseResult.StandardError -match "panicked") {
+            throw "Render Path phase $phase failure panicked."
+        }
+        $renderPathFailures += [PSCustomObject]@{
+            Phase = $phase
+            ExitCode = $phaseResult.ExitCode
+            StandardError = "render-path-$phase.stderr.log"
         }
     }
 
@@ -471,6 +492,7 @@ try {
         Lifecycle = @("launch", "landscape resize", "portrait resize", "minimize", "restore", "normal close", "clean process exit")
         Presentations = $captures
         UnsupportedPrerequisites = $unsupportedCases
+        RenderPathFailures = $renderPathFailures
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $evidencePath "manifest.json")
     Write-Host "Windows lifecycle proof passed. Evidence: $evidencePath"

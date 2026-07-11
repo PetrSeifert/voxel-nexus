@@ -21,7 +21,7 @@ cargo build --locked --package desktop-demo
 pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory artifacts/windows-lifecycle
 ```
 
-The explicit build command proves the clean checkout can produce the executable and generated shaders. The runner repeats that locked build, runs the unsupported-prerequisite integration tests, and then performs the runtime proof.
+The explicit build command proves the clean checkout can produce the executable and generated shaders. The runner repeats that locked build, runs the deterministic failure integration tests, and then performs the runtime proof.
 
 ## What the runner proves
 
@@ -34,18 +34,24 @@ One validation-enabled `desktop-demo.exe` process is kept alive while the runner
 5. sends a normal window-close request and requires exit code 0 within ten seconds; and
 6. requires zero Vulkan validation warnings and zero Vulkan validation errors in the complete stderr log.
 
-The evidence directory contains a JSON manifest with the Git revision, build profile, Windows version, toolchain, validation context, lifecycle sequence, client extents, pixel counts, capture hashes, process result, and unsupported-case results. Raw stdout records the device, driver version, and Vulkan API version. Raw stderr is retained as the complete validation log, even when empty. PNG pairs make triangle presentation at each visible state auditable.
+The evidence directory contains a JSON manifest with the Git revision, build profile, Windows version, toolchain, validation context, lifecycle sequence, client extents, pixel counts, capture hashes, process result, and deterministic failure results. Raw stdout records the device, driver version, and Vulkan API version. Raw stderr is retained as the complete validation log, even when empty. PNG pairs make triangle presentation at each visible state auditable.
 
-## Unsupported prerequisites
+## Deterministic failures
 
 The lifecycle runner separately invokes these deterministic diagnostics:
 
+- Render Path release, configure, and record failures, each retaining phase and injected source context at the desktop application boundary; and
+- Vulkan 1.2 and unavailable-presentation prerequisites, each retaining actionable qualification context.
+
 ```powershell
+target\debug\desktop-demo.exe --verify-render-path-failure release
+target\debug\desktop-demo.exe --verify-render-path-failure configure
+target\debug\desktop-demo.exe --verify-render-path-failure record
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite vulkan-1.2
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite presentation
 ```
 
-Both commands must exit with code 1 promptly, without a panic. Their stderr logs retain the actionable Vulkan-version or presentation-capability error. These injected cases prove the application boundary independently of the development machine's supported Vulkan device.
+Every command must exit with code 1 promptly, without a panic. Their stderr logs retain either the Render Path phase and injected source or the actionable Vulkan qualification error. These injected cases prove the application boundary independently of the development machine's supported Vulkan device.
 
 ## Checked-in development-machine evidence
 
