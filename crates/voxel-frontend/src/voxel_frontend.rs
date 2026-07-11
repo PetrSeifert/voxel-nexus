@@ -38,7 +38,7 @@ impl VoxelSceneRevision {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct VoxelCoordinate {
     x: i32,
     y: i32,
@@ -48,6 +48,10 @@ pub struct VoxelCoordinate {
 impl VoxelCoordinate {
     pub fn new(x: i32, y: i32, z: i32) -> Self {
         Self { x, y, z }
+    }
+
+    pub fn components(self) -> [i32; 3] {
+        [self.x, self.y, self.z]
     }
 }
 
@@ -65,6 +69,10 @@ impl VoxelExtent {
             height,
             depth,
         }
+    }
+
+    pub fn dimensions(self) -> [u32; 3] {
+        [self.width, self.height, self.depth]
     }
 
     fn value_count(self) -> Option<usize> {
@@ -295,6 +303,8 @@ pub enum VoxelFrontendError {
     EmptyRegionRequest { identity: VoxelVolumeId },
     #[error("Voxel Region request for Voxel Volume {identity:?} has invalid coordinate bounds")]
     InvalidRegionBounds { identity: VoxelVolumeId },
+    #[error("Voxel Region result for Voxel Volume {identity:?} could not be allocated")]
+    RegionReadAllocation { identity: VoxelVolumeId },
     #[error("Voxel Frontend state could not be accessed")]
     StateUnavailable,
 }
@@ -386,7 +396,12 @@ impl VoxelSceneView {
                 .ok_or_else(|| VoxelFrontendError::InvalidRegionBounds {
                     identity: volume_identity.clone(),
                 })?;
-        let mut samples = Vec::with_capacity(capacity);
+        let mut samples = Vec::new();
+        samples.try_reserve_exact(capacity).map_err(|_| {
+            VoxelFrontendError::RegionReadAllocation {
+                identity: volume_identity.clone(),
+            }
+        })?;
         for coordinate in bounds.coordinates() {
             samples.push(VoxelSample {
                 coordinate,

@@ -1,0 +1,12 @@
+[package]
+name = "raster-render-path"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/raster_render_path.rs"
+
+[dependencies]
+thiserror = "2.0.18"
+voxel-frontend = { path = "../voxel-frontend" }
+
