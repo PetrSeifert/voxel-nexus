@@ -1,14 +1,14 @@
 {
-  "Scope": "Commands executed from clean checkout 80eb2079239b6eaa8e398dd92eae8f6e9fbfd203 on the recorded Windows development machine.",
-  "RepositoryRevision": "80eb2079239b6eaa8e398dd92eae8f6e9fbfd203",
+  "Scope": "Commands executed from clean checkout 0bdc68f0b9353e38ef8970c9bb699dad1913ca09 on the recorded Windows development machine.",
+  "RepositoryRevision": "0bdc68f0b9353e38ef8970c9bb699dad1913ca09",
   "WorkingTreeWasCleanBeforeCollection": true,
   "Commands": [
     {
       "Name": "timing-evidence",
-      "Command": "pwsh -NoProfile -File scripts/collect-timing-evidence.ps1 -OutputDirectory docs\\evidence\\milestone-completion\\development-machine\\timing",
+      "Command": "pwsh -NoProfile -File scripts/collect-timing-evidence.ps1 -OutputDirectory docs\\evidence\\milestone-completion\\issue-30-refresh\\timing",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:28:22.7027625Z",
-      "FinishedAtUtc": "2026-07-11T19:31:06.9196931Z",
+      "StartedAtUtc": "2026-07-11T20:45:19.6348065Z",
+      "FinishedAtUtc": "2026-07-11T20:47:47.0616506Z",
       "StandardOutput": "timing-collector.stdout.log",
       "StandardError": "timing-collector.stderr.log"
     },
@@ -16,8 +16,8 @@
       "Name": "generated-artifacts",
       "Command": "cargo build --locked --workspace --all-targets",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:31:06.9478810Z",
-      "FinishedAtUtc": "2026-07-11T19:31:20.4508265Z",
+      "StartedAtUtc": "2026-07-11T20:47:47.0844155Z",
+      "FinishedAtUtc": "2026-07-11T20:47:47.5440711Z",
       "StandardOutput": "checks/generated-artifacts.stdout.log",
       "StandardError": "checks/generated-artifacts.stderr.log"
     },
@@ -25,8 +25,8 @@
       "Name": "formatting",
       "Command": "cargo fmt --all -- --check",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:31:20.4539112Z",
-      "FinishedAtUtc": "2026-07-11T19:31:20.7288291Z",
+      "StartedAtUtc": "2026-07-11T20:47:47.5517624Z",
+      "FinishedAtUtc": "2026-07-11T20:47:48.0400579Z",
       "StandardOutput": "checks/formatting.stdout.log",
       "StandardError": "checks/formatting.stderr.log"
     },
@@ -34,8 +34,8 @@
       "Name": "strict-clippy",
       "Command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:31:20.7299358Z",
-      "FinishedAtUtc": "2026-07-11T19:31:29.3599401Z",
+      "StartedAtUtc": "2026-07-11T20:47:48.0419488Z",
+      "FinishedAtUtc": "2026-07-11T20:47:48.6190981Z",
       "StandardOutput": "checks/strict-clippy.stdout.log",
       "StandardError": "checks/strict-clippy.stderr.log"
     },
@@ -43,8 +43,8 @@
       "Name": "workspace-tests",
       "Command": "cargo test --locked --workspace",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:31:29.3607846Z",
-      "FinishedAtUtc": "2026-07-11T19:31:39.3730242Z",
+      "StartedAtUtc": "2026-07-11T20:47:48.6203182Z",
+      "FinishedAtUtc": "2026-07-11T20:47:59.1397268Z",
       "StandardOutput": "checks/workspace-tests.stdout.log",
       "StandardError": "checks/workspace-tests.stderr.log"
     },
@@ -52,8 +52,8 @@
       "Name": "voxel-frontend-read",
       "Command": "cargo test --locked --package voxel-frontend",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:31:39.3740497Z",
-      "FinishedAtUtc": "2026-07-11T19:31:39.6058181Z",
+      "StartedAtUtc": "2026-07-11T20:47:59.1405982Z",
+      "FinishedAtUtc": "2026-07-11T20:47:59.3662091Z",
       "StandardOutput": "checks/voxel-frontend-read.stdout.log",
       "StandardError": "checks/voxel-frontend-read.stderr.log"
     },
@@ -61,17 +61,17 @@
       "Name": "diagnostic-surface",
       "Command": "cargo test --locked --package raster-render-path --test derivation",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:31:39.6067989Z",
-      "FinishedAtUtc": "2026-07-11T19:31:39.7770150Z",
+      "StartedAtUtc": "2026-07-11T20:47:59.3671855Z",
+      "FinishedAtUtc": "2026-07-11T20:47:59.5420725Z",
       "StandardOutput": "checks/diagnostic-surface.stdout.log",
       "StandardError": "checks/diagnostic-surface.stderr.log"
     },
     {
       "Name": "lifecycle-failure-prerequisite-proof",
-      "Command": "pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory docs\\evidence\\milestone-completion\\development-machine\\lifecycle -CaptureCanonicalInspectionSet -VideoFile milestone-proof.mkv",
+      "Command": "pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory docs\\evidence\\milestone-completion\\issue-30-refresh\\lifecycle -CaptureCanonicalInspectionSet -VideoFile milestone-proof.mkv",
       "ExitCode": 0,
-      "StartedAtUtc": "2026-07-11T19:31:39.7782093Z",
-      "FinishedAtUtc": "2026-07-11T19:33:00.6212535Z",
+      "StartedAtUtc": "2026-07-11T20:47:59.5430554Z",
+      "FinishedAtUtc": "2026-07-11T20:49:20.2154775Z",
       "StandardOutput": "lifecycle-run.stdout.log",
       "StandardError": "lifecycle-run.stderr.log"
     }

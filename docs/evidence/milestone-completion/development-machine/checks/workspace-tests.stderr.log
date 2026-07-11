@@ -1,4 +1,4 @@
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
      Running unittests src\canonical_inspection.rs (target\debug\deps\canonical_inspection-b85af3955ce82fc6.exe)
      Running tests\camera.rs (target\debug\deps\camera-6a41ce4de0ce883e.exe)
      Running unittests src\canonical_scene.rs (target\debug\deps\canonical_scene-ee9533bde30e20ba.exe)
@@ -17,6 +17,7 @@
      Running tests\artifact_gate.rs (target\debug\deps\artifact_gate-8a004d3ea7e1cb6c.exe)
      Running tests\derivation.rs (target\debug\deps\derivation-c414ebcbfd8ee01a.exe)
      Running tests\failures.rs (target\debug\deps\failures-91d867bfbac9cfba.exe)
+     Running tests\front_face.rs (target\debug\deps\front_face-0b3348a7767a6404.exe)
      Running tests\preparation.rs (target\debug\deps\preparation-fa3e070e5d9298c8.exe)
      Running unittests src\render_backend.rs (target\debug\deps\render_backend-ecb371f3986d5250.exe)
      Running tests\device_qualification.rs (target\debug\deps\device_qualification-937d80f78b737251.exe)
