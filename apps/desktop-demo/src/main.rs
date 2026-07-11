@@ -1,6 +1,10 @@
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
+use raster_render_path::{
+    RasterArtifactInstallationError, RasterArtifactInstallationPhase, RasterRenderPath,
+    derive_raster_artifact,
+};
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
 };
@@ -10,6 +14,11 @@ use std::process::ExitCode;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
+use voxel_frontend::{
+    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
+    VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelSceneRevision,
+    VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+};
 #[cfg(target_os = "windows")]
 use windows_adapter::WindowsPresentationAdapter;
 #[cfg(target_os = "windows")]
@@ -72,10 +81,20 @@ impl ApplicationHandler for DesktopApplication {
             width: drawable_size.width,
             height: drawable_size.height,
         };
+        let render_path = match diagnostic_raster_render_path() {
+            Ok(render_path) => render_path,
+            Err(error) => {
+                self.application_error = Some(error);
+                event_loop.exit();
+                return;
+            }
+        };
+        let installed_revision = render_path.installed_source_revision();
         let backend = match RenderBackend::initialize(
             c"Voxel Nexus Desktop Demo",
             &adapter,
             initial_drawable_extent,
+            render_path,
         ) {
             Ok(backend) => backend,
             Err(error) => {
@@ -86,6 +105,9 @@ impl ApplicationHandler for DesktopApplication {
         };
         let diagnostic_report = backend.runtime_context().to_string();
         println!("{diagnostic_report}");
+        if let Some(source_revision) = installed_revision {
+            println!("Raster artifact revision: {source_revision}");
+        }
         let runtime_context = backend.runtime_context();
         window.set_title(&format!(
             "Voxel Nexus Vulkan Demo | {} | Vulkan {}.{}.{} | Validation errors: {}",
@@ -195,6 +217,55 @@ impl ApplicationHandler for DesktopApplication {
 }
 
 #[cfg(target_os = "windows")]
+fn diagnostic_raster_render_path() -> Result<RasterRenderPath, String> {
+    let warm = VoxelMaterialId::new("warm");
+    let green = VoxelMaterialId::new("green");
+    let blue = VoxelMaterialId::new("blue");
+    let volume_identity = VoxelVolumeId::new("diagnostic-volume");
+    let extent = VoxelExtent::new(3, 2, 2);
+    let values = vec![
+        VoxelValue::Occupied(warm.clone()),
+        VoxelValue::Occupied(warm.clone()),
+        VoxelValue::Occupied(blue.clone()),
+        VoxelValue::Occupied(warm.clone()),
+        VoxelValue::Empty,
+        VoxelValue::Occupied(blue.clone()),
+        VoxelValue::Occupied(green.clone()),
+        VoxelValue::Occupied(green.clone()),
+        VoxelValue::Occupied(blue.clone()),
+        VoxelValue::Empty,
+        VoxelValue::Occupied(green.clone()),
+        VoxelValue::Occupied(blue.clone()),
+    ];
+    let scene = DenseVoxelScene::new(
+        VoxelSceneId::new("desktop-diagnostic-scene"),
+        VoxelSceneRevision::new(41),
+        vec![
+            VoxelMaterial::new(warm, [0.95, 0.22, 0.1, 1.0]),
+            VoxelMaterial::new(green, [0.12, 0.75, 0.28, 1.0]),
+            VoxelMaterial::new(blue, [0.1, 0.32, 0.95, 1.0]),
+        ],
+        vec![DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(volume_identity.clone(), extent, [-1.5, -1.0, -1.0], 1.0),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                values,
+            )],
+        )],
+    );
+    let view = VoxelFrontend::new()
+        .publish(scene)
+        .map_err(|error| format!("could not publish the diagnostic Voxel Scene: {error}"))?;
+    let artifact = derive_raster_artifact(&view, &volume_identity)
+        .map_err(|error| format!("could not derive the diagnostic raster artifact: {error}"))?;
+    let mut render_path = RasterRenderPath::new();
+    render_path
+        .install_artifact(artifact)
+        .map_err(|error| error.to_string())?;
+    Ok(render_path)
+}
+
+#[cfg(target_os = "windows")]
 fn run() -> Result<(), String> {
     if let Some(diagnostic_result) = render_path_failure_diagnostic(std::env::args().skip(1)) {
         return diagnostic_result;
@@ -235,6 +306,14 @@ fn render_path_failure_diagnostic(
         Some("release") => Ok(RenderPathPhase::Release),
         Some("configure") => Ok(RenderPathPhase::Configure),
         Some("record") => Ok(RenderPathPhase::Record),
+        Some("upload") => {
+            return Some(Err(RasterArtifactInstallationError::new(
+                RasterArtifactInstallationPhase::Upload,
+                VoxelSceneRevision::new(41),
+                Box::new(InjectedRenderPathFailure),
+            )
+            .to_string()));
+        }
         Some(phase) => Err(format!(
             "unknown Render Path phase {phase:?}; expected release, configure, or record"
         )),

@@ -311,8 +311,10 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "ash-window",
+ "raster-render-path",
  "raw-window-handle",
  "render-backend",
+ "voxel-frontend",
  "winit",
 ]
 
@@ -1028,6 +1030,9 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 name = "raster-render-path"
 version = "0.1.0"
 dependencies = [
+ "ash",
+ "render-backend",
+ "shaderc",
  "thiserror 2.0.18",
  "voxel-frontend",
 ]
@@ -1073,7 +1078,6 @@ name = "render-backend"
 version = "0.1.0"
 dependencies = [
  "ash",
- "shaderc",
  "thiserror 2.0.18",
 ]
 

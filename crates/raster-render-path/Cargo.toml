@@ -7,5 +7,10 @@ edition = "2024"
 path = "src/raster_render_path.rs"
 
 [dependencies]
+ash = "0.38.0"
+render-backend = { path = "../render-backend" }
 thiserror = "2.0.18"
 voxel-frontend = { path = "../voxel-frontend" }
+
+[build-dependencies]
+shaderc = "0.10.1"

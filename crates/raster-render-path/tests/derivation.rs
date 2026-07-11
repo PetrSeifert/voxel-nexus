@@ -1,4 +1,4 @@
-use raster_render_path::{AxisNormal, SemanticFace, derive_raster_artifact};
+use raster_render_path::{AxisNormal, RasterRenderPath, SemanticFace, derive_raster_artifact};
 use std::collections::HashSet;
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
@@ -394,5 +394,24 @@ fn occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permu
             .all(|artifact| face_set(artifact) == expected)
     );
 
+    Ok(())
+}
+
+#[test]
+fn render_path_installs_one_complete_revision_tagged_artifact()
+-> Result<(), Box<dyn std::error::Error>> {
+    let view = published_view(
+        VoxelExtent::new(1, 1, 1),
+        vec![VoxelValue::Occupied(VoxelMaterialId::new("stone"))],
+    )?;
+    let artifact = derive_raster_artifact(&view, &VoxelVolumeId::new("diagnostic"))?;
+    let mut render_path = RasterRenderPath::new();
+
+    render_path.install_artifact(artifact)?;
+
+    assert_eq!(
+        render_path.installed_source_revision(),
+        Some(VoxelSceneRevision::new(41))
+    );
     Ok(())
 }

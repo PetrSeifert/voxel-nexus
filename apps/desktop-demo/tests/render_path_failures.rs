@@ -46,3 +46,18 @@ fn every_render_path_phase_failure_reaches_the_application_boundary()
     }
     Ok(())
 }
+
+#[test]
+fn raster_upload_failure_reaches_the_application_boundary_with_source_revision()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = run_diagnostic("upload")?;
+    let standard_error = String::from_utf8(output.stderr)?;
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(standard_error.contains("Voxel Nexus could not start"));
+    assert!(standard_error.contains("raster artifact upload failed"));
+    assert!(standard_error.contains("Voxel Scene Revision 41"));
+    assert!(standard_error.contains("injected proof failure"));
+    assert!(!standard_error.contains("panicked"));
+    Ok(())
+}

@@ -5,19 +5,18 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn Error>> {
-    println!("cargo:rerun-if-changed=shaders/triangle.vert");
-    println!("cargo:rerun-if-changed=shaders/triangle.frag");
-
+    println!("cargo:rerun-if-changed=shaders/raster.vert");
+    println!("cargo:rerun-if-changed=shaders/raster.frag");
     let output_directory = PathBuf::from(env::var("OUT_DIR")?);
     compile_shader(
-        "shaders/triangle.vert",
+        "shaders/raster.vert",
         ShaderKind::Vertex,
-        output_directory.join("triangle.vert.spv"),
+        output_directory.join("raster.vert.spv"),
     )?;
     compile_shader(
-        "shaders/triangle.frag",
+        "shaders/raster.frag",
         ShaderKind::Fragment,
-        output_directory.join("triangle.frag.spv"),
+        output_directory.join("raster.frag.spv"),
     )?;
     Ok(())
 }

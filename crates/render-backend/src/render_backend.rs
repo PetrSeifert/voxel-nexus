@@ -1,7 +1,6 @@
 use ash::{Entry, Instance, vk};
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::fmt;
-use std::io::Cursor;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -372,9 +371,138 @@ impl RenderPathFrameTarget<'_> {
 
 pub struct RenderPathDeviceContext<'device> {
     device: &'device ash::Device,
+    memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
 impl RenderPathDeviceContext<'_> {
+    pub fn memory_type_index(
+        &self,
+        memory_type_bits: u32,
+        required_properties: vk::MemoryPropertyFlags,
+    ) -> Option<u32> {
+        self.memory_properties
+            .memory_types
+            .iter()
+            .take(usize::try_from(self.memory_properties.memory_type_count).ok()?)
+            .enumerate()
+            .find(|(index, memory_type)| {
+                u32::try_from(*index)
+                    .ok()
+                    .and_then(|index| 1_u32.checked_shl(index))
+                    .is_some_and(|bit| memory_type_bits & bit != 0)
+                    && memory_type.property_flags.contains(required_properties)
+            })
+            .and_then(|(index, _)| u32::try_from(index).ok())
+    }
+
+    /// # Safety
+    /// Every queue-family index and pointer in `create_info` must be valid for this device.
+    pub unsafe fn create_buffer(
+        &self,
+        create_info: &vk::BufferCreateInfo<'_>,
+    ) -> Result<vk::Buffer, vk::Result> {
+        unsafe { self.device.create_buffer(create_info, None) }
+    }
+
+    /// # Safety
+    /// `buffer` must be a live buffer created by this device.
+    pub unsafe fn buffer_memory_requirements(&self, buffer: vk::Buffer) -> vk::MemoryRequirements {
+        unsafe { self.device.get_buffer_memory_requirements(buffer) }
+    }
+
+    /// # Safety
+    /// The allocation size and memory type must be valid for this device.
+    pub unsafe fn allocate_memory(
+        &self,
+        allocate_info: &vk::MemoryAllocateInfo<'_>,
+    ) -> Result<vk::DeviceMemory, vk::Result> {
+        unsafe { self.device.allocate_memory(allocate_info, None) }
+    }
+
+    /// # Safety
+    /// Both handles must belong to this device and satisfy the buffer memory requirements.
+    pub unsafe fn bind_buffer_memory(
+        &self,
+        buffer: vk::Buffer,
+        memory: vk::DeviceMemory,
+    ) -> Result<(), vk::Result> {
+        unsafe { self.device.bind_buffer_memory(buffer, memory, 0) }
+    }
+
+    /// # Safety
+    /// `memory` must be host-visible, coherent, and allocated for at least `bytes.len()` bytes.
+    pub unsafe fn write_memory(
+        &self,
+        memory: vk::DeviceMemory,
+        bytes: &[u8],
+    ) -> Result<(), vk::Result> {
+        let size = u64::try_from(bytes.len()).map_err(|_| vk::Result::ERROR_OUT_OF_HOST_MEMORY)?;
+        let destination = unsafe {
+            self.device
+                .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?
+        };
+        unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination.cast(), bytes.len()) };
+        unsafe { self.device.unmap_memory(memory) };
+        Ok(())
+    }
+
+    /// # Safety
+    /// `buffer` must belong to this device and no submitted work may still use it.
+    pub unsafe fn destroy_buffer(&self, buffer: vk::Buffer) {
+        unsafe { self.device.destroy_buffer(buffer, None) };
+    }
+
+    /// # Safety
+    /// `memory` must belong to this device and no live resource may remain bound to it.
+    pub unsafe fn free_memory(&self, memory: vk::DeviceMemory) {
+        unsafe { self.device.free_memory(memory, None) };
+    }
+
+    /// # Safety
+    /// Every pointer and queue-family index in `create_info` must be valid for this device.
+    pub unsafe fn create_image(
+        &self,
+        create_info: &vk::ImageCreateInfo<'_>,
+    ) -> Result<vk::Image, vk::Result> {
+        unsafe { self.device.create_image(create_info, None) }
+    }
+
+    /// # Safety
+    /// `image` must be a live image created by this device.
+    pub unsafe fn image_memory_requirements(&self, image: vk::Image) -> vk::MemoryRequirements {
+        unsafe { self.device.get_image_memory_requirements(image) }
+    }
+
+    /// # Safety
+    /// Both handles must belong to this device and satisfy the image memory requirements.
+    pub unsafe fn bind_image_memory(
+        &self,
+        image: vk::Image,
+        memory: vk::DeviceMemory,
+    ) -> Result<(), vk::Result> {
+        unsafe { self.device.bind_image_memory(image, memory, 0) }
+    }
+
+    /// # Safety
+    /// The referenced image and subresource range must be valid for this device.
+    pub unsafe fn create_image_view(
+        &self,
+        create_info: &vk::ImageViewCreateInfo<'_>,
+    ) -> Result<vk::ImageView, vk::Result> {
+        unsafe { self.device.create_image_view(create_info, None) }
+    }
+
+    /// # Safety
+    /// `image_view` must belong to this device and no submitted work may still use it.
+    pub unsafe fn destroy_image_view(&self, image_view: vk::ImageView) {
+        unsafe { self.device.destroy_image_view(image_view, None) };
+    }
+
+    /// # Safety
+    /// `image` must belong to this device and no submitted work or live view may use it.
+    pub unsafe fn destroy_image(&self, image: vk::Image) {
+        unsafe { self.device.destroy_image(image, None) };
+    }
     /// # Safety
     ///
     /// Every handle and pointer referenced by `create_info` must be valid for this device.
@@ -426,9 +554,10 @@ impl RenderPathDeviceContext<'_> {
         &self,
         render_pass: vk::RenderPass,
         attachment: &RenderPathAttachment<'_>,
+        depth_attachment: vk::ImageView,
         extent: vk::Extent2D,
     ) -> Result<vk::Framebuffer, vk::Result> {
-        let attachments = [attachment.view];
+        let attachments = [attachment.view, depth_attachment];
         let create_info = vk::FramebufferCreateInfo::default()
             .render_pass(render_pass)
             .attachments(&attachments)
@@ -506,6 +635,47 @@ impl RenderPathFrameContext<'_> {
         unsafe {
             self.device
                 .cmd_bind_pipeline(self.command_buffer, bind_point, pipeline)
+        };
+    }
+
+    /// # Safety
+    /// A compatible live vertex buffer must be supplied during command recording.
+    pub unsafe fn bind_vertex_buffer(&self, buffer: vk::Buffer) {
+        unsafe {
+            self.device
+                .cmd_bind_vertex_buffers(self.command_buffer, 0, &[buffer], &[0])
+        };
+    }
+
+    /// # Safety
+    /// A live `u32` index buffer must be supplied during command recording.
+    pub unsafe fn bind_index_buffer(&self, buffer: vk::Buffer) {
+        unsafe {
+            self.device
+                .cmd_bind_index_buffer(self.command_buffer, buffer, 0, vk::IndexType::UINT32)
+        };
+    }
+
+    /// # Safety
+    /// `layout` must declare a vertex push-constant range covering all supplied bytes.
+    pub unsafe fn push_vertex_constants(&self, layout: vk::PipelineLayout, bytes: &[u8]) {
+        unsafe {
+            self.device.cmd_push_constants(
+                self.command_buffer,
+                layout,
+                vk::ShaderStageFlags::VERTEX,
+                0,
+                bytes,
+            )
+        };
+    }
+
+    /// # Safety
+    /// All graphics state and buffers required for the indexed draw must be valid and bound.
+    pub unsafe fn draw_indexed(&self, index_count: u32) {
+        unsafe {
+            self.device
+                .cmd_draw_indexed(self.command_buffer, index_count, 1, 0, 0, 0)
         };
     }
 
@@ -590,23 +760,11 @@ pub struct RenderBackend {
     swapchain_needs_recreation: bool,
     next_configuration_id: u64,
     path_is_configured: bool,
+    memory_properties: vk::PhysicalDeviceMemoryProperties,
 }
 
 impl RenderBackend {
     pub fn initialize(
-        application_name: &CStr,
-        adapter: &impl PresentationAdapter,
-        initial_drawable_extent: vk::Extent2D,
-    ) -> Result<Self, BackendError> {
-        Self::initialize_with_path(
-            application_name,
-            adapter,
-            initial_drawable_extent,
-            TriangleRenderPath::default(),
-        )
-    }
-
-    pub fn initialize_with_path(
         application_name: &CStr,
         adapter: &impl PresentationAdapter,
         initial_drawable_extent: vk::Extent2D,
@@ -619,6 +777,11 @@ impl RenderBackend {
 
         let inspected_devices = inspect_devices(&presentation)?;
         let selected_device = select_inspected_device(inspected_devices)?;
+        let memory_properties = unsafe {
+            presentation
+                .instance
+                .get_physical_device_memory_properties(selected_device.physical_device)
+        };
         let device = LogicalDevice::new(&presentation.instance, &selected_device)?;
         let graphics_queue =
             unsafe { device.get_device_queue(selected_device.graphics_queue_family_index, 0) };
@@ -650,6 +813,7 @@ impl RenderBackend {
             swapchain_needs_recreation: false,
             next_configuration_id: 1,
             path_is_configured: false,
+            memory_properties,
         };
         backend.configure_path()?;
         Ok(backend)
@@ -726,6 +890,7 @@ impl RenderBackend {
             self.path.configure(
                 RenderPathDeviceContext {
                     device: &self.device,
+                    memory_properties: self.memory_properties,
                 },
                 rendering.render_path_target(),
             )
@@ -740,6 +905,7 @@ impl RenderBackend {
         run_render_path_phase(RenderPathPhase::Release, || {
             self.path.release(RenderPathDeviceContext {
                 device: &self.device,
+                memory_properties: self.memory_properties,
             })
         })?;
         self.path_is_configured = false;
@@ -859,291 +1025,6 @@ impl ValidationDiagnostics {
     fn error_count(&self) -> usize {
         self.errors.load(Ordering::SeqCst)
     }
-}
-
-#[derive(Default)]
-pub struct TriangleRenderPath {
-    render_pass: vk::RenderPass,
-    pipeline_layout: vk::PipelineLayout,
-    pipeline: vk::Pipeline,
-    framebuffers: Vec<vk::Framebuffer>,
-    configured_attachments: Vec<RenderPathAttachmentIdentity>,
-    configuration_id: Option<PresentationConfigurationId>,
-}
-
-#[derive(Debug, Error)]
-enum TriangleRenderPathError {
-    #[error("could not read a reproducibly built shader artifact: {0}")]
-    ReadShaderArtifact(#[from] std::io::Error),
-    #[error("could not create a Vulkan render pass: {0}")]
-    CreateRenderPass(vk::Result),
-    #[error("could not create a Vulkan shader module: {0}")]
-    CreateShaderModule(vk::Result),
-    #[error("could not create a Vulkan graphics pipeline layout: {0}")]
-    CreatePipelineLayout(vk::Result),
-    #[error("could not create the Vulkan triangle graphics pipeline: {0}")]
-    CreateGraphicsPipeline(vk::Result),
-    #[error("could not create a Vulkan framebuffer: {0}")]
-    CreateFramebuffer(vk::Result),
-    #[error("the frame target does not belong to the configured presentation target")]
-    StaleFrameTarget,
-    #[error("the configured presentation target has no framebuffer for the acquired image")]
-    MissingFramebuffer,
-}
-
-impl RenderPath for TriangleRenderPath {
-    fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
-        self.release_resources(&device);
-        Ok(())
-    }
-
-    fn configure(
-        &mut self,
-        device: RenderPathDeviceContext<'_>,
-        target: RenderPathTarget<'_>,
-    ) -> RenderPathResult<()> {
-        let result = self.configure_resources(&device, target);
-        if result.is_err() {
-            self.release_resources(&device);
-        }
-        result.map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
-    }
-
-    fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
-        let target = frame.target();
-        if self.configuration_id != Some(target.configuration_id()) {
-            return Err(Box::new(TriangleRenderPathError::StaleFrameTarget));
-        }
-        let framebuffer_index = self
-            .configured_attachments
-            .iter()
-            .position(|identity| *identity == target.attachment().identity())
-            .ok_or(TriangleRenderPathError::MissingFramebuffer)?;
-        let framebuffer = self
-            .framebuffers
-            .get(framebuffer_index)
-            .copied()
-            .ok_or(TriangleRenderPathError::MissingFramebuffer)?;
-        let clear_values = [vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.03, 0.04, 0.08, 1.0],
-            },
-        }];
-        let render_pass_info = vk::RenderPassBeginInfo::default()
-            .render_pass(self.render_pass)
-            .framebuffer(framebuffer)
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D::default(),
-                extent: target.extent(),
-            })
-            .clear_values(&clear_values);
-        unsafe {
-            frame.begin_render_pass(&render_pass_info, vk::SubpassContents::INLINE);
-            frame.bind_pipeline(vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-            frame.draw(3, 1, 0, 0);
-            frame.end_render_pass();
-        }
-        Ok(())
-    }
-}
-
-impl TriangleRenderPath {
-    fn configure_resources(
-        &mut self,
-        device: &RenderPathDeviceContext<'_>,
-        target: RenderPathTarget<'_>,
-    ) -> Result<(), TriangleRenderPathError> {
-        self.create_render_pass(device, target.format())?;
-        self.create_graphics_pipeline(device, target.extent())?;
-        for attachment in target.attachments() {
-            let framebuffer = unsafe {
-                device.create_framebuffer(self.render_pass, &attachment, target.extent())
-            }
-            .map_err(TriangleRenderPathError::CreateFramebuffer)?;
-            self.framebuffers.push(framebuffer);
-            self.configured_attachments.push(attachment.identity());
-        }
-        self.configuration_id = Some(target.configuration_id());
-        Ok(())
-    }
-
-    fn create_render_pass(
-        &mut self,
-        device: &RenderPathDeviceContext<'_>,
-        format: vk::Format,
-    ) -> Result<(), TriangleRenderPathError> {
-        let attachment = vk::AttachmentDescription::default()
-            .format(format)
-            .samples(vk::SampleCountFlags::TYPE_1)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .initial_layout(vk::ImageLayout::UNDEFINED)
-            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
-        let color_attachment = vk::AttachmentReference::default()
-            .attachment(0)
-            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
-        let color_attachments = [color_attachment];
-        let subpass = vk::SubpassDescription::default()
-            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-            .color_attachments(&color_attachments);
-        let dependency = vk::SubpassDependency::default()
-            .src_subpass(vk::SUBPASS_EXTERNAL)
-            .dst_subpass(0)
-            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
-        let attachments = [attachment];
-        let subpasses = [subpass];
-        let dependencies = [dependency];
-        let create_info = vk::RenderPassCreateInfo::default()
-            .attachments(&attachments)
-            .subpasses(&subpasses)
-            .dependencies(&dependencies);
-        self.render_pass = unsafe { device.create_render_pass(&create_info) }
-            .map_err(TriangleRenderPathError::CreateRenderPass)?;
-        Ok(())
-    }
-
-    fn create_graphics_pipeline(
-        &mut self,
-        device: &RenderPathDeviceContext<'_>,
-        extent: vk::Extent2D,
-    ) -> Result<(), TriangleRenderPathError> {
-        let vertex_code = ash::util::read_spv(&mut Cursor::new(include_bytes!(concat!(
-            env!("OUT_DIR"),
-            "/triangle.vert.spv"
-        ))))?;
-        let fragment_code = ash::util::read_spv(&mut Cursor::new(include_bytes!(concat!(
-            env!("OUT_DIR"),
-            "/triangle.frag.spv"
-        ))))?;
-        let vertex_module = triangle_shader_module(device, &vertex_code)?;
-        let fragment_module = match triangle_shader_module(device, &fragment_code) {
-            Ok(module) => module,
-            Err(error) => {
-                unsafe { device.destroy_shader_module(vertex_module) };
-                return Err(error);
-            }
-        };
-        let result =
-            self.create_pipeline_with_modules(device, extent, vertex_module, fragment_module);
-        unsafe {
-            device.destroy_shader_module(fragment_module);
-            device.destroy_shader_module(vertex_module);
-        }
-        result
-    }
-
-    fn create_pipeline_with_modules(
-        &mut self,
-        device: &RenderPathDeviceContext<'_>,
-        extent: vk::Extent2D,
-        vertex_module: vk::ShaderModule,
-        fragment_module: vk::ShaderModule,
-    ) -> Result<(), TriangleRenderPathError> {
-        let vertex_stage = vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vertex_module)
-            .name(c"main");
-        let fragment_stage = vk::PipelineShaderStageCreateInfo::default()
-            .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(fragment_module)
-            .name(c"main");
-        let shader_stages = [vertex_stage, fragment_stage];
-        let vertex_input = vk::PipelineVertexInputStateCreateInfo::default();
-        let input_assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
-            .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
-        let viewports = [vk::Viewport {
-            x: 0.0,
-            y: 0.0,
-            width: extent.width as f32,
-            height: extent.height as f32,
-            min_depth: 0.0,
-            max_depth: 1.0,
-        }];
-        let scissors = [vk::Rect2D {
-            offset: vk::Offset2D::default(),
-            extent,
-        }];
-        let viewport_state = vk::PipelineViewportStateCreateInfo::default()
-            .viewports(&viewports)
-            .scissors(&scissors);
-        let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
-            .polygon_mode(vk::PolygonMode::FILL)
-            .cull_mode(vk::CullModeFlags::NONE)
-            .front_face(vk::FrontFace::CLOCKWISE)
-            .line_width(1.0);
-        let multisample = vk::PipelineMultisampleStateCreateInfo::default()
-            .rasterization_samples(vk::SampleCountFlags::TYPE_1);
-        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
-            .color_write_mask(vk::ColorComponentFlags::RGBA)];
-        let color_blend =
-            vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments);
-        self.pipeline_layout =
-            unsafe { device.create_pipeline_layout(&vk::PipelineLayoutCreateInfo::default()) }
-                .map_err(TriangleRenderPathError::CreatePipelineLayout)?;
-        let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
-            .stages(&shader_stages)
-            .vertex_input_state(&vertex_input)
-            .input_assembly_state(&input_assembly)
-            .viewport_state(&viewport_state)
-            .rasterization_state(&rasterization)
-            .multisample_state(&multisample)
-            .color_blend_state(&color_blend)
-            .layout(self.pipeline_layout)
-            .render_pass(self.render_pass)
-            .subpass(0);
-        match unsafe {
-            device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info])
-        } {
-            Ok(mut pipelines) => {
-                self.pipeline =
-                    pipelines
-                        .pop()
-                        .ok_or(TriangleRenderPathError::CreateGraphicsPipeline(
-                            vk::Result::ERROR_UNKNOWN,
-                        ))?;
-                Ok(())
-            }
-            Err((pipelines, error)) => {
-                for pipeline in pipelines {
-                    unsafe { device.destroy_pipeline(pipeline) };
-                }
-                Err(TriangleRenderPathError::CreateGraphicsPipeline(error))
-            }
-        }
-    }
-
-    fn release_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
-        unsafe {
-            for framebuffer in self.framebuffers.drain(..) {
-                device.destroy_framebuffer(framebuffer);
-            }
-            if self.pipeline != vk::Pipeline::null() {
-                device.destroy_pipeline(self.pipeline);
-                self.pipeline = vk::Pipeline::null();
-            }
-            if self.pipeline_layout != vk::PipelineLayout::null() {
-                device.destroy_pipeline_layout(self.pipeline_layout);
-                self.pipeline_layout = vk::PipelineLayout::null();
-            }
-            if self.render_pass != vk::RenderPass::null() {
-                device.destroy_render_pass(self.render_pass);
-                self.render_pass = vk::RenderPass::null();
-            }
-        }
-        self.configured_attachments.clear();
-        self.configuration_id = None;
-    }
-}
-
-fn triangle_shader_module(
-    device: &RenderPathDeviceContext<'_>,
-    code: &[u32],
-) -> Result<vk::ShaderModule, TriangleRenderPathError> {
-    let create_info = vk::ShaderModuleCreateInfo::default().code(code);
-    unsafe { device.create_shader_module(&create_info) }
-        .map_err(TriangleRenderPathError::CreateShaderModule)
 }
 
 struct PresentationResources {

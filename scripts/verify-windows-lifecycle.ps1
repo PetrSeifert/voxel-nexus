@@ -227,15 +227,23 @@ function Save-ClientCapture {
         finally {
             $graphics.Dispose()
         }
-        $trianglePixels = 0L
+        $warmMaterialPixels = 0L
+        $greenMaterialPixels = 0L
+        $blueMaterialPixels = 0L
         $backgroundPixels = 0L
         $sampledPixels = 0L
         for ($y = 0; $y -lt $bitmap.Height; $y += 2) {
             for ($x = 0; $x -lt $bitmap.Width; $x += 2) {
                 $sampledPixels++
                 $pixel = $bitmap.GetPixel($x, $y)
-                if ($pixel.R -gt 200 -and ($pixel.R - $pixel.G) -gt 80 -and ($pixel.R - $pixel.B) -gt 60) {
-                    $trianglePixels++
+                if ($pixel.R -gt 120 -and ($pixel.R - $pixel.G) -gt 40 -and ($pixel.R - $pixel.B) -gt 50) {
+                    $warmMaterialPixels++
+                }
+                if ($pixel.G -gt 80 -and ($pixel.G - $pixel.R) -gt 20 -and ($pixel.G - $pixel.B) -gt 10) {
+                    $greenMaterialPixels++
+                }
+                if ($pixel.B -gt 90 -and ($pixel.B - $pixel.R) -gt 30 -and ($pixel.B - $pixel.G) -gt 10) {
+                    $blueMaterialPixels++
                 }
                 if ($pixel.R -lt 100 -and $pixel.G -lt 100 -and $pixel.B -lt 130) {
                     $backgroundPixels++
@@ -243,10 +251,13 @@ function Save-ClientCapture {
             }
         }
         $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
-        $triangleFraction = $trianglePixels / $sampledPixels
+        $warmMaterialFraction = $warmMaterialPixels / $sampledPixels
+        $greenMaterialFraction = $greenMaterialPixels / $sampledPixels
+        $blueMaterialFraction = $blueMaterialPixels / $sampledPixels
         $backgroundFraction = $backgroundPixels / $sampledPixels
-        if ($triangleFraction -lt 0.20 -or $triangleFraction -gt 0.25 -or $backgroundFraction -lt 0.74 -or $backgroundFraction -gt 0.80) {
-            throw "Capture $Name does not contain the expected complete triangle and background coverage (triangle: $triangleFraction; background: $backgroundFraction)."
+        $materialFraction = $warmMaterialFraction + $greenMaterialFraction + $blueMaterialFraction
+        if ($warmMaterialFraction -lt 0.005 -or $greenMaterialFraction -lt 0.005 -or $blueMaterialFraction -lt 0.005 -or $materialFraction -lt 0.03 -or $materialFraction -gt 0.16 -or $backgroundFraction -lt 0.84 -or $backgroundFraction -gt 0.97) {
+            throw "Capture $Name does not contain the expected warm, green, and blue voxel materials with clear background (warm: $warmMaterialFraction; green: $greenMaterialFraction; blue: $blueMaterialFraction; background: $backgroundFraction)."
         }
     }
     finally {
@@ -257,10 +268,14 @@ function Save-ClientCapture {
         File = [System.IO.Path]::GetFileName($path)
         Width = $area.Width
         Height = $area.Height
-        TriangleSamplePixels = $trianglePixels
+        WarmMaterialSamplePixels = $warmMaterialPixels
+        GreenMaterialSamplePixels = $greenMaterialPixels
+        BlueMaterialSamplePixels = $blueMaterialPixels
         BackgroundSamplePixels = $backgroundPixels
         SampledPixels = $sampledPixels
-        TriangleFraction = [Math]::Round($triangleFraction, 4)
+        WarmMaterialFraction = [Math]::Round($warmMaterialFraction, 4)
+        GreenMaterialFraction = [Math]::Round($greenMaterialFraction, 4)
+        BlueMaterialFraction = [Math]::Round($blueMaterialFraction, 4)
         BackgroundFraction = [Math]::Round($backgroundFraction, 4)
         Sha256 = (Get-FileHash -Algorithm SHA256 $path).Hash.ToLowerInvariant()
     }
@@ -319,7 +334,9 @@ function Capture-StablePresentation {
                         Width = $first.Width
                         Height = $first.Height
                         AspectRatio = [Math]::Round($first.Width / $first.Height, 3)
-                        TriangleSamplePixels = $first.TriangleSamplePixels
+                        WarmMaterialSamplePixels = $first.WarmMaterialSamplePixels
+                        GreenMaterialSamplePixels = $first.GreenMaterialSamplePixels
+                        BlueMaterialSamplePixels = $first.BlueMaterialSamplePixels
                         BackgroundSamplePixels = $first.BackgroundSamplePixels
                         MaterialDifferenceFraction = [Math]::Round($differenceFraction, 6)
                         CaptureSha256 = @($first.Sha256, $capture.Sha256)
@@ -365,13 +382,19 @@ try {
     }
 
     $renderPathFailures = @()
-    foreach ($phase in @("release", "configure", "record")) {
+    foreach ($phase in @("release", "configure", "record", "upload")) {
         $phaseResult = Invoke-CapturedProcess `
             -Executable $binaryPath `
             -Arguments @("--verify-render-path-failure", $phase) `
             -StandardOutputPath (Join-Path $evidencePath "render-path-$phase.stdout.log") `
             -StandardErrorPath (Join-Path $evidencePath "render-path-$phase.stderr.log")
-        if ($phaseResult.ExitCode -ne 1 -or $phaseResult.StandardError -notmatch "Render Path $phase failed: injected proof failure") {
+        $expectedFailure = if ($phase -eq "upload") {
+            "raster artifact upload failed for Voxel Scene Revision 41: injected proof failure"
+        }
+        else {
+            "Render Path $phase failed: injected proof failure"
+        }
+        if ($phaseResult.ExitCode -ne 1 -or $phaseResult.StandardError -notmatch [Regex]::Escape($expectedFailure)) {
             throw "Render Path phase $phase did not preserve its phase and source failure at the application boundary."
         }
         if ($phaseResult.StandardError -match "panicked") {
@@ -470,7 +493,7 @@ try {
         RepositoryRevision = $revision
         BuildProfile = "dev (unoptimized + debuginfo)"
         BuildCommand = "cargo build --locked --package desktop-demo"
-        ShaderArtifacts = "Generated from triangle.vert and triangle.frag by render-backend/build.rs during the Cargo build."
+        ShaderArtifacts = "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build."
         ValidationContext = "VK_LAYER_KHRONOS_validation required and enabled by the application."
         ValidationWarnings = $validationWarnings
         ValidationErrors = $validationErrors

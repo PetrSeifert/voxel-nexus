@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
@@ -35,6 +36,12 @@ pub struct VoxelSceneRevision(u64);
 impl VoxelSceneRevision {
     pub fn new(revision: u64) -> Self {
         Self(revision)
+    }
+}
+
+impl fmt::Display for VoxelSceneRevision {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
     }
 }
 

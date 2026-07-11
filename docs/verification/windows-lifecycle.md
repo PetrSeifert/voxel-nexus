@@ -10,7 +10,7 @@ These instructions reproduce the Vulkan desktop lifecycle proof on a Windows mac
 - A native C/C++ build toolchain and CMake for the `shaderc` build dependency.
 - PowerShell 7 (`pwsh`) and an interactive desktop session. The lifecycle runner captures the demo client area and cannot run in a headless session.
 
-The repository does not depend on precompiled shader files. `crates/render-backend/build.rs` compiles `triangle.vert` and `triangle.frag` into Vulkan 1.3 SPIR-V inside Cargo's build output. A clean checkout therefore needs no untracked shader artifact.
+The repository does not depend on precompiled shader files. `crates/raster-render-path/build.rs` compiles `raster.vert` and `raster.frag` into Vulkan 1.3 SPIR-V inside Cargo's build output. A clean checkout therefore needs no untracked shader artifact.
 
 From a fresh checkout, run:
 
@@ -27,26 +27,28 @@ The explicit build command proves the clean checkout can produce the executable 
 
 One validation-enabled `desktop-demo.exe` process is kept alive while the runner:
 
-1. captures two materially identical launch frames containing both the triangle and clear background;
+1. captures two materially identical launch frames containing warm, green, and blue material-colored voxel faces plus clear background;
 2. resizes to landscape and portrait extents and repeats the stable paired-frame check at each extent;
 3. minimizes the window and verifies its minimized state;
 4. restores the same process and repeats the stable paired-frame check;
 5. sends a normal window-close request and requires exit code 0 within ten seconds; and
 6. requires zero Vulkan validation warnings and zero Vulkan validation errors in the complete stderr log.
 
-The evidence directory contains a JSON manifest with the Git revision, build profile, Windows version, toolchain, validation context, lifecycle sequence, client extents, pixel counts, capture hashes, process result, and deterministic failure results. Raw stdout records the device, driver version, and Vulkan API version. Raw stderr is retained as the complete validation log, even when empty. PNG pairs make triangle presentation at each visible state auditable.
+The evidence directory contains a JSON manifest with the Git revision, build profile, Windows version, toolchain, validation context, lifecycle sequence, client extents, material pixel counts, capture hashes, process result, and deterministic failure results. Raw stdout records the device, driver version, Vulkan API version, and installed raster artifact revision. Raw stderr is retained as the complete validation log, even when empty. PNG pairs make material-colored, depth-correct exposed voxel faces at each visible state auditable.
 
 ## Deterministic failures
 
 The lifecycle runner separately invokes these deterministic diagnostics:
 
-- Render Path release, configure, and record failures, each retaining phase and injected source context at the desktop application boundary; and
+- Render Path release, configure, and record failures, each retaining phase and injected source context at the desktop application boundary;
+- raster artifact upload failure retaining installation phase, Voxel Scene Revision 41, and injected source context at that boundary; and
 - Vulkan 1.2 and unavailable-presentation prerequisites, each retaining actionable qualification context.
 
 ```powershell
 target\debug\desktop-demo.exe --verify-render-path-failure release
 target\debug\desktop-demo.exe --verify-render-path-failure configure
 target\debug\desktop-demo.exe --verify-render-path-failure record
+target\debug\desktop-demo.exe --verify-render-path-failure upload
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite vulkan-1.2
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite presentation
 ```
