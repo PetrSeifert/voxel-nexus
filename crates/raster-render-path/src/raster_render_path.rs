@@ -104,6 +104,8 @@ pub struct RasterVertex {
     linear_base_color: [f32; 4],
 }
 
+const _: () = assert!(size_of::<RasterVertex>() == 10 * size_of::<f32>());
+
 impl RasterVertex {
     pub fn position(&self) -> [f32; 3] {
         self.position
@@ -224,12 +226,8 @@ impl RasterRenderPath {
         Self::default()
     }
 
-    pub fn install_artifact(
-        &mut self,
-        artifact: RasterArtifact,
-    ) -> Result<(), RasterArtifactInstallationError> {
+    pub fn install_artifact(&mut self, artifact: RasterArtifact) {
         self.artifact = Some(artifact);
-        Ok(())
     }
 
     pub fn installed_source_revision(&self) -> Option<VoxelSceneRevision> {
@@ -753,6 +751,10 @@ enum RasterResourceError {
     MissingArtifact,
     #[error("the raster artifact index count cannot be represented for indexed drawing")]
     IndexCount,
+    #[error("the Raster Vertex stride cannot be represented for graphics state")]
+    VertexStride,
+    #[error("the static {0} buffer byte length cannot be represented by Vulkan")]
+    BufferSize(&'static str),
     #[error("could not create the static {kind} buffer: {source}")]
     CreateBuffer {
         kind: &'static str,
@@ -811,7 +813,9 @@ impl RasterResourceError {
             | Self::AllocateBufferMemory { .. }
             | Self::BindBufferMemory { .. }
             | Self::UploadBuffer { .. }
-            | Self::IndexCount => RasterArtifactInstallationPhase::Upload,
+            | Self::IndexCount
+            | Self::VertexStride
+            | Self::BufferSize(_) => RasterArtifactInstallationPhase::Upload,
             _ => RasterArtifactInstallationPhase::PresentationConfiguration,
         }
     }
@@ -881,7 +885,7 @@ impl RasterRenderPath {
         if !artifact.vertices().is_empty() {
             let vertex = create_static_buffer(
                 device,
-                raw_bytes(artifact.vertices()),
+                raster_vertex_bytes(artifact.vertices()),
                 vk::BufferUsageFlags::VERTEX_BUFFER,
                 "vertex",
             )?;
@@ -891,7 +895,7 @@ impl RasterRenderPath {
         if !artifact.indices().is_empty() {
             let index = create_static_buffer(
                 device,
-                raw_bytes(artifact.indices()),
+                u32_bytes(artifact.indices()),
                 vk::BufferUsageFlags::INDEX_BUFFER,
                 "index",
             )?;
@@ -1079,7 +1083,7 @@ impl RasterRenderPath {
         let binding = [vk::VertexInputBindingDescription {
             binding: 0,
             stride: u32::try_from(size_of::<RasterVertex>())
-                .map_err(|_| RasterResourceError::IndexCount)?,
+                .map_err(|_| RasterResourceError::VertexStride)?,
             input_rate: vk::VertexInputRate::VERTEX,
         }];
         let attributes = [
@@ -1221,7 +1225,7 @@ impl RasterRenderPath {
                 frame.bind_vertex_buffer(self.vertex_buffer);
                 frame.bind_index_buffer(self.index_buffer);
                 frame
-                    .push_vertex_constants(self.pipeline_layout, raw_bytes(&self.camera_constants));
+                    .push_vertex_constants(self.pipeline_layout, f32_bytes(&self.camera_constants));
                 frame.draw_indexed(self.index_count);
             }
             frame.end_render_pass();
@@ -1292,7 +1296,7 @@ fn create_static_buffer(
     usage: vk::BufferUsageFlags,
     kind: &'static str,
 ) -> Result<StaticBuffer, RasterResourceError> {
-    let size = u64::try_from(bytes.len()).map_err(|_| RasterResourceError::IndexCount)?;
+    let size = u64::try_from(bytes.len()).map_err(|_| RasterResourceError::BufferSize(kind))?;
     let create_info = vk::BufferCreateInfo::default()
         .size(size)
         .usage(usage)
@@ -1346,8 +1350,21 @@ fn create_shader_module(
         .map_err(RasterResourceError::CreateShaderModule)
 }
 
-fn raw_bytes<T>(values: &[T]) -> &[u8] {
+fn raster_vertex_bytes(values: &[RasterVertex]) -> &[u8] {
     let byte_length = std::mem::size_of_val(values);
+    // RasterVertex is repr(C), contains only f32 arrays, and has no padding at its checked size.
+    unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
+}
+
+fn u32_bytes(values: &[u32]) -> &[u8] {
+    let byte_length = std::mem::size_of_val(values);
+    // Every u32 bit pattern is initialized data and valid to read as bytes.
+    unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
+}
+
+fn f32_bytes(values: &[f32]) -> &[u8] {
+    let byte_length = std::mem::size_of_val(values);
+    // Every f32 bit pattern is initialized data and valid to read as bytes.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 

@@ -407,7 +407,7 @@ fn render_path_installs_one_complete_revision_tagged_artifact()
     let artifact = derive_raster_artifact(&view, &VoxelVolumeId::new("diagnostic"))?;
     let mut render_path = RasterRenderPath::new();
 
-    render_path.install_artifact(artifact)?;
+    render_path.install_artifact(artifact);
 
     assert_eq!(
         render_path.installed_source_revision(),

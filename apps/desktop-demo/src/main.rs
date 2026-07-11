@@ -259,9 +259,7 @@ fn diagnostic_raster_render_path() -> Result<RasterRenderPath, String> {
     let artifact = derive_raster_artifact(&view, &volume_identity)
         .map_err(|error| format!("could not derive the diagnostic raster artifact: {error}"))?;
     let mut render_path = RasterRenderPath::new();
-    render_path
-        .install_artifact(artifact)
-        .map_err(|error| error.to_string())?;
+    render_path.install_artifact(artifact);
     Ok(render_path)
 }
 
