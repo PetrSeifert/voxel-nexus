@@ -53,31 +53,6 @@ function Invoke-CapturedProcess {
     }
 }
 
-function Get-DistributionSummary {
-    param([Parameter(Mandatory)] [double[]]$Samples)
-
-    if ($Samples.Count -eq 0) {
-        throw "Cannot summarize an empty timing distribution."
-    }
-    if ($Samples.Where({ -not [double]::IsFinite($_) -or $_ -lt 0 }).Count -ne 0) {
-        throw "Timing distributions must contain only finite, non-negative samples."
-    }
-    [array]::Sort($Samples)
-    $middle = [Math]::Floor($Samples.Count / 2)
-    $median = if ($Samples.Count % 2 -eq 0) {
-        ($Samples[$middle - 1] + $Samples[$middle]) / 2.0
-    } else {
-        $Samples[$middle]
-    }
-    $p95Index = [Math]::Ceiling($Samples.Count * 0.95) - 1
-    [ordered]@{
-        Count = $Samples.Count
-        MedianMilliseconds = $median
-        P95Milliseconds = $Samples[$p95Index]
-        MaximumMilliseconds = $Samples[-1]
-    }
-}
-
 function Read-Events {
     param([Parameter(Mandatory)] [string]$Path)
 
@@ -128,6 +103,7 @@ function Read-RuntimeContext {
         Device = "(?m)^Vulkan device: (.+)$"
         DriverVersion = "(?m)^Driver version: (.+)$"
         ApiVersion = "(?m)^Vulkan API version: (.+)$"
+        DrawableExtent = "(?m)^Vulkan drawable extent: (.+)$"
         Validation = "(?m)^Vulkan validation: (.+)$"
         PresentMode = "(?m)^Vulkan present mode: (.+)$"
         TimestampValidBits = "(?m)^GPU timestamp valid bits: (.+)$"
@@ -194,9 +170,9 @@ function Write-ComparisonChart {
 
     $colors = @("#4c78a8", "#f58518", "#54a24b")
     $panels = @(
-        @{ Name = "First correct frame median (ms)"; Value = { param($scale) $scale.FirstCorrectFrame.Total.MedianMilliseconds } },
-        @{ Name = "Steady CPU frame median (ms)"; Value = { param($scale) $scale.SteadyState.CpuFrame.MedianMilliseconds } },
-        @{ Name = "Steady GPU frame median (ms)"; Value = { param($scale) $scale.SteadyState.GpuFrame.MedianMilliseconds } }
+        @{ Name = "First correct frame median (ms)"; Value = { param($scale) $scale.FirstCorrectFrame.Total.median } },
+        @{ Name = "Steady CPU frame median (ms)"; Value = { param($scale) $scale.SteadyState.CpuFrame.median } },
+        @{ Name = "Steady GPU frame median (ms)"; Value = { param($scale) $scale.SteadyState.GpuFrame.median } }
     )
     $svg = [System.Text.StringBuilder]::new()
     [void]$svg.AppendLine('<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">')
@@ -239,7 +215,7 @@ if (Test-Path -LiteralPath $outputPath) {
 [System.IO.Directory]::CreateDirectory($outputPath) | Out-Null
 
 $build = Invoke-CapturedProcess -FilePath "cargo" `
-    -Arguments @("build", "--locked", "--release", "--package", "desktop-demo") `
+    -Arguments @("build", "--locked", "--release", "--package", "desktop-demo", "--package", "measurement-evidence") `
     -StandardOutputPath (Join-Path $outputPath "build.stdout.log") `
     -StandardErrorPath (Join-Path $outputPath "build.stderr.log")
 if ($build.ExitCode -ne 0) {
@@ -272,6 +248,7 @@ $diagnostics | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $ou
 
 $binaryPath = Join-Path $repositoryRoot "target/release/desktop-demo.exe"
 $scaleRecords = @()
+$aggregationInputs = @()
 $runtimeContext = $null
 foreach ($scale in @(64, 128, 256)) {
     $firstCorrectFrameSamples = @()
@@ -307,6 +284,7 @@ foreach ($scale in @(64, 128, 256)) {
     }
     $runtime = Read-RuntimeContext -StandardOutput $steady.StandardOutput
     if ($runtime.Validation -ne "disabled" -or $runtime.PresentMode -ne "IMMEDIATE" -or
+        $runtime.DrawableExtent -ne "1920x1080" -or
         [int]$runtime.TimestampValidBits -le 0 -or [double]$runtime.TimestampPeriodNanoseconds -le 0) {
         throw "Scale $scale did not run with the required valid, unthrottled measurement context."
     }
@@ -320,20 +298,27 @@ foreach ($scale in @(64, 128, 256)) {
     if ($steadyFrames.Count -eq 0) {
         throw "Scale $scale retained no steady-state frames."
     }
-    $expectedSequence = 1
+    $previousSequence = 0
     foreach ($frame in $steadyFrames) {
-        if ($frame.sequence -ne $expectedSequence) {
-            throw "Scale $scale steady-state sequence is not contiguous at $expectedSequence."
+        if ([uint64]$frame.sequence -le $previousSequence) {
+            throw "Scale $scale steady-state sequence is not strictly increasing."
         }
-        $expectedSequence++
+        $previousSequence = [uint64]$frame.sequence
     }
 
-    $total = Get-DistributionSummary -Samples ([double[]]@($firstCorrectFrameSamples.TotalMilliseconds))
-    $derivation = Get-DistributionSummary -Samples ([double[]]@($firstCorrectFrameSamples.DerivationMilliseconds))
-    $uploadInstall = Get-DistributionSummary -Samples ([double[]]@($firstCorrectFrameSamples.UploadInstallMilliseconds))
-    $presentation = Get-DistributionSummary -Samples ([double[]]@($firstCorrectFrameSamples.PresentationMilliseconds))
-    $cpuFrame = Get-DistributionSummary -Samples ([double[]]@($steadyFrames.cpu_frame_ms))
-    $gpuFrame = Get-DistributionSummary -Samples ([double[]]@($steadyFrames.gpu_frame_ms))
+    $aggregationInputs += [ordered]@{
+        scale = $scale
+        first_correct_frame_samples = @($firstCorrectFrameSamples | ForEach-Object {
+            [ordered]@{
+                derivation_milliseconds = $_.DerivationMilliseconds
+                upload_install_milliseconds = $_.UploadInstallMilliseconds
+                presentation_milliseconds = $_.PresentationMilliseconds
+                total_milliseconds = $_.TotalMilliseconds
+            }
+        })
+        cpu_frame_milliseconds = @($steadyFrames.cpu_frame_ms)
+        gpu_frame_milliseconds = @($steadyFrames.gpu_frame_ms)
+    }
     $scaleRecords += [ordered]@{
         Scale = $scale
         Scene = $canonicalMetadata.Scene
@@ -342,22 +327,42 @@ foreach ($scale in @(64, 128, 256)) {
         FirstCorrectFrame = [ordered]@{
             FreshReleaseRuns = 10
             Samples = $firstCorrectFrameSamples
-            Derivation = $derivation
-            UploadInstall = $uploadInstall
-            Presentation = $presentation
-            Total = $total
         }
         SteadyState = [ordered]@{
-            DrawableExtent = @(1920, 1080)
+            DrawableExtent = @($runtime.DrawableExtent.Split("x") | ForEach-Object { [int]$_ })
             WarmupSeconds = 5
             CollectionSeconds = 30
             ValidationEnabled = $false
             PresentationThrottlingEnabled = $false
             RawFile = "$steadyStem.jsonl"
-            CpuFrame = $cpuFrame
-            GpuFrame = $gpuFrame
         }
     }
+}
+
+$aggregationInputPath = Join-Path $outputPath "aggregation-input.json"
+$aggregationOutputPath = Join-Path $outputPath "aggregation-output.json"
+$aggregationInputs | ConvertTo-Json -Depth 10 -Compress | Set-Content -LiteralPath $aggregationInputPath
+$aggregation = Invoke-CapturedProcess `
+    -FilePath (Join-Path $repositoryRoot "target/release/measurement-evidence-report.exe") `
+    -Arguments @($aggregationInputPath, $aggregationOutputPath) `
+    -StandardOutputPath (Join-Path $outputPath "aggregation.stdout.log") `
+    -StandardErrorPath (Join-Path $outputPath "aggregation.stderr.log")
+if ($aggregation.ExitCode -ne 0) {
+    throw "The tested evidence aggregator rejected the collected samples."
+}
+$aggregationReport = @(Get-Content -Raw -LiteralPath $aggregationOutputPath | ConvertFrom-Json)
+[System.IO.File]::Delete($aggregationInputPath)
+foreach ($scaleRecord in $scaleRecords) {
+    $summary = @($aggregationReport | Where-Object scale -eq $scaleRecord.Scale)
+    if ($summary.Count -ne 1) {
+        throw "Aggregation output does not contain exactly one summary for scale $($scaleRecord.Scale)."
+    }
+    $scaleRecord.FirstCorrectFrame.Derivation = $summary[0].derivation
+    $scaleRecord.FirstCorrectFrame.UploadInstall = $summary[0].upload_install
+    $scaleRecord.FirstCorrectFrame.Presentation = $summary[0].presentation
+    $scaleRecord.FirstCorrectFrame.Total = $summary[0].total
+    $scaleRecord.SteadyState.CpuFrame = $summary[0].cpu_frame
+    $scaleRecord.SteadyState.GpuFrame = $summary[0].gpu_frame
 }
 
 $operatingSystem = Get-CimInstance Win32_OperatingSystem
@@ -368,6 +373,7 @@ $machine = [ordered]@{
     Cargo = (& cargo --version)
     VulkanSdk = $env:VULKAN_SDK
 }
+Write-ComparisonChart -Scales $scaleRecords -Path (Join-Path $outputPath "comparison.svg")
 $rawFiles = @(Get-ChildItem -LiteralPath $outputPath -File | Sort-Object Name | ForEach-Object {
     [ordered]@{
         File = $_.Name
@@ -381,7 +387,7 @@ $manifest = [ordered]@{
     RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
     RepositoryRevision = $revision
     BuildProfile = "release"
-    BuildCommand = "cargo build --locked --release --package desktop-demo"
+    BuildCommand = "cargo build --locked --release --package desktop-demo --package measurement-evidence"
     Machine = $machine
     VulkanRuntime = $runtimeContext
     Correctness = [ordered]@{
@@ -394,6 +400,5 @@ $manifest = [ordered]@{
     ComparisonChart = "comparison.svg"
 }
 $manifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $outputPath "manifest.json")
-Write-ComparisonChart -Scales $scaleRecords -Path (Join-Path $outputPath "comparison.svg")
 
 Write-Host "Recorded timing evidence for revision $revision at $outputPath"

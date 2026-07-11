@@ -4,7 +4,7 @@ mod windows_adapter;
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 #[cfg(target_os = "windows")]
-use measurement_evidence::{MeasurementEvent, ResourceCounts};
+use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionIdentity};
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
@@ -16,6 +16,8 @@ use render_backend::{
 };
 #[cfg(target_os = "windows")]
 use render_backend::{FrameOutcome, RenderBackend, RenderBackendOptions};
+#[cfg(target_os = "windows")]
+use std::collections::VecDeque;
 #[cfg(target_os = "windows")]
 use std::fs::File;
 #[cfg(target_os = "windows")]
@@ -265,6 +267,12 @@ fn format_vector<const LENGTH: usize>(components: [f32; LENGTH]) -> String {
         .join(",")
 }
 
+fn measurement_revision(
+    revision: VoxelSceneRevision,
+) -> Result<VoxelSceneRevisionIdentity, String> {
+    VoxelSceneRevisionIdentity::new(revision.to_string()).map_err(|error| error.to_string())
+}
+
 #[cfg(target_os = "windows")]
 #[derive(Clone, Copy)]
 enum DesktopEvent {
@@ -292,9 +300,86 @@ struct MeasurementSession {
     publication_at: Option<Instant>,
     derivation_at: Option<Instant>,
     installation_at: Option<Instant>,
-    warmup_ends_at: Option<Instant>,
-    collection_ends_at: Option<Instant>,
+    steady_frames: Option<SteadyFrameCollection>,
+}
+
+#[cfg(target_os = "windows")]
+struct CpuFrameMeasurement {
     sequence: u64,
+    started_at: Instant,
+    milliseconds: f64,
+}
+
+#[cfg(target_os = "windows")]
+struct SteadyFrameCollection {
+    warmup_ends_at: Instant,
+    collection_ends_at: Instant,
+    recorded_frame_count: u64,
+    first_submitted_sequence: Option<u64>,
+    pending_cpu_frames: VecDeque<CpuFrameMeasurement>,
+}
+
+#[cfg(target_os = "windows")]
+impl SteadyFrameCollection {
+    fn new(matching_presentation_at: Instant) -> Self {
+        let warmup_ends_at = matching_presentation_at + Duration::from_secs(5);
+        Self {
+            warmup_ends_at,
+            collection_ends_at: warmup_ends_at + Duration::from_secs(30),
+            recorded_frame_count: 0,
+            first_submitted_sequence: None,
+            pending_cpu_frames: VecDeque::new(),
+        }
+    }
+
+    fn submit(&mut self, frame: CpuFrameMeasurement) {
+        self.first_submitted_sequence.get_or_insert(frame.sequence);
+        self.pending_cpu_frames.push_back(frame);
+    }
+
+    fn complete(
+        &mut self,
+        gpu_observation: render_backend::FrameObservation,
+    ) -> Result<Option<MeasurementEvent>, String> {
+        let cpu_frame_position = self
+            .pending_cpu_frames
+            .iter()
+            .position(|frame| frame.sequence == gpu_observation.sequence);
+        let Some(cpu_frame_position) = cpu_frame_position else {
+            if self
+                .first_submitted_sequence
+                .is_none_or(|first_sequence| gpu_observation.sequence < first_sequence)
+            {
+                return Ok(None);
+            }
+            return Err(format!(
+                "GPU observation sequence {} has no matching CPU frame",
+                gpu_observation.sequence
+            ));
+        };
+        let cpu_frame = self
+            .pending_cpu_frames
+            .remove(cpu_frame_position)
+            .ok_or_else(|| "matching CPU frame disappeared before measurement".to_owned())?;
+        if cpu_frame.started_at < self.warmup_ends_at
+            || cpu_frame.started_at >= self.collection_ends_at
+        {
+            return Ok(None);
+        }
+        self.recorded_frame_count = self
+            .recorded_frame_count
+            .checked_add(1)
+            .ok_or_else(|| "steady frame count overflowed".to_owned())?;
+        Ok(Some(MeasurementEvent::SteadyFrame {
+            sequence: gpu_observation.sequence,
+            cpu_frame_milliseconds: cpu_frame.milliseconds,
+            gpu_frame_milliseconds: gpu_observation.gpu_frame_milliseconds,
+        }))
+    }
+
+    fn collection_has_ended(&self, now: Instant) -> bool {
+        now >= self.collection_ends_at
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -312,9 +397,7 @@ impl MeasurementSession {
             publication_at: None,
             derivation_at: None,
             installation_at: None,
-            warmup_ends_at: None,
-            collection_ends_at: None,
-            sequence: 0,
+            steady_frames: None,
         })
     }
 
@@ -331,6 +414,43 @@ impl MeasurementSession {
         writeln!(self.output, "{line}")
             .and_then(|()| self.output.flush())
             .map_err(|error| format!("could not write measurement event: {error}"))
+    }
+
+    fn begin_steady_frames(&mut self, matching_presentation_at: Instant) {
+        self.steady_frames = Some(SteadyFrameCollection::new(matching_presentation_at));
+    }
+
+    fn submit_cpu_frame(&mut self, frame: CpuFrameMeasurement) {
+        if let Some(steady_frames) = &mut self.steady_frames {
+            steady_frames.submit(frame);
+        }
+    }
+
+    fn complete_gpu_frame(
+        &mut self,
+        observation: render_backend::FrameObservation,
+    ) -> Result<(), String> {
+        let Some(steady_frames) = &mut self.steady_frames else {
+            return Ok(());
+        };
+        let event = steady_frames.complete(observation)?;
+        if let Some(event) = event {
+            self.record(event)?;
+        }
+        Ok(())
+    }
+
+    fn steady_collection_has_ended(&self, now: Instant) -> bool {
+        self.steady_frames
+            .as_ref()
+            .is_some_and(|steady_frames| steady_frames.collection_has_ended(now))
+    }
+
+    fn recorded_steady_frame_count(&self) -> u64 {
+        self.steady_frames
+            .as_ref()
+            .map(|steady_frames| steady_frames.recorded_frame_count)
+            .unwrap_or(0)
     }
 }
 
@@ -455,7 +575,13 @@ impl DesktopApplication {
         };
         if let Some(measurement) = &mut self.measurement {
             let derived_at = Instant::now();
-            let source_revision = artifact.source_revision().to_string();
+            let source_revision = match measurement_revision(artifact.source_revision()) {
+                Ok(source_revision) => source_revision,
+                Err(error) => {
+                    self.fail(event_loop, error);
+                    return;
+                }
+            };
             let resource_counts = (|| {
                 let exposed_quads = u64::try_from(artifact.semantic_faces().len())
                     .map_err(|_| "exposed quad count cannot be represented".to_owned())?;
@@ -480,12 +606,12 @@ impl DesktopApplication {
                     gpu_buffer_bytes: geometry_bytes,
                 })
             })();
-            let elapsed_ms = measurement.elapsed_milliseconds(derived_at);
-            match (resource_counts, elapsed_ms) {
-                (Ok(resources), Ok(elapsed_ms)) => {
+            let elapsed_milliseconds = measurement.elapsed_milliseconds(derived_at);
+            match (resource_counts, elapsed_milliseconds) {
+                (Ok(resources), Ok(elapsed_milliseconds)) => {
                     if let Err(error) = measurement.record(MeasurementEvent::ArtifactDerived {
                         source_revision,
-                        elapsed_ms,
+                        elapsed_milliseconds,
                         resources,
                     }) {
                         self.fail(event_loop, error);
@@ -552,16 +678,22 @@ impl DesktopApplication {
         }
         if let Some(measurement) = &mut self.measurement {
             let installation_at = Instant::now();
-            let elapsed_ms = match measurement.elapsed_milliseconds(installation_at) {
-                Ok(elapsed_ms) => elapsed_ms,
+            let elapsed_milliseconds = match measurement.elapsed_milliseconds(installation_at) {
+                Ok(elapsed_milliseconds) => elapsed_milliseconds,
                 Err(error) => {
                     self.fail(event_loop, error);
                     return;
                 }
             };
             if let Err(error) = measurement.record(MeasurementEvent::ArtifactInstalled {
-                source_revision: installed_revision.to_string(),
-                elapsed_ms,
+                source_revision: match measurement_revision(installed_revision) {
+                    Ok(source_revision) => source_revision,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                },
+                elapsed_milliseconds,
             }) {
                 self.fail(event_loop, error);
                 return;
@@ -699,8 +831,15 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             let publication_at = Instant::now();
             measurement.publication_at = Some(publication_at);
             if let Err(error) = measurement.record(MeasurementEvent::SceneRevisionPublished {
-                source_revision: published_revision.to_string(),
-                elapsed_ms: 0.0,
+                source_revision: match measurement_revision(published_revision) {
+                    Ok(source_revision) => source_revision,
+                    Err(error) => {
+                        self.application_error = Some(error);
+                        event_loop.exit();
+                        return;
+                    }
+                },
+                elapsed_milliseconds: 0.0,
             }) {
                 self.application_error = Some(error);
                 event_loop.exit();
@@ -748,6 +887,29 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 return;
             }
         };
+        let presentation_extent = match backend.presentation_extent() {
+            Some(extent) => extent,
+            None => {
+                self.application_error =
+                    Some("the Render Backend has no configured presentation extent".to_owned());
+                event_loop.exit();
+                return;
+            }
+        };
+        println!(
+            "Vulkan drawable extent: {}x{}",
+            presentation_extent.width, presentation_extent.height
+        );
+        if options.gpu_timestamps_enabled
+            && (presentation_extent.width != 1920 || presentation_extent.height != 1080)
+        {
+            self.application_error = Some(format!(
+                "steady-state measurement requires an actual 1920x1080 presentation extent, but Vulkan configured {}x{}",
+                presentation_extent.width, presentation_extent.height
+            ));
+            event_loop.exit();
+            return;
+        }
         let diagnostic_report = backend.runtime_context().to_string();
         println!("{diagnostic_report}");
         let runtime_context = backend.runtime_context();
@@ -846,18 +1008,32 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
             WindowEvent::RedrawRequested => {
                 let frame_started_at = Instant::now();
-                let (outcome, gpu_observation) = match &mut self.backend {
+                let (outcome, gpu_observation, submitted_frame_sequence) = match &mut self.backend {
                     Some(backend) => match backend.draw_frame() {
-                        Ok(outcome) => (outcome, backend.take_frame_observation()),
+                        Ok(outcome) => (
+                            outcome,
+                            backend.take_frame_observation(),
+                            backend.last_submitted_frame_sequence(),
+                        ),
                         Err(error) => {
                             self.application_error = Some(error.to_string());
                             event_loop.exit();
                             return;
                         }
                     },
-                    None => (FrameOutcome::Suspended, None),
+                    None => (FrameOutcome::Suspended, None, None),
                 };
                 let cpu_frame_milliseconds = frame_started_at.elapsed().as_secs_f64() * 1_000.0;
+                if let Some(measurement) = &mut self.measurement
+                    && measurement.mode == MeasurementMode::SteadyState
+                    && let Some(sequence) = submitted_frame_sequence
+                {
+                    measurement.submit_cpu_frame(CpuFrameMeasurement {
+                        sequence,
+                        started_at: frame_started_at,
+                        milliseconds: cpu_frame_milliseconds,
+                    });
+                }
                 match outcome {
                     FrameOutcome::Presented => {
                         self.presentation_retry_at = None;
@@ -880,9 +1056,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             println!("First matching raster frame presented: revision={revision}");
                             if let Some(measurement) = &mut self.measurement {
                                 let presented_at = Instant::now();
-                                let elapsed_ms =
+                                let elapsed_milliseconds =
                                     match measurement.elapsed_milliseconds(presented_at) {
-                                        Ok(elapsed_ms) => elapsed_ms,
+                                        Ok(elapsed_milliseconds) => elapsed_milliseconds,
                                         Err(error) => {
                                             self.fail(event_loop, error);
                                             return;
@@ -890,8 +1066,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                     };
                                 if let Err(error) = measurement.record(
                                     MeasurementEvent::MatchingArtifactPresented {
-                                        source_revision: revision.to_string(),
-                                        elapsed_ms,
+                                        source_revision: match measurement_revision(revision) {
+                                            Ok(source_revision) => source_revision,
+                                            Err(error) => {
+                                                self.fail(event_loop, error);
+                                                return;
+                                            }
+                                        },
+                                        elapsed_milliseconds,
                                     },
                                 ) {
                                     self.fail(event_loop, error);
@@ -909,10 +1091,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                         return;
                                     }
                                     MeasurementMode::SteadyState => {
-                                        let warmup_ends_at = presented_at + Duration::from_secs(5);
-                                        measurement.warmup_ends_at = Some(warmup_ends_at);
-                                        measurement.collection_ends_at =
-                                            Some(warmup_ends_at + Duration::from_secs(30));
+                                        measurement.begin_steady_frames(presented_at);
                                     }
                                 }
                             }
@@ -921,34 +1100,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         if let Some(measurement) = &mut self.measurement
                             && measurement.mode == MeasurementMode::SteadyState
                         {
-                            if measurement
-                                .warmup_ends_at
-                                .is_some_and(|warmup_ends_at| now >= warmup_ends_at)
-                                && let Some(gpu_observation) = gpu_observation
+                            if let Some(gpu_observation) = gpu_observation
+                                && let Err(error) = measurement.complete_gpu_frame(gpu_observation)
                             {
-                                measurement.sequence = match measurement.sequence.checked_add(1) {
-                                    Some(sequence) => sequence,
-                                    None => {
-                                        self.fail(event_loop, "steady frame sequence overflowed");
-                                        return;
-                                    }
-                                };
-                                if let Err(error) =
-                                    measurement.record(MeasurementEvent::SteadyFrame {
-                                        sequence: measurement.sequence,
-                                        cpu_frame_ms: cpu_frame_milliseconds,
-                                        gpu_frame_ms: gpu_observation.gpu_frame_milliseconds,
-                                    })
-                                {
-                                    self.fail(event_loop, error);
-                                    return;
-                                }
+                                self.fail(event_loop, error);
+                                return;
                             }
-                            if measurement
-                                .collection_ends_at
-                                .is_some_and(|collection_ends_at| now >= collection_ends_at)
-                            {
-                                if measurement.sequence == 0 {
+                            if measurement.steady_collection_has_ended(now) {
+                                if measurement.recorded_steady_frame_count() == 0 {
                                     self.fail(
                                         event_loop,
                                         "steady-state collection produced no valid GPU timestamp samples",
@@ -1318,6 +1477,50 @@ fn verify_rejected_candidate(candidate: DeviceCandidate) -> Result<(), String> {
 #[cfg(target_os = "windows")]
 fn main() -> ExitCode {
     application_exit_code(run())
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod measurement_tests {
+    use super::{CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection};
+    use render_backend::FrameObservation;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn steady_collection_pairs_sequences_and_excludes_pre_warmup_frames()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let matching_presentation_at = Instant::now();
+        let mut collection = SteadyFrameCollection::new(matching_presentation_at);
+        collection.submit(CpuFrameMeasurement {
+            sequence: 10,
+            started_at: matching_presentation_at + Duration::from_secs(4),
+            milliseconds: 2.0,
+        });
+        assert_eq!(
+            collection.complete(FrameObservation {
+                sequence: 10,
+                gpu_frame_milliseconds: 1.0,
+            })?,
+            None
+        );
+
+        collection.submit(CpuFrameMeasurement {
+            sequence: 11,
+            started_at: matching_presentation_at + Duration::from_secs(6),
+            milliseconds: 2.5,
+        });
+        assert_eq!(
+            collection.complete(FrameObservation {
+                sequence: 11,
+                gpu_frame_milliseconds: 1.5,
+            })?,
+            Some(MeasurementEvent::SteadyFrame {
+                sequence: 11,
+                cpu_frame_milliseconds: 2.5,
+                gpu_frame_milliseconds: 1.5,
+            })
+        );
+        Ok(())
+    }
 }
 
 fn application_exit_code(result: Result<(), String>) -> ExitCode {

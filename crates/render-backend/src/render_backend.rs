@@ -286,6 +286,8 @@ pub enum BackendError {
     ValidationErrors { count: usize },
     #[error("the Render Backend exhausted presentation configuration identities")]
     PresentationConfigurationIdentityExhausted,
+    #[error("the Render Backend exhausted frame sequence identities")]
+    FrameSequenceIdentityExhausted,
     #[error("Render Path {phase} failed: {source}")]
     RenderPath {
         phase: RenderPathPhase,
@@ -793,26 +795,36 @@ pub enum FrameOutcome {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameObservation {
+    pub sequence: u64,
     pub gpu_frame_milliseconds: f64,
 }
 
 impl FrameObservation {
     pub fn from_gpu_timestamps(
+        sequence: u64,
         start: u64,
         end: u64,
+        timestamp_valid_bits: u32,
         timestamp_period_nanoseconds: f64,
     ) -> Result<Self, FrameObservationError> {
         if !timestamp_period_nanoseconds.is_finite() || timestamp_period_nanoseconds <= 0.0 {
             return Err(FrameObservationError::InvalidTimestampPeriod);
         }
-        let ticks = end
-            .checked_sub(start)
-            .ok_or(FrameObservationError::ReversedTimestamps)?;
+        if timestamp_valid_bits == 0 || timestamp_valid_bits > 64 {
+            return Err(FrameObservationError::InvalidTimestampValidBits);
+        }
+        let timestamp_mask = if timestamp_valid_bits == 64 {
+            u64::MAX
+        } else {
+            (1_u64 << timestamp_valid_bits) - 1
+        };
+        let ticks = (end & timestamp_mask).wrapping_sub(start & timestamp_mask) & timestamp_mask;
         let gpu_frame_milliseconds = ticks as f64 * timestamp_period_nanoseconds / 1_000_000.0;
         if !gpu_frame_milliseconds.is_finite() {
             return Err(FrameObservationError::InvalidDuration);
         }
         Ok(Self {
+            sequence,
             gpu_frame_milliseconds,
         })
     }
@@ -820,8 +832,8 @@ impl FrameObservation {
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum FrameObservationError {
-    #[error("GPU timestamps ended before they started")]
-    ReversedTimestamps,
+    #[error("the graphics queue timestamp valid-bit count must be between 1 and 64")]
+    InvalidTimestampValidBits,
     #[error("the Vulkan timestamp period must be finite and positive")]
     InvalidTimestampPeriod,
     #[error("the GPU timestamp duration is not finite")]
@@ -916,7 +928,6 @@ impl RenderBackend {
             initial_drawable_extent,
             PresentationConfigurationId(0),
             options,
-            selected_device.timestamp_period_nanoseconds,
         )?;
         if options.gpu_timestamps_enabled && selected_device.timestamp_valid_bits == 0 {
             return Err(BackendError::TimestampQueriesUnsupported);
@@ -967,6 +978,16 @@ impl RenderBackend {
         self.rendering
             .as_mut()
             .and_then(PresentationResources::take_frame_observation)
+    }
+
+    pub fn last_submitted_frame_sequence(&self) -> Option<u64> {
+        self.rendering
+            .as_ref()
+            .and_then(|rendering| rendering.last_submitted_frame_sequence)
+    }
+
+    pub fn presentation_extent(&self) -> Option<vk::Extent2D> {
+        self.rendering.as_ref().map(|rendering| rendering.extent)
     }
 
     pub fn set_drawable_extent(&mut self, drawable_extent: vk::Extent2D) {
@@ -1023,7 +1044,6 @@ impl RenderBackend {
             self.drawable_extent,
             configuration_id,
             self.options,
-            self.selected_device.timestamp_period_nanoseconds,
         )?;
         let swapchain_ready = rendering.is_some();
         self.rendering = rendering;
@@ -1199,8 +1219,11 @@ struct PresentationResources {
     configuration_id: PresentationConfigurationId,
     present_mode: vk::PresentModeKHR,
     timestamp_query_pool: vk::QueryPool,
+    timestamp_valid_bits: u32,
     timestamp_period_nanoseconds: f64,
-    timestamp_query_pending: bool,
+    pending_frame_sequence: Option<u64>,
+    last_submitted_frame_sequence: Option<u64>,
+    next_frame_sequence: u64,
     frame_observations: FrameObservationBuffer,
 }
 
@@ -1218,7 +1241,6 @@ impl PresentationResources {
         initial_drawable_extent: vk::Extent2D,
         configuration_id: PresentationConfigurationId,
         options: RenderBackendOptions,
-        timestamp_period_nanoseconds: f64,
     ) -> Result<Option<Self>, BackendError> {
         let surface_support = query_surface_support(presentation, selected_device.physical_device)?;
         let configuration = select_swapchain_configuration_for_mode(
@@ -1246,8 +1268,11 @@ impl PresentationResources {
             configuration_id,
             present_mode: configuration.present_mode,
             timestamp_query_pool: vk::QueryPool::null(),
-            timestamp_period_nanoseconds,
-            timestamp_query_pending: false,
+            timestamp_valid_bits: selected_device.timestamp_valid_bits,
+            timestamp_period_nanoseconds: selected_device.timestamp_period_nanoseconds,
+            pending_frame_sequence: None,
+            last_submitted_frame_sequence: None,
+            next_frame_sequence: 1,
             frame_observations: FrameObservationBuffer::default(),
         };
 
@@ -1429,7 +1454,14 @@ impl PresentationResources {
                 .queue_submit(graphics_queue, &[submit_info], self.frame_fence)
                 .map_err(BackendError::SubmitFrame)?;
         }
-        self.timestamp_query_pending = self.timestamp_query_pool != vk::QueryPool::null();
+        let submitted_frame_sequence = self.next_frame_sequence;
+        self.next_frame_sequence = self
+            .next_frame_sequence
+            .checked_add(1)
+            .ok_or(BackendError::FrameSequenceIdentityExhausted)?;
+        self.last_submitted_frame_sequence = Some(submitted_frame_sequence);
+        self.pending_frame_sequence = (self.timestamp_query_pool != vk::QueryPool::null())
+            .then_some(submitted_frame_sequence);
 
         let swapchains = [self.swapchain];
         let image_indices = [image_index];
@@ -1519,9 +1551,9 @@ impl PresentationResources {
     }
 
     fn collect_timestamp_observation(&mut self) -> Result<(), BackendError> {
-        if !self.timestamp_query_pending {
+        let Some(frame_sequence) = self.pending_frame_sequence else {
             return Ok(());
-        }
+        };
         let mut timestamps = [0_u64; 2];
         unsafe {
             self.device.get_query_pool_results(
@@ -1533,12 +1565,14 @@ impl PresentationResources {
         }
         .map_err(BackendError::ReadTimestampQueries)?;
         let observation = FrameObservation::from_gpu_timestamps(
+            frame_sequence,
             timestamps[0],
             timestamps[1],
+            self.timestamp_valid_bits,
             self.timestamp_period_nanoseconds,
         )?;
         self.frame_observations.publish(observation)?;
-        self.timestamp_query_pending = false;
+        self.pending_frame_sequence = None;
         Ok(())
     }
 
