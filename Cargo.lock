@@ -172,6 +172,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "canonical-inspection"
+version = "0.1.0"
+dependencies = [
+ "raster-render-path",
+]
+
+[[package]]
 name = "canonical-scene"
 version = "0.1.0"
 dependencies = [
@@ -320,6 +327,7 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "ash-window",
+ "canonical-inspection",
  "canonical-scene",
  "raster-render-path",
  "raw-window-handle",

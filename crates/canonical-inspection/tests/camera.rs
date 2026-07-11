@@ -1,4 +1,4 @@
-use canonical_scene::{CanonicalCameraPose, overview_to_cavity_camera_move};
+use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use raster_render_path::RasterRenderPath;
 
 #[test]

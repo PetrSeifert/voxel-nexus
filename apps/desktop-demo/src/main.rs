@@ -1,10 +1,8 @@
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
-use canonical_scene::{
-    CanonicalCameraPose, CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene,
-    overview_to_cavity_camera_move,
-};
+use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
+use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase, RasterRenderPath,
     derive_raster_artifact,

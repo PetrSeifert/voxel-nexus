@@ -1,0 +1,10 @@
+[package]
+name = "canonical-inspection"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/canonical_inspection.rs"
+
+[dependencies]
+raster-render-path = { path = "../raster-render-path" }

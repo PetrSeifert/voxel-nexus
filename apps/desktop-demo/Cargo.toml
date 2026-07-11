@@ -10,6 +10,7 @@ path = "src/main.rs"
 [dependencies]
 ash = "0.38.0"
 ash-window = "0.13.0"
+canonical-inspection = { path = "../../crates/canonical-inspection" }
 canonical-scene = { path = "../../crates/canonical-scene" }
 raw-window-handle = "0.6.2"
 render-backend = { path = "../../crates/render-backend" }
