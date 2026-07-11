@@ -167,19 +167,33 @@ $relativeTimingDirectory = [System.IO.Path]::GetRelativePath(
     $repositoryRoot,
     (Join-Path $evidencePath "timing")
 )
-$timingCollector = Invoke-CapturedProcess `
-    -FilePath "pwsh" `
-    -Arguments @("-NoProfile", "-File", "scripts/collect-timing-evidence.ps1", "-OutputDirectory", $relativeTimingDirectory) `
-    -StandardOutputPath (Join-Path $evidencePath "timing-collector.stdout.log") `
-    -StandardErrorPath (Join-Path $evidencePath "timing-collector.stderr.log")
+$temporaryTimingStandardOutput = [System.IO.Path]::GetTempFileName()
+$temporaryTimingStandardError = [System.IO.Path]::GetTempFileName()
+try {
+    $timingCollector = Invoke-CapturedProcess `
+        -FilePath "pwsh" `
+        -Arguments @("-NoProfile", "-File", "scripts/collect-timing-evidence.ps1", "-OutputDirectory", $relativeTimingDirectory) `
+        -StandardOutputPath $temporaryTimingStandardOutput `
+        -StandardErrorPath $temporaryTimingStandardError
+    [System.IO.Directory]::CreateDirectory($evidencePath) | Out-Null
+    [System.IO.File]::Move($temporaryTimingStandardOutput, (Join-Path $evidencePath "timing-collector.stdout.log"), $true)
+    [System.IO.File]::Move($temporaryTimingStandardError, (Join-Path $evidencePath "timing-collector.stderr.log"), $true)
+}
+finally {
+    foreach ($temporaryPath in @($temporaryTimingStandardOutput, $temporaryTimingStandardError)) {
+        if ([System.IO.File]::Exists($temporaryPath)) {
+            [System.IO.File]::Delete($temporaryPath)
+        }
+    }
+}
 $script:commandRecords.Add([ordered]@{
     Name = "timing-evidence"
     Command = $timingCollector.Command
     ExitCode = $timingCollector.ExitCode
     StartedAtUtc = $timingCollector.StartedAtUtc
     FinishedAtUtc = $timingCollector.FinishedAtUtc
-    StandardOutput = $timingCollector.StandardOutput
-    StandardError = $timingCollector.StandardError
+    StandardOutput = "timing-collector.stdout.log"
+    StandardError = "timing-collector.stderr.log"
 })
 if ($timingCollector.ExitCode -ne 0) {
     throw "Timing evidence collection failed with exit code $($timingCollector.ExitCode)."
