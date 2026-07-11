@@ -13,7 +13,11 @@ if (-not $IsWindows) {
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
 $expectedRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot "docs/evidence/timing-baseline"))
-if (-not $outputPath.StartsWith($expectedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+$relativeOutputPath = [System.IO.Path]::GetRelativePath($expectedRoot, $outputPath)
+if ([System.IO.Path]::IsPathRooted($relativeOutputPath) -or
+    $relativeOutputPath -eq "." -or
+    $relativeOutputPath -eq ".." -or
+    $relativeOutputPath.StartsWith("..$([System.IO.Path]::DirectorySeparatorChar)")) {
     throw "The evidence output must remain under $expectedRoot."
 }
 
