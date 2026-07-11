@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
 use voxel_frontend::{VoxelFrontend, VoxelSceneRevision};
 #[cfg(target_os = "windows")]
-use windows_adapter::WindowsPresentationAdapter;
+use windows_adapter::{WindowsPresentationAdapter, set_measurement_extent};
 #[cfg(target_os = "windows")]
 use winit::application::ApplicationHandler;
 #[cfg(target_os = "windows")]
@@ -786,7 +786,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 .map(|measurement| measurement.mode),
             Some(MeasurementMode::SteadyState)
         ) {
-            attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(1920, 1080));
+            attributes = attributes
+                .with_inner_size(winit::dpi::PhysicalSize::new(1920, 1080))
+                .with_decorations(false);
         }
         let window = match event_loop.create_window(attributes) {
             Ok(window) => window,
@@ -796,6 +798,18 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 return;
             }
         };
+        if matches!(
+            self.canonical_configuration
+                .measurement
+                .as_ref()
+                .map(|measurement| measurement.mode),
+            Some(MeasurementMode::SteadyState)
+        ) && let Err(error) = set_measurement_extent(&window)
+        {
+            self.application_error = Some(error);
+            event_loop.exit();
+            return;
+        }
         let adapter = WindowsPresentationAdapter::new(&window);
         let drawable_size = window.inner_size();
         let initial_drawable_extent = ash::vk::Extent2D {
@@ -979,6 +993,42 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 event_loop.exit();
             }
             WindowEvent::Resized(drawable_size) => {
+                let steady_measurement = matches!(
+                    self.canonical_configuration
+                        .measurement
+                        .as_ref()
+                        .map(|measurement| measurement.mode),
+                    Some(MeasurementMode::SteadyState)
+                );
+                let drawable_size = if steady_measurement
+                    && (drawable_size.width != 1920 || drawable_size.height != 1080)
+                {
+                    let Some(window) = &self.window else {
+                        self.fail(
+                            event_loop,
+                            "the steady-state measurement window is unavailable",
+                        );
+                        return;
+                    };
+                    if let Err(error) = set_measurement_extent(window) {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                    let corrected_size = window.inner_size();
+                    if corrected_size.width != 1920 || corrected_size.height != 1080 {
+                        self.fail(
+                            event_loop,
+                            format!(
+                                "steady-state measurement extent changed from 1920x1080 to {}x{}",
+                                corrected_size.width, corrected_size.height
+                            ),
+                        );
+                        return;
+                    }
+                    corrected_size
+                } else {
+                    drawable_size
+                };
                 let drawable_extent = if self.drawable_occluded {
                     ash::vk::Extent2D::default()
                 } else {
@@ -990,6 +1040,21 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 self.set_drawable_extent(drawable_extent);
             }
             WindowEvent::Occluded(occluded) => {
+                if occluded
+                    && matches!(
+                        self.canonical_configuration
+                            .measurement
+                            .as_ref()
+                            .map(|measurement| measurement.mode),
+                        Some(MeasurementMode::SteadyState)
+                    )
+                {
+                    self.fail(
+                        event_loop,
+                        "steady-state measurement window became occluded",
+                    );
+                    return;
+                }
                 self.drawable_occluded = occluded;
                 let drawable_extent = if occluded {
                     ash::vk::Extent2D::default()
@@ -1008,21 +1073,38 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
             WindowEvent::RedrawRequested => {
                 let frame_started_at = Instant::now();
-                let (outcome, gpu_observation, submitted_frame_sequence) = match &mut self.backend {
-                    Some(backend) => match backend.draw_frame() {
-                        Ok(outcome) => (
-                            outcome,
-                            backend.take_frame_observation(),
-                            backend.last_submitted_frame_sequence(),
-                        ),
-                        Err(error) => {
-                            self.application_error = Some(error.to_string());
-                            event_loop.exit();
-                            return;
-                        }
-                    },
-                    None => (FrameOutcome::Suspended, None, None),
-                };
+                let (outcome, gpu_observation, submitted_frame_sequence, presentation_extent) =
+                    match &mut self.backend {
+                        Some(backend) => match backend.draw_frame() {
+                            Ok(outcome) => (
+                                outcome,
+                                backend.take_frame_observation(),
+                                backend.last_submitted_frame_sequence(),
+                                backend.presentation_extent(),
+                            ),
+                            Err(error) => {
+                                self.application_error = Some(error.to_string());
+                                event_loop.exit();
+                                return;
+                            }
+                        },
+                        None => (FrameOutcome::Suspended, None, None, None),
+                    };
+                if matches!(
+                    self.canonical_configuration
+                        .measurement
+                        .as_ref()
+                        .map(|measurement| measurement.mode),
+                    Some(MeasurementMode::SteadyState)
+                ) && !presentation_extent
+                    .is_some_and(|extent| extent.width == 1920 && extent.height == 1080)
+                {
+                    self.fail(
+                        event_loop,
+                        "steady-state measurement lost its 1920x1080 presentation extent",
+                    );
+                    return;
+                }
                 let cpu_frame_milliseconds = frame_started_at.elapsed().as_secs_f64() * 1_000.0;
                 if let Some(measurement) = &mut self.measurement
                     && measurement.mode == MeasurementMode::SteadyState
@@ -1033,6 +1115,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         started_at: frame_started_at,
                         milliseconds: cpu_frame_milliseconds,
                     });
+                }
+                if let Some(measurement) = &mut self.measurement
+                    && measurement.mode == MeasurementMode::SteadyState
+                    && let Some(gpu_observation) = gpu_observation
+                    && let Err(error) = measurement.complete_gpu_frame(gpu_observation)
+                {
+                    self.fail(event_loop, error);
+                    return;
                 }
                 match outcome {
                     FrameOutcome::Presented => {
@@ -1100,12 +1190,6 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         if let Some(measurement) = &mut self.measurement
                             && measurement.mode == MeasurementMode::SteadyState
                         {
-                            if let Some(gpu_observation) = gpu_observation
-                                && let Err(error) = measurement.complete_gpu_frame(gpu_observation)
-                            {
-                                self.fail(event_loop, error);
-                                return;
-                            }
                             if measurement.steady_collection_has_ended(now) {
                                 if measurement.recorded_steady_frame_count() == 0 {
                                     self.fail(

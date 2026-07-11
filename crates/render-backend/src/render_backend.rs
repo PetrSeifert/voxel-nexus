@@ -873,9 +873,32 @@ pub struct RenderBackend {
     drawable_extent: vk::Extent2D,
     swapchain_needs_recreation: bool,
     next_configuration_id: u64,
+    frame_sequences: BackendFrameSequences,
     path_is_configured: bool,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
     options: RenderBackendOptions,
+}
+
+struct BackendFrameSequences {
+    next: u64,
+}
+
+impl BackendFrameSequences {
+    fn new() -> Self {
+        Self { next: 1 }
+    }
+
+    fn pending(&self) -> u64 {
+        self.next
+    }
+
+    fn record_submission(&mut self) -> Result<(), BackendError> {
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or(BackendError::FrameSequenceIdentityExhausted)?;
+        Ok(())
+    }
 }
 
 impl RenderBackend {
@@ -958,6 +981,7 @@ impl RenderBackend {
             drawable_extent: initial_drawable_extent,
             swapchain_needs_recreation: false,
             next_configuration_id: 1,
+            frame_sequences: BackendFrameSequences::new(),
             path_is_configured: false,
             memory_properties,
             options,
@@ -1014,10 +1038,12 @@ impl RenderBackend {
         let Some(rendering) = &mut self.rendering else {
             return self.ensure_validation_clean(FrameOutcome::Suspended);
         };
+        let submitted_frame_sequence = self.frame_sequences.pending();
         let outcome = match rendering.draw_frame(
             self.path.as_mut(),
             self.graphics_queue,
             self.presentation_queue,
+            submitted_frame_sequence,
         )? {
             PresentationOutcome::Presented => FrameOutcome::Presented,
             PresentationOutcome::Invalidated => {
@@ -1025,6 +1051,9 @@ impl RenderBackend {
                 FrameOutcome::Recreate
             }
         };
+        if rendering.last_submitted_frame_sequence == Some(submitted_frame_sequence) {
+            self.frame_sequences.record_submission()?;
+        }
         self.ensure_validation_clean(outcome)
     }
 
@@ -1223,7 +1252,6 @@ struct PresentationResources {
     timestamp_period_nanoseconds: f64,
     pending_frame_sequence: Option<u64>,
     last_submitted_frame_sequence: Option<u64>,
-    next_frame_sequence: u64,
     frame_observations: FrameObservationBuffer,
 }
 
@@ -1272,7 +1300,6 @@ impl PresentationResources {
             timestamp_period_nanoseconds: selected_device.timestamp_period_nanoseconds,
             pending_frame_sequence: None,
             last_submitted_frame_sequence: None,
-            next_frame_sequence: 1,
             frame_observations: FrameObservationBuffer::default(),
         };
 
@@ -1402,7 +1429,9 @@ impl PresentationResources {
         path: &mut dyn RenderPath,
         graphics_queue: vk::Queue,
         presentation_queue: vk::Queue,
+        submitted_frame_sequence: u64,
     ) -> Result<PresentationOutcome, BackendError> {
+        self.last_submitted_frame_sequence = None;
         unsafe {
             self.device
                 .wait_for_fences(&[self.frame_fence], true, u64::MAX)
@@ -1454,11 +1483,6 @@ impl PresentationResources {
                 .queue_submit(graphics_queue, &[submit_info], self.frame_fence)
                 .map_err(BackendError::SubmitFrame)?;
         }
-        let submitted_frame_sequence = self.next_frame_sequence;
-        self.next_frame_sequence = self
-            .next_frame_sequence
-            .checked_add(1)
-            .ok_or(BackendError::FrameSequenceIdentityExhausted)?;
         self.last_submitted_frame_sequence = Some(submitted_frame_sequence);
         self.pending_frame_sequence = (self.timestamp_query_pool != vk::QueryPool::null())
             .then_some(submitted_frame_sequence);
@@ -2046,4 +2070,22 @@ fn select_swapchain_configuration_for_mode(
 
 fn drawable_extent_is_zero(extent: vk::Extent2D) -> bool {
     extent.width == 0 || extent.height == 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BackendFrameSequences;
+
+    #[test]
+    fn backend_frame_sequences_remain_monotonic_across_presentation_generations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut sequences = BackendFrameSequences::new();
+        assert_eq!(sequences.pending(), 1);
+        sequences.record_submission()?;
+
+        assert_eq!(sequences.pending(), 2);
+        sequences.record_submission()?;
+        assert_eq!(sequences.pending(), 3);
+        Ok(())
+    }
 }
