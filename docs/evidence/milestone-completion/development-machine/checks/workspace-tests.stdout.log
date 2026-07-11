@@ -6,8 +6,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 3 tests
 test canonical_camera_poses_fix_every_scene_coordinate_parameter ... ok
-test raster_render_path_retains_the_selected_logical_camera_pose ... ok
 test overview_to_cavity_move_has_fixed_step_outputs ... ok
+test raster_render_path_retains_the_selected_logical_camera_pose ... ok
 
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -22,7 +22,7 @@ test canonical_scene_exposes_material_regions_cavity_overhang_and_boundary_throu
 test canonical_scales_report_fixed_identity_geometry_and_complexity ... ok
 test every_canonical_scale_derives_the_recorded_bounded_surface ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.30s
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.77s
 
 
 running 0 tests
@@ -37,10 +37,10 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 6 tests
 test completion_contract_rejects_portable_runtime_claims ... ok
-test completion_contract_accepts_all_required_categories_and_windows_scope ... ok
 test completion_contract_rejects_missing_raw_streams ... ok
-test completion_contract_rejects_duplicate_video_events ... ok
+test completion_contract_accepts_all_required_categories_and_windows_scope ... ok
 test completion_contract_rejects_unknown_video_events ... ok
+test completion_contract_rejects_duplicate_video_events ... ok
 test hash_inventory_rejects_changed_artifacts ... ok
 
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
@@ -52,12 +52,13 @@ test measurement_tests::steady_collection_pairs_sequences_and_excludes_pre_warmu
 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
 
-running 3 tests
+running 4 tests
 test desktop_command_rejects_an_out_of_range_camera_move_without_panicking ... ok
+test desktop_command_reports_the_front_face_winding_diagnostic ... ok
 test desktop_command_exposes_a_deterministic_camera_move_step ... ok
 test desktop_command_reports_each_canonical_scale_and_fixed_pose ... ok
 
-test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
 
 
 running 3 tests
@@ -109,10 +110,10 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 running 7 tests
 test empty_volume_produces_an_empty_complete_artifact ... ok
 test one_voxel_produces_six_scene_space_material_colored_faces ... ok
-test adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color ... ok
-test adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation ... ok
 test render_path_installs_one_complete_revision_tagged_artifact ... ok
 test occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permutation ... ok
+test adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation ... ok
+test adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color ... ok
 test hollow_three_cube_includes_outer_boundary_and_inner_cavity_faces_for_every_batch_permutation ... ok
 
 test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
@@ -146,12 +147,12 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 7 tests
 test accepts_separate_graphics_and_presentation_queues ... ok
+test rejects_devices_below_vulkan_1_3 ... ok
+test rejects_devices_without_swapchain_support ... ok
 test rejects_devices_without_present_modes ... ok
 test rejects_devices_without_a_presentation_queue ... ok
-test rejects_devices_below_vulkan_1_3 ... ok
-test rejects_devices_without_surface_formats ... ok
-test rejects_devices_without_swapchain_support ... ok
 test reports_every_missing_presentation_requirement ... ok
+test rejects_devices_without_surface_formats ... ok
 
 test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -178,8 +179,8 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 running 3 tests
 test swapchain_respects_a_surface_fixed_extent ... ok
-test swapchain_uses_the_initial_drawable_extent_and_stable_presentation ... ok
 test zero_sized_drawable_suspends_swapchain_configuration ... ok
+test swapchain_uses_the_initial_drawable_extent_and_stable_presentation ... ok
 
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -197,12 +198,12 @@ test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 
 running 7 tests
-test frontend_rejects_a_second_publication_and_retains_the_first ... ok
-test publication_rejects_invalid_volume_metadata_and_extents ... ok
-test publication_rejects_duplicate_catalogue_identities ... ok
 test publication_reports_unknown_material_with_volume_and_coordinate_context ... ok
-test read_errors_identify_unknown_volumes_and_malformed_regions ... ok
+test frontend_rejects_a_second_publication_and_retains_the_first ... ok
+test publication_rejects_duplicate_catalogue_identities ... ok
+test publication_rejects_invalid_volume_metadata_and_extents ... ok
 test publication_rejects_incomplete_overlapping_and_malformed_dense_batches ... ok
+test read_errors_identify_unknown_volumes_and_malformed_regions ... ok
 test maximum_coordinate_is_a_valid_out_of_bounds_region ... ok
 
 test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

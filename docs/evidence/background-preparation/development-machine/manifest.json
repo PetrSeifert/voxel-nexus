@@ -1,8 +1,8 @@
 {
   "SchemaVersion": 3,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-11T17:44:05.2452086Z",
-  "RepositoryRevision": "74f4a01842fa60e0f969848f1c515257aebe785a",
+  "RecordedAtUtc": "2026-07-11T21:12:06.0586332Z",
+  "RepositoryRevision": "1d75c5408bfd9cb281c4dea82e55b155d26ed062",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
   "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
@@ -24,6 +24,7 @@
   },
   "RuntimeContextLog": "desktop-demo.stdout.log",
   "ValidationLog": "desktop-demo.stderr.log",
+  "CompletionVideo": null,
   "Lifecycle": [
     "background preparation paused",
     "landscape resize while paused",
@@ -55,14 +56,14 @@
       "Width": 884,
       "Height": 611,
       "AspectRatio": 1.447,
-      "WarmMaterialSamplePixels": 6496,
-      "GreenMaterialSamplePixels": 4914,
-      "BlueMaterialSamplePixels": 5552,
+      "WarmMaterialSamplePixels": 4626,
+      "GreenMaterialSamplePixels": 2803,
+      "BlueMaterialSamplePixels": 9533,
       "BackgroundSamplePixels": 118290,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38",
-        "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38"
+        "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3",
+        "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3"
       ],
       "Captures": [
         "launch-a.png",
@@ -74,14 +75,14 @@
       "Width": 1084,
       "Height": 661,
       "AspectRatio": 1.64,
-      "WarmMaterialSamplePixels": 7604,
-      "GreenMaterialSamplePixels": 5746,
-      "BlueMaterialSamplePixels": 6502,
+      "WarmMaterialSamplePixels": 5423,
+      "GreenMaterialSamplePixels": 3274,
+      "BlueMaterialSamplePixels": 11155,
       "BackgroundSamplePixels": 159549,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "6ec8267c414072aac6c247acf33b5f40d3759d9b1e6ec645798cee26ec7b7f22",
-        "6ec8267c414072aac6c247acf33b5f40d3759d9b1e6ec645798cee26ec7b7f22"
+        "55caef8045b59337fa9af1721112795262512d0df256f38e23639c4ba05f26bd",
+        "55caef8045b59337fa9af1721112795262512d0df256f38e23639c4ba05f26bd"
       ],
       "Captures": [
         "landscape-a.png",
@@ -93,14 +94,14 @@
       "Width": 634,
       "Height": 861,
       "AspectRatio": 0.736,
-      "WarmMaterialSamplePixels": 12907,
-      "GreenMaterialSamplePixels": 9750,
-      "BlueMaterialSamplePixels": 11031,
+      "WarmMaterialSamplePixels": 9204,
+      "GreenMaterialSamplePixels": 5557,
+      "BlueMaterialSamplePixels": 18927,
       "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2",
-        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2"
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1",
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1"
       ],
       "Captures": [
         "portrait-a.png",
@@ -112,14 +113,14 @@
       "Width": 634,
       "Height": 861,
       "AspectRatio": 0.736,
-      "WarmMaterialSamplePixels": 12907,
-      "GreenMaterialSamplePixels": 9750,
-      "BlueMaterialSamplePixels": 11031,
+      "WarmMaterialSamplePixels": 9204,
+      "GreenMaterialSamplePixels": 5557,
+      "BlueMaterialSamplePixels": 18927,
       "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2",
-        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2"
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1",
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1"
       ],
       "Captures": [
         "restored-a.png",
@@ -180,14 +181,14 @@
         "Width": 884,
         "Height": 611,
         "AspectRatio": 1.447,
-        "WarmMaterialSamplePixels": 6496,
-        "GreenMaterialSamplePixels": 4914,
-        "BlueMaterialSamplePixels": 5552,
+        "WarmMaterialSamplePixels": 4626,
+        "GreenMaterialSamplePixels": 2803,
+        "BlueMaterialSamplePixels": 9533,
         "BackgroundSamplePixels": 118290,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38",
-          "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38"
+          "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3",
+          "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3"
         ],
         "Captures": [
           "launch-a.png",
@@ -272,14 +273,14 @@
         "Width": 884,
         "Height": 611,
         "AspectRatio": 1.447,
-        "WarmMaterialSamplePixels": 41387,
-        "GreenMaterialSamplePixels": 13361,
-        "BlueMaterialSamplePixels": 29375,
+        "WarmMaterialSamplePixels": 39739,
+        "GreenMaterialSamplePixels": 20637,
+        "BlueMaterialSamplePixels": 23747,
         "BackgroundSamplePixels": 51129,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "5042f4631458aad974b1884f61cea23d31a6b418de4420dbd0ee3633f10a1397",
-          "5042f4631458aad974b1884f61cea23d31a6b418de4420dbd0ee3633f10a1397"
+          "8c4343d6b10c958902ecd560e09e0e5f4f8302a6651414efaeadbffbcf40af42",
+          "8c4343d6b10c958902ecd560e09e0e5f4f8302a6651414efaeadbffbcf40af42"
         ],
         "Captures": [
           "cavity-a.png",
@@ -364,14 +365,14 @@
         "Width": 884,
         "Height": 611,
         "AspectRatio": 1.447,
-        "WarmMaterialSamplePixels": 59974,
-        "GreenMaterialSamplePixels": 7963,
-        "BlueMaterialSamplePixels": 7750,
+        "WarmMaterialSamplePixels": 75687,
+        "GreenMaterialSamplePixels": 0,
+        "BlueMaterialSamplePixels": 0,
         "BackgroundSamplePixels": 59565,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "5b1f81c25c865acdebedbcfd74a21e64e70d77917825927caaf6b1aa974ef023",
-          "5b1f81c25c865acdebedbcfd74a21e64e70d77917825927caaf6b1aa974ef023"
+          "1bacccf186d0037bff3578fc81faad44919bfc428fdd36e02086ef4b6c61413a",
+          "1bacccf186d0037bff3578fc81faad44919bfc428fdd36e02086ef4b6c61413a"
         ],
         "Captures": [
           "boundary-a.png",
@@ -456,14 +457,14 @@
         "Width": 884,
         "Height": 611,
         "AspectRatio": 1.447,
-        "WarmMaterialSamplePixels": 15920,
-        "GreenMaterialSamplePixels": 10876,
-        "BlueMaterialSamplePixels": 12089,
+        "WarmMaterialSamplePixels": 12392,
+        "GreenMaterialSamplePixels": 7229,
+        "BlueMaterialSamplePixels": 19264,
         "BackgroundSamplePixels": 96367,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "679eaf53974cb979c78542595513f59b1e77252a90b9d5e69c8bca1bbd5d56e6",
-          "679eaf53974cb979c78542595513f59b1e77252a90b9d5e69c8bca1bbd5d56e6"
+          "987991ca2a09960542aa9e0e29e7f19bd2eef30a006b92e1b5f33d39eb6a86bf",
+          "987991ca2a09960542aa9e0e29e7f19bd2eef30a006b92e1b5f33d39eb6a86bf"
         ],
         "Captures": [
           "move-midpoint-a.png",
@@ -541,6 +542,33 @@
       }
     }
   ],
+  "WindingDiagnosticInspection": {
+    "Name": "winding-diagnostic",
+    "Meaning": "A warm near voxel and blue far voxel viewed head-on through the positive-height Vulkan viewport; the warm positive-Z outward face must occlude the blue negative-Z outward face.",
+    "Capture": {
+      "State": "winding-diagnostic",
+      "Width": 884,
+      "Height": 611,
+      "AspectRatio": 1.447,
+      "WarmMaterialSamplePixels": 17424,
+      "GreenMaterialSamplePixels": 0,
+      "BlueMaterialSamplePixels": 0,
+      "BackgroundSamplePixels": 117828,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "ced0781f33f925f440d12773f9ddaf450af22adb02944f4d4caa876b645b63ec",
+        "ced0781f33f925f440d12773f9ddaf450af22adb02944f4d4caa876b645b63ec"
+      ],
+      "Captures": [
+        "winding-diagnostic-a.png",
+        "winding-diagnostic-b.png"
+      ]
+    },
+    "StandardOutput": "winding-diagnostic.stdout.log",
+    "ValidationLog": "winding-diagnostic.stderr.log",
+    "ValidationWarnings": 0,
+    "ValidationErrors": 0
+  },
   "UnsupportedPrerequisites": [
     {
       "Case": "vulkan-1.2",

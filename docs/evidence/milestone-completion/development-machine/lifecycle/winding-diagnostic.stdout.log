@@ -1,0 +1,12 @@
+Diagnostic scene: identity=raster-front-face-winding dimensions=1x1x2 origin=0,0,0 voxel_size=1 materials=winding-diagnostic-far-blue,winding-diagnostic-near-warm occupied=2 exposed_faces=10
+Diagnostic camera: camera=winding-diagnostic eye=0.5,0.5,4 target=0.5,0.5,1 up=0,1,0 fov_degrees=60 near=0.1 far=10
+Vulkan drawable extent: 800x600
+Vulkan device: NVIDIA GeForce RTX 4070
+Driver version: 2497200128 (0x94d84000)
+Vulkan API version: 1.4.329
+Vulkan validation: enabled
+Vulkan present mode: FIFO
+GPU timestamp valid bits: 64
+GPU timestamp period nanoseconds: 1
+Raster artifact installed: revision=1 count=1
+First matching raster frame presented: revision=1

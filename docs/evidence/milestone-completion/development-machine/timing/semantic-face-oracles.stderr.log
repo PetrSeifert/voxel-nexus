@@ -1,3 +1,2 @@
-   Compiling raster-render-path v0.1.0 (E:\Programming\voxel-nexus\crates\raster-render-path)
-    Finished `release` profile [optimized] target(s) in 0.91s
+    Finished `release` profile [optimized] target(s) in 0.09s
      Running tests\derivation.rs (target\release\deps\derivation-443e575cd7ffe602.exe)

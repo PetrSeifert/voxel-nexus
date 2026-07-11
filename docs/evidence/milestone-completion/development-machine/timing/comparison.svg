@@ -2,32 +2,32 @@
 <rect width="900" height="520" fill="#ffffff"/><text x="30" y="35" font-family="sans-serif" font-size="22">Voxel Nexus descriptive timing baseline</text>
 <text x="30" y="65" font-family="sans-serif" font-size="15">First correct frame median (ms)</text>
 <text x="30" y="96" font-family="monospace" font-size="13">64</text>
-<rect x="85" y="79" width="507.300439194019" height="21" fill="#4c78a8"/>
-<text x="602" y="95" font-family="monospace" font-size="12">536.353</text>
+<rect x="85" y="79" width="478.732650386844" height="21" fill="#4c78a8"/>
+<text x="574" y="95" font-family="monospace" font-size="12">464.294</text>
 <text x="30" y="128" font-family="monospace" font-size="13">128</text>
-<rect x="85" y="111" width="474.414338249605" height="21" fill="#f58518"/>
-<text x="569" y="127" font-family="monospace" font-size="12">501.584</text>
+<rect x="85" y="111" width="462.246423239745" height="21" fill="#f58518"/>
+<text x="557" y="127" font-family="monospace" font-size="12">448.305</text>
 <text x="30" y="160" font-family="monospace" font-size="13">256</text>
 <rect x="85" y="143" width="650" height="21" fill="#54a24b"/>
-<text x="745" y="159" font-family="monospace" font-size="12">687.225</text>
+<text x="745" y="159" font-family="monospace" font-size="12">630.396</text>
 <text x="30" y="210" font-family="sans-serif" font-size="15">Steady CPU frame median (ms)</text>
 <text x="30" y="241" font-family="monospace" font-size="13">64</text>
-<rect x="85" y="224" width="56.105881869374" height="21" fill="#4c78a8"/>
-<text x="151" y="240" font-family="monospace" font-size="12">0.21</text>
+<rect x="85" y="224" width="55.6880886196739" height="21" fill="#4c78a8"/>
+<text x="151" y="240" font-family="monospace" font-size="12">0.207</text>
 <text x="30" y="273" font-family="monospace" font-size="13">128</text>
-<rect x="85" y="256" width="173.420609149575" height="21" fill="#f58518"/>
-<text x="268" y="272" font-family="monospace" font-size="12">0.649</text>
+<rect x="85" y="256" width="173.752230012861" height="21" fill="#f58518"/>
+<text x="269" y="272" font-family="monospace" font-size="12">0.644</text>
 <text x="30" y="305" font-family="monospace" font-size="13">256</text>
 <rect x="85" y="288" width="650" height="21" fill="#54a24b"/>
-<text x="745" y="304" font-family="monospace" font-size="12">2.433</text>
+<text x="745" y="304" font-family="monospace" font-size="12">2.41</text>
 <text x="30" y="355" font-family="sans-serif" font-size="15">Steady GPU frame median (ms)</text>
 <text x="30" y="386" font-family="monospace" font-size="13">64</text>
-<rect x="85" y="369" width="42.7868919360104" height="21" fill="#4c78a8"/>
+<rect x="85" y="369" width="42.765835795091" height="21" fill="#4c78a8"/>
 <text x="138" y="385" font-family="monospace" font-size="12">0.155</text>
 <text x="30" y="418" font-family="monospace" font-size="13">128</text>
-<rect x="85" y="401" width="163.286946348895" height="21" fill="#f58518"/>
+<rect x="85" y="401" width="163.382659242822" height="21" fill="#f58518"/>
 <text x="258" y="417" font-family="monospace" font-size="12">0.591</text>
 <text x="30" y="450" font-family="monospace" font-size="13">256</text>
 <rect x="85" y="433" width="650" height="21" fill="#54a24b"/>
-<text x="745" y="449" font-family="monospace" font-size="12">2.352</text>
+<text x="745" y="449" font-family="monospace" font-size="12">2.351</text>
 <text x="30" y="505" font-family="sans-serif" font-size="12" fill="#555">Medians describe this recorded Windows/Vulkan run; no performance pass/fail threshold is applied.</text></svg>

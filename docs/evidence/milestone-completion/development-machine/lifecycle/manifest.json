@@ -1,8 +1,8 @@
 {
   "SchemaVersion": 3,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-11T20:49:20.1717779Z",
-  "RepositoryRevision": "0bdc68f0b9353e38ef8970c9bb699dad1913ca09",
+  "RecordedAtUtc": "2026-07-11T21:08:08.7757661Z",
+  "RepositoryRevision": "1d75c5408bfd9cb281c4dea82e55b155d26ed062",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
   "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
@@ -75,8 +75,8 @@
       "BackgroundSamplePixels": 118290,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a",
-        "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a"
+        "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c",
+        "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c"
       ],
       "Captures": [
         "launch-a.png",
@@ -94,8 +94,8 @@
       "BackgroundSamplePixels": 159550,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "bb80277f6155b43120acd60b55a9b3808b09e1bfe61a27b11c8d25e29c9fae5b",
-        "bb80277f6155b43120acd60b55a9b3808b09e1bfe61a27b11c8d25e29c9fae5b"
+        "1654f0cd4d698f1fa1ca4ed4f991b713455eadbf4f759d1189f5c3a49f783765",
+        "1654f0cd4d698f1fa1ca4ed4f991b713455eadbf4f759d1189f5c3a49f783765"
       ],
       "Captures": [
         "landscape-a.png",
@@ -113,8 +113,8 @@
       "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb",
-        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb"
+        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681",
+        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681"
       ],
       "Captures": [
         "portrait-a.png",
@@ -132,8 +132,8 @@
       "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb",
-        "830c9ee2b6c1c0190b6d315efe6596fe89dec990ceaf753dd1b4ab0f1132b2bb"
+        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681",
+        "44dd93146f20b9749efe6f97b77ba809041aef47c61413f91103518c077e7681"
       ],
       "Captures": [
         "restored-a.png",
@@ -200,8 +200,8 @@
         "BackgroundSamplePixels": 118290,
         "MaterialDifferenceFraction": 0.0,
         "CaptureSha256": [
-          "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a",
-          "353c7d341f595ad03d9a425948332e95b3ad58bf60c4bb6478bff433d9c7865a"
+          "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c",
+          "db0419fddc1f3f0b226bdc642d833735f7bd8a4af0f1493f8126d8e2e260794c"
         ],
         "Captures": [
           "launch-a.png",
@@ -555,6 +555,33 @@
       }
     }
   ],
+  "WindingDiagnosticInspection": {
+    "Name": "winding-diagnostic",
+    "Meaning": "A warm near voxel and blue far voxel viewed head-on through the positive-height Vulkan viewport; the warm positive-Z outward face must occlude the blue negative-Z outward face.",
+    "Capture": {
+      "State": "winding-diagnostic",
+      "Width": 884,
+      "Height": 611,
+      "AspectRatio": 1.447,
+      "WarmMaterialSamplePixels": 17424,
+      "GreenMaterialSamplePixels": 0,
+      "BlueMaterialSamplePixels": 0,
+      "BackgroundSamplePixels": 117828,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "f3702b3ee46bb93ddd93fd237600eb16fa04c0b625f8f67d276d55284ce5fba4",
+        "f3702b3ee46bb93ddd93fd237600eb16fa04c0b625f8f67d276d55284ce5fba4"
+      ],
+      "Captures": [
+        "winding-diagnostic-a.png",
+        "winding-diagnostic-b.png"
+      ]
+    },
+    "StandardOutput": "winding-diagnostic.stdout.log",
+    "ValidationLog": "winding-diagnostic.stderr.log",
+    "ValidationWarnings": 0,
+    "ValidationErrors": 0
+  },
   "UnsupportedPrerequisites": [
     {
       "Case": "vulkan-1.2",

@@ -1,4 +1,4 @@
 {"event":"scene_revision_published","source_revision":"1","elapsed_ms":0.0}
-{"event":"artifact_derived","source_revision":"1","elapsed_ms":525.1206000000001,"resources":{"occupied_voxels":52608,"exposed_quads":13616,"vertices":54464,"indices":81696,"draw_calls":1,"cpu_artifact_bytes":2505344,"gpu_buffer_bytes":2505344}}
-{"event":"artifact_installed","source_revision":"1","elapsed_ms":527.263}
-{"event":"matching_artifact_presented","source_revision":"1","elapsed_ms":527.9784}
+{"event":"artifact_derived","source_revision":"1","elapsed_ms":483.30879999999996,"resources":{"occupied_voxels":52608,"exposed_quads":13616,"vertices":54464,"indices":81696,"draw_calls":1,"cpu_artifact_bytes":2505344,"gpu_buffer_bytes":2505344}}
+{"event":"artifact_installed","source_revision":"1","elapsed_ms":485.31609999999995}
+{"event":"matching_artifact_presented","source_revision":"1","elapsed_ms":485.91089999999997}

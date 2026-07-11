@@ -1,9 +1,9 @@
 
 running 4 tests
 test manifest_aggregation_covers_exactly_three_scales_with_literal_summaries ... ok
+test timing_event_serialization_is_machine_readable_and_phase_specific ... ok
 test summaries_use_literal_median_nearest_rank_ninety_fifth_percentile_and_maximum ... ok
 test manifest_aggregation_rejects_missing_fresh_runs ... ok
-test timing_event_serialization_is_machine_readable_and_phase_specific ... ok
 
 test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 

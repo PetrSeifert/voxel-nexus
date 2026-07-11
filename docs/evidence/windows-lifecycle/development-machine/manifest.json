@@ -1,8 +1,8 @@
 {
-  "SchemaVersion": 1,
+  "SchemaVersion": 3,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-11T16:36:23.0981922Z",
-  "RepositoryRevision": "9a9ff174bee5791eaf286dcdf1b4dbbdc3b7e58f",
+  "RecordedAtUtc": "2026-07-11T21:13:56.1660104Z",
+  "RepositoryRevision": "1d75c5408bfd9cb281c4dea82e55b155d26ed062",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
   "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
@@ -24,29 +24,46 @@
   },
   "RuntimeContextLog": "desktop-demo.stdout.log",
   "ValidationLog": "desktop-demo.stderr.log",
+  "CompletionVideo": null,
   "Lifecycle": [
-    "launch",
-    "landscape resize",
-    "portrait resize",
-    "minimize",
-    "restore",
+    "background preparation paused",
+    "landscape resize while paused",
+    "portrait resize while paused",
+    "zero-size suspension while paused",
+    "minimize while paused",
+    "restore and presentation recreation while paused",
+    "background preparation released",
+    "one matching-revision artifact installed",
+    "first matching-revision frame presented",
+    "overview, cavity, and boundary poses presented",
+    "120-step deterministic camera move completed",
     "normal close",
     "clean process exit"
   ],
+  "PausedLifecycleExtents": {
+    "Landscape": [
+      1084,
+      661
+    ],
+    "Portrait": [
+      634,
+      861
+    ]
+  },
   "Presentations": [
     {
       "State": "launch",
       "Width": 884,
       "Height": 611,
       "AspectRatio": 1.447,
-      "WarmMaterialSamplePixels": 2283,
-      "GreenMaterialSamplePixels": 3348,
-      "BlueMaterialSamplePixels": 3682,
-      "BackgroundSamplePixels": 125939,
+      "WarmMaterialSamplePixels": 4626,
+      "GreenMaterialSamplePixels": 2803,
+      "BlueMaterialSamplePixels": 9533,
+      "BackgroundSamplePixels": 118290,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "47727e7e88d87c4b5b697a8371855c6329156c87e216d2a257101d4e0b4abae6",
-        "47727e7e88d87c4b5b697a8371855c6329156c87e216d2a257101d4e0b4abae6"
+        "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3",
+        "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3"
       ],
       "Captures": [
         "launch-a.png",
@@ -58,14 +75,14 @@
       "Width": 1084,
       "Height": 661,
       "AspectRatio": 1.64,
-      "WarmMaterialSamplePixels": 2668,
-      "GreenMaterialSamplePixels": 3923,
-      "BlueMaterialSamplePixels": 4314,
-      "BackgroundSamplePixels": 168496,
+      "WarmMaterialSamplePixels": 5423,
+      "GreenMaterialSamplePixels": 3274,
+      "BlueMaterialSamplePixels": 11155,
+      "BackgroundSamplePixels": 159550,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "36c08fa9464e3dbe5d9a7694e6384bbf07578a51b0bb57ecd0cf9d504e5dcd2a",
-        "36c08fa9464e3dbe5d9a7694e6384bbf07578a51b0bb57ecd0cf9d504e5dcd2a"
+        "b6dd944c922368b55f849ac8c0c07ba65bd8d39945c04f8a72137a4a9f0cfc20",
+        "b6dd944c922368b55f849ac8c0c07ba65bd8d39945c04f8a72137a4a9f0cfc20"
       ],
       "Captures": [
         "landscape-a.png",
@@ -77,14 +94,14 @@
       "Width": 634,
       "Height": 861,
       "AspectRatio": 0.736,
-      "WarmMaterialSamplePixels": 4536,
-      "GreenMaterialSamplePixels": 6645,
-      "BlueMaterialSamplePixels": 7320,
-      "BackgroundSamplePixels": 118126,
+      "WarmMaterialSamplePixels": 9204,
+      "GreenMaterialSamplePixels": 5557,
+      "BlueMaterialSamplePixels": 18927,
+      "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e",
-        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e"
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1",
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1"
       ],
       "Captures": [
         "portrait-a.png",
@@ -96,14 +113,14 @@
       "Width": 634,
       "Height": 861,
       "AspectRatio": 0.736,
-      "WarmMaterialSamplePixels": 4536,
-      "GreenMaterialSamplePixels": 6645,
-      "BlueMaterialSamplePixels": 7320,
-      "BackgroundSamplePixels": 118126,
+      "WarmMaterialSamplePixels": 9204,
+      "GreenMaterialSamplePixels": 5557,
+      "BlueMaterialSamplePixels": 18927,
+      "BackgroundSamplePixels": 102939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e",
-        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e"
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1",
+        "441c98f48251b8bb6996307e9342061f9d040cdb4ad2b1a0cee07b99af95b5b1"
       ],
       "Captures": [
         "restored-a.png",
@@ -111,6 +128,145 @@
       ]
     }
   ],
+  "CanonicalScene": {
+    "GeneratorIdentity": "voxel-nexus-canonical-dense",
+    "GeneratorVersion": 1,
+    "Seed": 6219286665078134867,
+    "Dimensions": [
+      256,
+      128,
+      256
+    ],
+    "Origin": [
+      -8.0,
+      -4.0,
+      -8.0
+    ],
+    "VoxelSize": 0.0625,
+    "MaterialCatalogue": [
+      "canonical-warm",
+      "canonical-green",
+      "canonical-blue"
+    ],
+    "MaterialLinearBaseColors": [
+      [
+        0.95,
+        0.22,
+        0.1,
+        1.0
+      ],
+      [
+        0.12,
+        0.75,
+        0.28,
+        1.0
+      ],
+      [
+        0.1,
+        0.32,
+        0.95,
+        1.0
+      ]
+    ],
+    "OccupiedCount": 3366912,
+    "ExposedFaceCount": 217856,
+    "ExposedFaceLimit": 224000
+  },
+  "CanonicalInspections": [
+    {
+      "Name": "overview",
+      "CameraSelection": "overview",
+      "Capture": {
+        "State": "launch",
+        "Width": 884,
+        "Height": 611,
+        "AspectRatio": 1.447,
+        "WarmMaterialSamplePixels": 4626,
+        "GreenMaterialSamplePixels": 2803,
+        "BlueMaterialSamplePixels": 9533,
+        "BackgroundSamplePixels": 118290,
+        "MaterialDifferenceFraction": 0.0,
+        "CaptureSha256": [
+          "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3",
+          "49158d9d63ef853314891b812604d41104208615c273bca7fc8ec618c9fbc7e3"
+        ],
+        "Captures": [
+          "launch-a.png",
+          "launch-b.png"
+        ]
+      },
+      "StandardOutput": "desktop-demo.stdout.log",
+      "ValidationLog": "desktop-demo.stderr.log",
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          256,
+          128,
+          256
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.0625,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedCount": 3366912,
+        "ExposedFaceCount": 217856,
+        "ExposedFaceLimit": 224000
+      },
+      "Camera": {
+        "Selection": "overview",
+        "Eye": [
+          20.0,
+          14.0,
+          22.0
+        ],
+        "Target": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 50.0,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      }
+    }
+  ],
+  "WindingDiagnosticInspection": null,
   "UnsupportedPrerequisites": [
     {
       "Case": "vulkan-1.2",
@@ -123,6 +279,19 @@
       "StandardError": "unsupported-presentation.stderr.log"
     }
   ],
+  "BackgroundPreparationFailure": {
+    "Phase": "derivation",
+    "SourceRevision": 1,
+    "ExitCode": 1,
+    "StandardError": "background-derivation.stderr.log"
+  },
+  "UploadInstallationFailure": {
+    "Phase": "upload",
+    "SourceRevision": 1,
+    "InstalledRevisionAfterFailure": null,
+    "ExitCode": 1,
+    "StandardError": "raster-install-upload.stderr.log"
+  },
   "RenderPathFailures": [
     {
       "Phase": "release",

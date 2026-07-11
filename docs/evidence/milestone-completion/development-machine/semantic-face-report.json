@@ -11,11 +11,19 @@
   "Passed": true,
   "Cases": [
     {
-      "Name": "adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color",
+      "Name": "one_voxel_produces_six_scene_space_material_colored_faces",
       "Result": "passed"
     },
     {
       "Name": "adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation",
+      "Result": "passed"
+    },
+    {
+      "Name": "adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color",
+      "Result": "passed"
+    },
+    {
+      "Name": "occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permutation",
       "Result": "passed"
     },
     {
@@ -27,15 +35,7 @@
       "Result": "passed"
     },
     {
-      "Name": "occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permutation",
-      "Result": "passed"
-    },
-    {
       "Name": "hollow_three_cube_includes_outer_boundary_and_inner_cavity_faces_for_every_batch_permutation",
-      "Result": "passed"
-    },
-    {
-      "Name": "one_voxel_produces_six_scene_space_material_colored_faces",
       "Result": "passed"
     }
   ],

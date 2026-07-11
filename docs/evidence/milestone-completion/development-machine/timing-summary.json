@@ -1,6 +1,6 @@
 {
   "Scope": "Descriptive runtime evidence for this recorded Windows development machine only.",
-  "RepositoryRevision": "0bdc68f0b9353e38ef8970c9bb699dad1913ca09",
+  "RepositoryRevision": "1d75c5408bfd9cb281c4dea82e55b155d26ed062",
   "Scales": [
     {
       "Scale": 64,
@@ -9,10 +9,10 @@
         "Samples": [
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 755.5119,
-            "UploadInstallMilliseconds": 2.7486000000000104,
-            "PresentationMilliseconds": 0.7793000000000347,
-            "TotalMilliseconds": 759.0398,
+            "DerivationMilliseconds": 479.1073,
+            "UploadInstallMilliseconds": 1.9922000000000253,
+            "PresentationMilliseconds": 0.6515999999999735,
+            "TotalMilliseconds": 481.7511,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -26,10 +26,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 525.1206000000001,
-            "UploadInstallMilliseconds": 2.1423999999999523,
-            "PresentationMilliseconds": 0.7153999999999314,
-            "TotalMilliseconds": 527.9784,
+            "DerivationMilliseconds": 483.30879999999996,
+            "UploadInstallMilliseconds": 2.0072999999999865,
+            "PresentationMilliseconds": 0.5948000000000206,
+            "TotalMilliseconds": 485.91089999999997,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -43,10 +43,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 569.5572,
-            "UploadInstallMilliseconds": 20.139099999999985,
-            "PresentationMilliseconds": 3.3957000000000335,
-            "TotalMilliseconds": 593.092,
+            "DerivationMilliseconds": 438.21369999999996,
+            "UploadInstallMilliseconds": 2.309000000000026,
+            "PresentationMilliseconds": 0.6414000000000328,
+            "TotalMilliseconds": 441.1641,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -60,10 +60,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 531.8688000000001,
-            "UploadInstallMilliseconds": 2.696499999999901,
-            "PresentationMilliseconds": 0.6063000000000329,
-            "TotalMilliseconds": 535.1716,
+            "DerivationMilliseconds": 466.3856,
+            "UploadInstallMilliseconds": 2.220200000000034,
+            "PresentationMilliseconds": 0.696899999999971,
+            "TotalMilliseconds": 469.3027,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -77,10 +77,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 591.5692,
-            "UploadInstallMilliseconds": 2.581700000000069,
-            "PresentationMilliseconds": 0.5592999999998938,
-            "TotalMilliseconds": 594.7102,
+            "DerivationMilliseconds": 453.324,
+            "UploadInstallMilliseconds": 3.8589000000000055,
+            "PresentationMilliseconds": 2.1023999999999887,
+            "TotalMilliseconds": 459.2853,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -94,10 +94,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 522.2792000000001,
-            "UploadInstallMilliseconds": 2.3105999999999085,
-            "PresentationMilliseconds": 0.7492000000000871,
-            "TotalMilliseconds": 525.339,
+            "DerivationMilliseconds": 454.2735,
+            "UploadInstallMilliseconds": 2.305499999999995,
+            "PresentationMilliseconds": 0.6337999999999511,
+            "TotalMilliseconds": 457.21279999999996,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -111,10 +111,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 532.302,
-            "UploadInstallMilliseconds": 2.902099999999905,
-            "PresentationMilliseconds": 0.6835000000000946,
-            "TotalMilliseconds": 535.8876,
+            "DerivationMilliseconds": 455.05289999999997,
+            "UploadInstallMilliseconds": 1.8681000000000836,
+            "PresentationMilliseconds": 0.6319999999999482,
+            "TotalMilliseconds": 457.553,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -128,10 +128,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 606.5128,
-            "UploadInstallMilliseconds": 2.259800000000041,
-            "PresentationMilliseconds": 0.6224999999999454,
-            "TotalMilliseconds": 609.3951,
+            "DerivationMilliseconds": 477.63620000000003,
+            "UploadInstallMilliseconds": 2.283499999999947,
+            "PresentationMilliseconds": 0.7438000000000216,
+            "TotalMilliseconds": 480.6635,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -145,10 +145,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 534.0717000000001,
-            "UploadInstallMilliseconds": 2.204499999999939,
-            "PresentationMilliseconds": 0.5421000000000049,
-            "TotalMilliseconds": 536.8183,
+            "DerivationMilliseconds": 497.09340000000003,
+            "UploadInstallMilliseconds": 1.8851999999999407,
+            "PresentationMilliseconds": 0.6647000000000389,
+            "TotalMilliseconds": 499.6433,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -162,10 +162,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 499.9435,
-            "UploadInstallMilliseconds": 1.591700000000003,
-            "PresentationMilliseconds": 0.5955000000000723,
-            "TotalMilliseconds": 502.13070000000005,
+            "DerivationMilliseconds": 430.4618,
+            "UploadInstallMilliseconds": 2.057900000000018,
+            "PresentationMilliseconds": 0.6252000000000066,
+            "TotalMilliseconds": 433.1449,
             "Resources": {
               "occupied_voxels": 52608,
               "exposed_quads": 13616,
@@ -180,40 +180,40 @@
         ],
         "Derivation": {
           "count": 10,
-          "median": 533.18685,
-          "p95": 755.5119,
-          "maximum": 755.5119
+          "median": 460.71925,
+          "p95": 497.0934,
+          "maximum": 497.0934
         },
         "UploadInstall": {
           "count": 10,
-          "median": 2.4461499999999887,
-          "p95": 20.139099999999985,
-          "maximum": 20.139099999999985
+          "median": 2.139050000000026,
+          "p95": 3.8589000000000055,
+          "maximum": 3.8589000000000055
         },
         "Presentation": {
           "count": 10,
-          "median": 0.65300000000002,
-          "p95": 3.3957000000000335,
-          "maximum": 3.3957000000000335
+          "median": 0.6465000000000032,
+          "p95": 2.1023999999999887,
+          "maximum": 2.1023999999999887
         },
         "Total": {
           "count": 10,
-          "median": 536.35295,
-          "p95": 759.0398,
-          "maximum": 759.0398
+          "median": 464.294,
+          "p95": 499.6433,
+          "maximum": 499.6433
         }
       },
       "CpuFrame": {
-        "count": 109197,
-        "median": 0.21,
-        "p95": 0.29910000000000003,
-        "maximum": 8.697899999999999
+        "count": 119279,
+        "median": 0.2065,
+        "p95": 0.2517,
+        "maximum": 0.873
       },
       "GpuFrame": {
-        "count": 109197,
-        "median": 0.154848,
-        "p95": 0.155456,
-        "maximum": 0.19248
+        "count": 119279,
+        "median": 0.154656,
+        "p95": 0.1552,
+        "maximum": 0.176384
       }
     },
     {
@@ -223,10 +223,10 @@
         "Samples": [
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 523.9293,
-            "UploadInstallMilliseconds": 3.1965000000000146,
-            "PresentationMilliseconds": 0.6259000000000015,
-            "TotalMilliseconds": 527.7517,
+            "DerivationMilliseconds": 500.6484,
+            "UploadInstallMilliseconds": 2.156099999999981,
+            "PresentationMilliseconds": 0.5127000000000521,
+            "TotalMilliseconds": 503.3172,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -240,10 +240,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 490.5779,
-            "UploadInstallMilliseconds": 1.995900000000006,
-            "PresentationMilliseconds": 0.6052999999999997,
-            "TotalMilliseconds": 493.1791,
+            "DerivationMilliseconds": 423.5436,
+            "UploadInstallMilliseconds": 2.2672999999999774,
+            "PresentationMilliseconds": 0.6816000000000031,
+            "TotalMilliseconds": 426.4925,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -257,10 +257,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 477.6529,
-            "UploadInstallMilliseconds": 2.155200000000036,
-            "PresentationMilliseconds": 0.6364999999999554,
-            "TotalMilliseconds": 480.4446,
+            "DerivationMilliseconds": 469.8947,
+            "UploadInstallMilliseconds": 2.2287999999999784,
+            "PresentationMilliseconds": 0.6136000000000195,
+            "TotalMilliseconds": 472.7371,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -274,10 +274,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 512.8075,
-            "UploadInstallMilliseconds": 2.1161999999999352,
-            "PresentationMilliseconds": 0.8268000000000484,
-            "TotalMilliseconds": 515.7505,
+            "DerivationMilliseconds": 432.03409999999997,
+            "UploadInstallMilliseconds": 2.7372000000000867,
+            "PresentationMilliseconds": 0.6538999999999646,
+            "TotalMilliseconds": 435.4252,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -291,10 +291,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 458.3868,
-            "UploadInstallMilliseconds": 2.310100000000034,
-            "PresentationMilliseconds": 0.5885000000000105,
-            "TotalMilliseconds": 461.28540000000004,
+            "DerivationMilliseconds": 445.6705,
+            "UploadInstallMilliseconds": 2.132499999999993,
+            "PresentationMilliseconds": 0.6365000000000123,
+            "TotalMilliseconds": 448.4395,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -308,10 +308,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 538.3315,
-            "UploadInstallMilliseconds": 2.5656999999999925,
-            "PresentationMilliseconds": 0.6793999999999869,
-            "TotalMilliseconds": 541.5766,
+            "DerivationMilliseconds": 488.194,
+            "UploadInstallMilliseconds": 2.291999999999973,
+            "PresentationMilliseconds": 0.6716999999999871,
+            "TotalMilliseconds": 491.1577,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -325,10 +325,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 509.6435,
-            "UploadInstallMilliseconds": 2.703999999999951,
-            "PresentationMilliseconds": 0.7241999999999962,
-            "TotalMilliseconds": 513.0717,
+            "DerivationMilliseconds": 437.3044,
+            "UploadInstallMilliseconds": 2.098099999999988,
+            "PresentationMilliseconds": 0.5269000000000688,
+            "TotalMilliseconds": 439.92940000000004,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -342,10 +342,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 506.3544,
-            "UploadInstallMilliseconds": 3.002200000000073,
-            "PresentationMilliseconds": 0.6312999999999533,
-            "TotalMilliseconds": 509.9879,
+            "DerivationMilliseconds": 443.24789999999996,
+            "UploadInstallMilliseconds": 2.1847000000000776,
+            "PresentationMilliseconds": 0.6132999999999811,
+            "TotalMilliseconds": 446.0459,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -359,10 +359,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 489.5661,
-            "UploadInstallMilliseconds": 2.3378000000000156,
-            "PresentationMilliseconds": 0.7031999999999812,
-            "TotalMilliseconds": 492.6071,
+            "DerivationMilliseconds": 444.668,
+            "UploadInstallMilliseconds": 2.779699999999991,
+            "PresentationMilliseconds": 0.7228000000000065,
+            "TotalMilliseconds": 448.1705,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -376,10 +376,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 489.3587,
-            "UploadInstallMilliseconds": 2.7035999999999945,
-            "PresentationMilliseconds": 0.5224999999999795,
-            "TotalMilliseconds": 492.5848,
+            "DerivationMilliseconds": 446.6312,
+            "UploadInstallMilliseconds": 2.3109000000000037,
+            "PresentationMilliseconds": 0.565900000000056,
+            "TotalMilliseconds": 449.50800000000004,
             "Resources": {
               "occupied_voxels": 420864,
               "exposed_quads": 54464,
@@ -394,40 +394,40 @@
         ],
         "Derivation": {
           "count": 10,
-          "median": 498.46614999999997,
-          "p95": 538.3315,
-          "maximum": 538.3315
+          "median": 445.16925000000003,
+          "p95": 500.6484,
+          "maximum": 500.6484
         },
         "UploadInstall": {
           "count": 10,
-          "median": 2.451750000000004,
-          "p95": 3.1965000000000146,
-          "maximum": 3.1965000000000146
+          "median": 2.248049999999978,
+          "p95": 2.779699999999991,
+          "maximum": 2.779699999999991
         },
         "Presentation": {
           "count": 10,
-          "median": 0.6338999999999544,
-          "p95": 0.8268000000000484,
-          "maximum": 0.8268000000000484
+          "median": 0.6250500000000159,
+          "p95": 0.7228000000000065,
+          "maximum": 0.7228000000000065
         },
         "Total": {
           "count": 10,
-          "median": 501.5835,
-          "p95": 541.5766,
-          "maximum": 541.5766
+          "median": 448.305,
+          "p95": 503.3172,
+          "maximum": 503.3172
         }
       },
       "CpuFrame": {
-        "count": 41221,
-        "median": 0.6491,
-        "p95": 0.8479,
-        "maximum": 6.8059
+        "count": 43384,
+        "median": 0.6443,
+        "p95": 0.7027,
+        "maximum": 6.262700000000001
       },
       "GpuFrame": {
-        "count": 41221,
-        "median": 0.590944,
-        "p95": 0.593632,
-        "maximum": 5.42288
+        "count": 43384,
+        "median": 0.590848,
+        "p95": 0.59152,
+        "maximum": 1.134688
       }
     },
     {
@@ -437,10 +437,10 @@
         "Samples": [
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 684.4824000000001,
-            "UploadInstallMilliseconds": 7.197399999999902,
-            "PresentationMilliseconds": 0.7027000000000498,
-            "TotalMilliseconds": 692.3825,
+            "DerivationMilliseconds": 651.8886,
+            "UploadInstallMilliseconds": 6.768200000000093,
+            "PresentationMilliseconds": 0.8188999999998714,
+            "TotalMilliseconds": 659.4757,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -454,10 +454,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 676.5369,
-            "UploadInstallMilliseconds": 6.223400000000083,
-            "PresentationMilliseconds": 0.6565999999999121,
-            "TotalMilliseconds": 683.4168999999999,
+            "DerivationMilliseconds": 678.2225,
+            "UploadInstallMilliseconds": 4.146799999999985,
+            "PresentationMilliseconds": 0.7526000000000295,
+            "TotalMilliseconds": 683.1219,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -471,10 +471,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 682.7237,
-            "UploadInstallMilliseconds": 4.502900000000068,
-            "PresentationMilliseconds": 0.6820999999999913,
-            "TotalMilliseconds": 687.9087000000001,
+            "DerivationMilliseconds": 633.8787,
+            "UploadInstallMilliseconds": 4.080100000000016,
+            "PresentationMilliseconds": 0.6410000000000764,
+            "TotalMilliseconds": 638.5998000000001,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -488,10 +488,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 669.6998,
-            "UploadInstallMilliseconds": 5.6825000000000045,
-            "PresentationMilliseconds": 0.5339000000000169,
-            "TotalMilliseconds": 675.9162,
+            "DerivationMilliseconds": 608.6925,
+            "UploadInstallMilliseconds": 4.0948000000000775,
+            "PresentationMilliseconds": 0.5276999999999816,
+            "TotalMilliseconds": 613.315,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -505,10 +505,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 698.403,
-            "UploadInstallMilliseconds": 5.863599999999906,
-            "PresentationMilliseconds": 0.651700000000119,
-            "TotalMilliseconds": 704.9183,
+            "DerivationMilliseconds": 629.1078,
+            "UploadInstallMilliseconds": 4.376800000000003,
+            "PresentationMilliseconds": 0.5768999999999096,
+            "TotalMilliseconds": 634.0614999999999,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -522,10 +522,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 715.1125000000001,
-            "UploadInstallMilliseconds": 6.650499999999965,
-            "PresentationMilliseconds": 0.6957999999999629,
-            "TotalMilliseconds": 722.4588,
+            "DerivationMilliseconds": 622.3651,
+            "UploadInstallMilliseconds": 3.7667000000000144,
+            "PresentationMilliseconds": 0.5984999999999445,
+            "TotalMilliseconds": 626.7302999999999,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -539,10 +539,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 701.5215999999999,
-            "UploadInstallMilliseconds": 4.770200000000159,
-            "PresentationMilliseconds": 0.6749999999999545,
-            "TotalMilliseconds": 706.9668,
+            "DerivationMilliseconds": 607.19,
+            "UploadInstallMilliseconds": 4.066099999999892,
+            "PresentationMilliseconds": 0.5773000000000366,
+            "TotalMilliseconds": 611.8334,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -556,10 +556,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 670.9209999999999,
-            "UploadInstallMilliseconds": 7.674100000000067,
-            "PresentationMilliseconds": 0.6693000000000211,
-            "TotalMilliseconds": 679.2644,
+            "DerivationMilliseconds": 643.5083999999999,
+            "UploadInstallMilliseconds": 4.350900000000138,
+            "PresentationMilliseconds": 0.6789999999999736,
+            "TotalMilliseconds": 648.5383,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -573,10 +573,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 677.1644,
-            "UploadInstallMilliseconds": 8.210299999999961,
-            "PresentationMilliseconds": 0.7733000000000629,
-            "TotalMilliseconds": 686.148,
+            "DerivationMilliseconds": 597.8873,
+            "UploadInstallMilliseconds": 4.125499999999988,
+            "PresentationMilliseconds": 0.5480000000000018,
+            "TotalMilliseconds": 602.5608,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -590,10 +590,10 @@
           },
           {
             "SourceRevision": "1",
-            "DerivationMilliseconds": 677.6668999999999,
-            "UploadInstallMilliseconds": 8.16800000000012,
-            "PresentationMilliseconds": 0.7058999999999287,
-            "TotalMilliseconds": 686.5408,
+            "DerivationMilliseconds": 621.8371000000001,
+            "UploadInstallMilliseconds": 4.083700000000022,
+            "PresentationMilliseconds": 0.5653999999998405,
+            "TotalMilliseconds": 626.4861999999999,
             "Resources": {
               "occupied_voxels": 3366912,
               "exposed_quads": 217856,
@@ -608,40 +608,40 @@
         ],
         "Derivation": {
           "count": 10,
-          "median": 680.1953,
-          "p95": 715.1125000000001,
-          "maximum": 715.1125000000001
+          "median": 625.73645,
+          "p95": 678.2225,
+          "maximum": 678.2225
         },
         "UploadInstall": {
           "count": 10,
-          "median": 6.436950000000024,
-          "p95": 8.210299999999961,
-          "maximum": 8.210299999999961
+          "median": 4.110150000000033,
+          "p95": 6.768200000000093,
+          "maximum": 6.768200000000093
         },
         "Presentation": {
           "count": 10,
-          "median": 0.6785499999999729,
-          "p95": 0.7733000000000629,
-          "maximum": 0.7733000000000629
+          "median": 0.5878999999999905,
+          "p95": 0.8188999999998714,
+          "maximum": 0.8188999999998714
         },
         "Total": {
           "count": 10,
-          "median": 687.2247500000001,
-          "p95": 722.4588,
-          "maximum": 722.4588
+          "median": 630.3959,
+          "p95": 683.1219,
+          "maximum": 683.1219
         }
       },
       "CpuFrame": {
-        "count": 11214,
-        "median": 2.4329,
-        "p95": 3.4518,
-        "maximum": 29.828899999999997
+        "count": 12192,
+        "median": 2.4103000000000003,
+        "p95": 2.4891,
+        "maximum": 7.3655
       },
       "GpuFrame": {
-        "count": 11214,
-        "median": 2.352384,
-        "p95": 3.348352,
-        "maximum": 10.47712
+        "count": 12192,
+        "median": 2.350624,
+        "p95": 2.352928,
+        "maximum": 3.136928
       }
     }
   ]

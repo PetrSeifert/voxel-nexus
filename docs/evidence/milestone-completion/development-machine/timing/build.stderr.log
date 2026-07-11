@@ -1,4 +1,2 @@
-   Compiling raster-render-path v0.1.0 (E:\Programming\voxel-nexus\crates\raster-render-path)
-   Compiling canonical-inspection v0.1.0 (E:\Programming\voxel-nexus\crates\canonical-inspection)
    Compiling desktop-demo v0.1.0 (E:\Programming\voxel-nexus\apps\desktop-demo)
-    Finished `release` profile [optimized] target(s) in 5.18s
+    Finished `release` profile [optimized] target(s) in 1.67s

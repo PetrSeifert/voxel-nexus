@@ -5,8 +5,8 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 
 running 2 tests
-test published_scene_view_retains_identity_and_logical_contents ... ok
 test region_contents_are_independent_of_dense_batch_shape ... ok
+test published_scene_view_retains_identity_and_logical_contents ... ok
 
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
@@ -15,8 +15,8 @@ running 7 tests
 test maximum_coordinate_is_a_valid_out_of_bounds_region ... ok
 test frontend_rejects_a_second_publication_and_retains_the_first ... ok
 test publication_rejects_duplicate_catalogue_identities ... ok
-test publication_rejects_incomplete_overlapping_and_malformed_dense_batches ... ok
 test publication_rejects_invalid_volume_metadata_and_extents ... ok
+test publication_rejects_incomplete_overlapping_and_malformed_dense_batches ... ok
 test publication_reports_unknown_material_with_volume_and_coordinate_context ... ok
 test read_errors_identify_unknown_volumes_and_malformed_regions ... ok
 

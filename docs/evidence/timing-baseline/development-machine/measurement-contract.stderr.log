@@ -1,2 +1,5 @@
-    Finished `release` profile [optimized] target(s) in 0.10s
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `release` profile [optimized] target(s) in 0.24s
      Running tests\public_contract.rs (target\release\deps\public_contract-fdc907befa59d724.exe)
