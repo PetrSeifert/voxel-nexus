@@ -32,6 +32,11 @@ public static class LifecycleWindow {
     public const int ShowRestored = 9;
     public const uint CloseMessage = 0x0010;
     public const uint KeepPositionAndSize = 0x0013;
+    public const uint ReleasePreparationMessage = 0x801B;
+    public const uint OverviewCameraMessage = 0x801C;
+    public const uint CavityCameraMessage = 0x801D;
+    public const uint BoundaryCameraMessage = 0x801E;
+    public const uint StartCameraMoveMessage = 0x801F;
     public static readonly IntPtr Topmost = new IntPtr(-1);
 
     public delegate bool EnumWindowsCallback(IntPtr window, IntPtr parameter);
@@ -183,6 +188,48 @@ function Wait-ForWindow {
         Start-Sleep -Milliseconds 100
     }
     throw "The desktop demo did not create a window within 15 seconds."
+}
+
+function Get-DemoWindowTitle {
+    param([IntPtr]$Window)
+
+    $title = [System.Text.StringBuilder]::new(512)
+    [LifecycleWindow]::GetWindowText($Window, $title, $title.Capacity) | Out-Null
+    $title.ToString()
+}
+
+function Wait-ForWindowTitle {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [IntPtr]$Window,
+        [string]$Pattern,
+        [string]$PreviousTitle = ""
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ($Process.HasExited) {
+            throw "The desktop demo exited while waiting for window state '$Pattern' with code $($Process.ExitCode)."
+        }
+        $title = Get-DemoWindowTitle -Window $Window
+        if ($title -match $Pattern -and $title -ne $PreviousTitle) {
+            return $title
+        }
+        Start-Sleep -Milliseconds 50
+    }
+    throw "The desktop demo did not report window state '$Pattern' within 30 seconds. Last title: $(Get-DemoWindowTitle -Window $Window)"
+}
+
+function Send-DesktopVerificationEvent {
+    param(
+        [IntPtr]$Window,
+        [uint32]$Message,
+        [string]$Name
+    )
+
+    if (-not [LifecycleWindow]::PostMessage($Window, $Message, [IntPtr]::Zero, [IntPtr]::Zero)) {
+        throw "Could not send the desktop verification event '$Name'."
+    }
 }
 
 function Get-ClientArea {
@@ -570,11 +617,80 @@ try {
         }
     }
 
+    $preparationFailure = Invoke-CapturedProcess `
+        -Executable $binaryPath `
+        -Arguments @("--verify-background-preparation-failure", "derivation") `
+        -StandardOutputPath (Join-Path $evidencePath "background-derivation.stdout.log") `
+        -StandardErrorPath (Join-Path $evidencePath "background-derivation.stderr.log")
+    foreach ($requiredFailureContext in @(
+        "Voxel Nexus could not start",
+        "background derivation failed for Voxel Scene Revision VoxelSceneRevision(1)",
+        "metadata",
+        "injected-missing-volume"
+    )) {
+        if ($preparationFailure.StandardError -notmatch [Regex]::Escape($requiredFailureContext)) {
+            throw "Background derivation failure did not preserve '$requiredFailureContext' at the application boundary."
+        }
+    }
+    if ($preparationFailure.ExitCode -ne 1 -or $preparationFailure.StandardError -match "panicked") {
+        throw "Background derivation failure did not terminate cleanly."
+    }
+
     $demoProcess = Start-DesktopDemoProcess `
         -BinaryPath $binaryPath `
-        -Arguments @("--scene-scale", "256", "--camera-pose", $CameraPose)
+        -Arguments @("--scene-scale", "256", "--camera-pose", $CameraPose, "--hold-background-preparation")
 
     $window = Wait-ForWindow -Process $demoProcess
+    $pausedTitle = Wait-ForWindowTitle `
+        -Process $demoProcess `
+        -Window $window `
+        -Pattern "preparation-paused"
+    if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 1100, 700, $true)) {
+        throw "Could not resize the paused desktop demo to the landscape extent."
+    }
+    $landscapePausedTitle = Wait-ForWindowTitle `
+        -Process $demoProcess `
+        -Window $window `
+        -Pattern "preparation-paused lifecycle-responsive" `
+        -PreviousTitle $pausedTitle
+    $pausedLandscapeArea = Get-ClientArea -Window $window
+    if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 650, 900, $true)) {
+        throw "Could not resize the paused desktop demo to the portrait extent."
+    }
+    $portraitPausedTitle = Wait-ForWindowTitle `
+        -Process $demoProcess `
+        -Window $window `
+        -Pattern "preparation-paused lifecycle-responsive" `
+        -PreviousTitle $landscapePausedTitle
+    $pausedPortraitArea = Get-ClientArea -Window $window
+    if (($pausedLandscapeArea.Width / $pausedLandscapeArea.Height) -le 1 `
+        -or ($pausedPortraitArea.Width / $pausedPortraitArea.Height) -ge 1) {
+        throw "The paused background proof did not service both landscape and portrait extents."
+    }
+    [LifecycleWindow]::ShowWindowAsync($window, [LifecycleWindow]::ShowMinimized) | Out-Null
+    $minimizeDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (-not [LifecycleWindow]::IsIconic($window) -and [DateTime]::UtcNow -lt $minimizeDeadline) {
+        Start-Sleep -Milliseconds 50
+    }
+    if (-not [LifecycleWindow]::IsIconic($window)) {
+        throw "The paused desktop demo did not enter the minimized state."
+    }
+    Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "preparation-paused suspended" | Out-Null
+    [LifecycleWindow]::ShowWindowAsync($window, [LifecycleWindow]::ShowRestored) | Out-Null
+    $restoreDeadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([LifecycleWindow]::IsIconic($window) -and [DateTime]::UtcNow -lt $restoreDeadline) {
+        Start-Sleep -Milliseconds 50
+    }
+    if ([LifecycleWindow]::IsIconic($window)) {
+        throw "The paused desktop demo did not restore from the minimized state."
+    }
+    Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "preparation-paused lifecycle-responsive" | Out-Null
+    Send-DesktopVerificationEvent `
+        -Window $window `
+        -Message ([LifecycleWindow]::ReleasePreparationMessage) `
+        -Name "release background preparation"
+    Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "artifact-ready revision 1" | Out-Null
+
     if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
         throw "Could not set the desktop demo launch extent."
     }
@@ -606,6 +722,23 @@ try {
     }
     $captures += Capture-StablePresentation -Window $window -Name "restored"
 
+    foreach ($cameraEvent in @(
+        [PSCustomObject]@{ Message = [LifecycleWindow]::OverviewCameraMessage; Name = "overview" },
+        [PSCustomObject]@{ Message = [LifecycleWindow]::CavityCameraMessage; Name = "cavity" },
+        [PSCustomObject]@{ Message = [LifecycleWindow]::BoundaryCameraMessage; Name = "boundary" }
+    )) {
+        Send-DesktopVerificationEvent -Window $window -Message $cameraEvent.Message -Name $cameraEvent.Name
+        Wait-ForWindowTitle `
+            -Process $demoProcess `
+            -Window $window `
+            -Pattern "camera-presented $($cameraEvent.Name)" | Out-Null
+    }
+    Send-DesktopVerificationEvent `
+        -Window $window `
+        -Message ([LifecycleWindow]::StartCameraMoveMessage) `
+        -Name "deterministic camera move"
+    Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "camera-move-complete" | Out-Null
+
     $completion = Complete-DesktopDemoProcess `
         -Process $demoProcess `
         -Window $window `
@@ -618,6 +751,29 @@ try {
         if ($demoStandardOutput -notmatch [Regex]::Escape($requiredLine)) {
             throw "The desktop-demo runtime context is missing '$requiredLine'."
         }
+    }
+    foreach ($requiredBackgroundLine in @(
+        "Background raster preparation paused: revision=1",
+        "Desktop lifecycle serviced while preparation paused: suspended",
+        "Background raster preparation released",
+        "Raster artifact installed: revision=1 count=1",
+        "First matching raster frame presented: revision=1",
+        "Canonical camera presented: camera=overview",
+        "Canonical camera presented: camera=cavity",
+        "Canonical camera presented: camera=boundary",
+        "Deterministic camera move started: steps=120",
+        "Deterministic camera move completed: steps=120"
+    )) {
+        if ($demoStandardOutput -notmatch [Regex]::Escape($requiredBackgroundLine)) {
+            throw "The uninterrupted background lifecycle proof is missing '$requiredBackgroundLine'."
+        }
+    }
+    $pausedResizeEvents = [Regex]::Matches(
+        $demoStandardOutput,
+        "(?m)^Desktop lifecycle serviced while preparation paused: resize=\d+x\d+$"
+    )
+    if ($pausedResizeEvents.Count -lt 3) {
+        throw "The uninterrupted background lifecycle proof did not retain all paused resize and restore events."
     }
     $validationWarnings = $completion.ValidationWarnings
     $validationErrors = $completion.ValidationErrors
@@ -677,7 +833,7 @@ try {
     $cargoVersion = (& cargo --version).Trim()
     $operatingSystem = Get-CimInstance Win32_OperatingSystem
     $manifest = [ordered]@{
-        SchemaVersion = 2
+        SchemaVersion = 3
         Scope = "Runtime execution proven only on this Windows development machine."
         RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
         RepositoryRevision = $revision
@@ -702,11 +858,35 @@ try {
         }
         RuntimeContextLog = "desktop-demo.stdout.log"
         ValidationLog = "desktop-demo.stderr.log"
-        Lifecycle = @("launch", "landscape resize", "portrait resize", "minimize", "restore", "normal close", "clean process exit")
+        Lifecycle = @(
+            "background preparation paused",
+            "landscape resize while paused",
+            "portrait resize while paused",
+            "zero-size suspension while paused",
+            "minimize while paused",
+            "restore and presentation recreation while paused",
+            "background preparation released",
+            "one matching-revision artifact installed",
+            "first matching-revision frame presented",
+            "overview, cavity, and boundary poses presented",
+            "120-step deterministic camera move completed",
+            "normal close",
+            "clean process exit"
+        )
+        PausedLifecycleExtents = [ordered]@{
+            Landscape = @($pausedLandscapeArea.Width, $pausedLandscapeArea.Height)
+            Portrait = @($pausedPortraitArea.Width, $pausedPortraitArea.Height)
+        }
         Presentations = $captures
         CanonicalScene = $canonicalScene
         CanonicalInspections = $canonicalInspections
         UnsupportedPrerequisites = $unsupportedCases
+        BackgroundPreparationFailure = [ordered]@{
+            Phase = "derivation"
+            SourceRevision = 1
+            ExitCode = $preparationFailure.ExitCode
+            StandardError = "background-derivation.stderr.log"
+        }
         RenderPathFailures = $renderPathFailures
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $evidencePath "manifest.json")

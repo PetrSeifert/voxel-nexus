@@ -6,6 +6,8 @@ use render_backend::{
 use std::fmt;
 use std::io::Cursor;
 use std::mem::size_of;
+use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::thread::{self, JoinHandle};
 
 use thiserror::Error;
 use voxel_frontend::{
@@ -290,6 +292,112 @@ pub struct RasterArtifactInstallationError {
     source: Box<dyn std::error::Error + Send + Sync>,
 }
 
+struct RasterArtifactInstallationState {
+    expected_revision: VoxelSceneRevision,
+    staged_artifact: Option<RasterArtifact>,
+    artifact_was_published: bool,
+    installed_revision: Option<VoxelSceneRevision>,
+}
+
+#[derive(Clone)]
+pub struct RasterArtifactInstaller {
+    state: Arc<Mutex<RasterArtifactInstallationState>>,
+}
+
+#[derive(Clone)]
+pub struct RasterCameraController {
+    camera_pose: Arc<Mutex<CameraPose>>,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[error("the raster camera control state is unavailable")]
+pub struct RasterCameraControlError;
+
+impl RasterCameraController {
+    pub fn set_pose(&self, camera_pose: CameraPose) -> Result<(), RasterCameraControlError> {
+        let mut current_pose = self
+            .camera_pose
+            .lock()
+            .map_err(|_| RasterCameraControlError)?;
+        *current_pose = camera_pose;
+        Ok(())
+    }
+
+    pub fn pose(&self) -> Result<CameraPose, RasterCameraControlError> {
+        self.camera_pose
+            .lock()
+            .map(|camera_pose| *camera_pose)
+            .map_err(|_| RasterCameraControlError)
+    }
+}
+
+#[derive(Debug, Error, Eq, PartialEq)]
+pub enum RasterArtifactInstallerError {
+    #[error(
+        "complete raster artifact revision mismatch: expected Voxel Scene Revision {expected}, received {actual}"
+    )]
+    RevisionMismatch {
+        expected: VoxelSceneRevision,
+        actual: VoxelSceneRevision,
+    },
+    #[error(
+        "a complete raster artifact was already published for Voxel Scene Revision {source_revision}"
+    )]
+    AlreadyPublished { source_revision: VoxelSceneRevision },
+    #[error("the raster artifact installation state is unavailable")]
+    StateUnavailable,
+}
+
+impl RasterArtifactInstaller {
+    pub fn publish_complete(
+        &self,
+        artifact: RasterArtifact,
+    ) -> Result<(), RasterArtifactInstallerError> {
+        let actual = artifact.source_revision();
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+        if actual != state.expected_revision {
+            return Err(RasterArtifactInstallerError::RevisionMismatch {
+                expected: state.expected_revision,
+                actual,
+            });
+        }
+        if state.artifact_was_published {
+            return Err(RasterArtifactInstallerError::AlreadyPublished {
+                source_revision: actual,
+            });
+        }
+        state.staged_artifact = Some(artifact);
+        state.artifact_was_published = true;
+        Ok(())
+    }
+
+    pub fn staged_source_revision(
+        &self,
+    ) -> Result<Option<VoxelSceneRevision>, RasterArtifactInstallerError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+        Ok(state
+            .staged_artifact
+            .as_ref()
+            .map(RasterArtifact::source_revision))
+    }
+
+    pub fn installed_source_revision(
+        &self,
+    ) -> Result<Option<VoxelSceneRevision>, RasterArtifactInstallerError> {
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+        Ok(state.installed_revision)
+    }
+}
+
 impl RasterArtifactInstallationError {
     pub fn new(
         phase: RasterArtifactInstallationPhase,
@@ -314,7 +422,11 @@ impl RasterArtifactInstallationError {
 
 pub struct RasterRenderPath {
     artifact: Option<RasterArtifact>,
+    installation: Option<RasterArtifactInstaller>,
+    expected_source_revision: Option<VoxelSceneRevision>,
+    installed_source_revision: Option<VoxelSceneRevision>,
     camera_pose: CameraPose,
+    camera_control: RasterCameraController,
     vertex_buffer: vk::Buffer,
     vertex_memory: vk::DeviceMemory,
     index_buffer: vk::Buffer,
@@ -334,16 +446,23 @@ pub struct RasterRenderPath {
 
 impl Default for RasterRenderPath {
     fn default() -> Self {
+        let camera_pose = CameraPose::new(
+            [5.0, 4.0, 6.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            55.0,
+            0.1,
+            100.0,
+        );
         Self {
             artifact: None,
-            camera_pose: CameraPose::new(
-                [5.0, 4.0, 6.0],
-                [0.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                55.0,
-                0.1,
-                100.0,
-            ),
+            installation: None,
+            expected_source_revision: None,
+            installed_source_revision: None,
+            camera_pose,
+            camera_control: RasterCameraController {
+                camera_pose: Arc::new(Mutex::new(camera_pose)),
+            },
             vertex_buffer: vk::Buffer::null(),
             vertex_memory: vk::DeviceMemory::null(),
             index_buffer: vk::Buffer::null(),
@@ -371,8 +490,45 @@ impl RasterRenderPath {
     pub fn with_camera_pose(camera_pose: CameraPose) -> Self {
         Self {
             camera_pose,
+            camera_control: RasterCameraController {
+                camera_pose: Arc::new(Mutex::new(camera_pose)),
+            },
             ..Self::default()
         }
+    }
+
+    pub fn awaiting_artifact(
+        camera_pose: CameraPose,
+        expected_source_revision: VoxelSceneRevision,
+    ) -> (Self, RasterArtifactInstaller) {
+        let (render_path, installer, _) =
+            Self::awaiting_artifact_with_camera_control(camera_pose, expected_source_revision);
+        (render_path, installer)
+    }
+
+    pub fn awaiting_artifact_with_camera_control(
+        camera_pose: CameraPose,
+        expected_source_revision: VoxelSceneRevision,
+    ) -> (Self, RasterArtifactInstaller, RasterCameraController) {
+        let installer = RasterArtifactInstaller {
+            state: Arc::new(Mutex::new(RasterArtifactInstallationState {
+                expected_revision: expected_source_revision,
+                staged_artifact: None,
+                artifact_was_published: false,
+                installed_revision: None,
+            })),
+        };
+        let camera_control = RasterCameraController {
+            camera_pose: Arc::new(Mutex::new(camera_pose)),
+        };
+        let render_path = Self {
+            camera_pose,
+            camera_control: camera_control.clone(),
+            installation: Some(installer.clone()),
+            expected_source_revision: Some(expected_source_revision),
+            ..Self::default()
+        };
+        (render_path, installer, camera_control)
     }
 
     pub fn camera_pose(&self) -> CameraPose {
@@ -380,11 +536,13 @@ impl RasterRenderPath {
     }
 
     pub fn install_artifact(&mut self, artifact: RasterArtifact) {
+        self.expected_source_revision = Some(artifact.source_revision());
+        self.installed_source_revision = Some(artifact.source_revision());
         self.artifact = Some(artifact);
     }
 
     pub fn installed_source_revision(&self) -> Option<VoxelSceneRevision> {
-        self.artifact.as_ref().map(RasterArtifact::source_revision)
+        self.installed_source_revision
     }
 }
 
@@ -640,6 +798,222 @@ pub fn derive_raster_artifact(
     }
 
     build_geometry(source_revision, volume_identity, metadata, pending_faces)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RasterArtifactPreparationEvent {
+    PausedAtBarrier { source_revision: VoxelSceneRevision },
+    Completed { source_revision: VoxelSceneRevision },
+}
+
+#[derive(Debug, Error)]
+pub enum RasterArtifactPreparationError {
+    #[error("background derivation failed for Voxel Scene Revision {source_revision:?}: {source}")]
+    Derivation {
+        source_revision: VoxelSceneRevision,
+        #[source]
+        source: RasterArtifactBuildError,
+    },
+    #[error(
+        "background preparation synchronization failed for Voxel Scene Revision {source_revision:?}"
+    )]
+    Synchronization { source_revision: VoxelSceneRevision },
+    #[error(
+        "background preparation worker terminated unexpectedly for Voxel Scene Revision {source_revision:?}"
+    )]
+    WorkerTerminated { source_revision: VoxelSceneRevision },
+    #[error(
+        "could not start background preparation for Voxel Scene Revision {source_revision:?}: {source}"
+    )]
+    WorkerStart {
+        source_revision: VoxelSceneRevision,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+impl RasterArtifactPreparationError {
+    pub fn source_revision(&self) -> VoxelSceneRevision {
+        match self {
+            Self::Derivation {
+                source_revision, ..
+            }
+            | Self::Synchronization { source_revision }
+            | Self::WorkerTerminated { source_revision }
+            | Self::WorkerStart {
+                source_revision, ..
+            } => *source_revision,
+        }
+    }
+}
+
+#[derive(Default)]
+struct RasterPreparationBarrierState {
+    reached: bool,
+    released: bool,
+}
+
+struct RasterPreparationBarrierShared {
+    state: Mutex<RasterPreparationBarrierState>,
+    released: Condvar,
+}
+
+pub struct RasterPreparationBarrier {
+    shared: Arc<RasterPreparationBarrierShared>,
+}
+
+pub struct RasterPreparationBarrierRelease {
+    shared: Arc<RasterPreparationBarrierShared>,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[error("the raster preparation barrier state is unavailable")]
+pub struct RasterPreparationBarrierError;
+
+impl RasterPreparationBarrier {
+    pub fn held() -> (Self, RasterPreparationBarrierRelease) {
+        let shared = Arc::new(RasterPreparationBarrierShared {
+            state: Mutex::new(RasterPreparationBarrierState::default()),
+            released: Condvar::new(),
+        });
+        (
+            Self {
+                shared: shared.clone(),
+            },
+            RasterPreparationBarrierRelease { shared },
+        )
+    }
+
+    fn reach_and_wait(
+        &self,
+        source_revision: VoxelSceneRevision,
+        notify: &impl Fn(RasterArtifactPreparationEvent),
+    ) -> Result<(), RasterArtifactPreparationError> {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| RasterArtifactPreparationError::Synchronization { source_revision })?;
+        state.reached = true;
+        notify(RasterArtifactPreparationEvent::PausedAtBarrier { source_revision });
+        while !state.released {
+            state =
+                self.shared.released.wait(state).map_err(|_| {
+                    RasterArtifactPreparationError::Synchronization { source_revision }
+                })?;
+        }
+        Ok(())
+    }
+}
+
+impl RasterPreparationBarrierRelease {
+    pub fn release(&self) -> Result<(), RasterPreparationBarrierError> {
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| RasterPreparationBarrierError)?;
+        state.released = true;
+        self.shared.released.notify_one();
+        Ok(())
+    }
+
+    pub fn was_reached(&self) -> Result<bool, RasterPreparationBarrierError> {
+        let state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| RasterPreparationBarrierError)?;
+        Ok(state.reached)
+    }
+}
+
+impl Drop for RasterPreparationBarrierRelease {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.shared.state.lock() {
+            state.released = true;
+            self.shared.released.notify_one();
+        }
+    }
+}
+
+pub struct RasterArtifactPreparation {
+    source_revision: VoxelSceneRevision,
+    result_receiver: mpsc::Receiver<Result<RasterArtifact, RasterArtifactPreparationError>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl RasterArtifactPreparation {
+    pub fn start(
+        view: VoxelSceneView,
+        volume_identity: VoxelVolumeId,
+        barrier: Option<RasterPreparationBarrier>,
+        notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
+    ) -> Result<Self, RasterArtifactPreparationError> {
+        let source_revision = view.revision();
+        let (result_sender, result_receiver) = mpsc::sync_channel(1);
+        let worker = thread::Builder::new()
+            .name(format!("raster-preparation-{source_revision}"))
+            .spawn(move || {
+                let result = (|| {
+                    if let Some(barrier) = barrier {
+                        barrier.reach_and_wait(source_revision, &notify)?;
+                    }
+                    derive_raster_artifact(&view, &volume_identity).map_err(|source| {
+                        RasterArtifactPreparationError::Derivation {
+                            source_revision,
+                            source,
+                        }
+                    })
+                })();
+                if result_sender.send(result).is_err() {
+                    eprintln!(
+                        "background raster preparation result receiver closed for Voxel Scene Revision {source_revision}"
+                    );
+                    return;
+                }
+                notify(RasterArtifactPreparationEvent::Completed { source_revision });
+            })
+            .map_err(|source| RasterArtifactPreparationError::WorkerStart {
+                source_revision,
+                source,
+            })?;
+        Ok(Self {
+            source_revision,
+            result_receiver,
+            worker: Some(worker),
+        })
+    }
+
+    pub fn source_revision(&self) -> VoxelSceneRevision {
+        self.source_revision
+    }
+
+    pub fn try_complete(
+        &mut self,
+    ) -> Result<Option<RasterArtifact>, RasterArtifactPreparationError> {
+        let result = match self.result_receiver.try_recv() {
+            Ok(result) => result,
+            Err(mpsc::TryRecvError::Empty) => return Ok(None),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return Err(RasterArtifactPreparationError::WorkerTerminated {
+                    source_revision: self.source_revision,
+                });
+            }
+        };
+        let worker =
+            self.worker
+                .take()
+                .ok_or(RasterArtifactPreparationError::WorkerTerminated {
+                    source_revision: self.source_revision,
+                })?;
+        if worker.join().is_err() {
+            return Err(RasterArtifactPreparationError::WorkerTerminated {
+                source_revision: self.source_revision,
+            });
+        }
+        result.map(Some)
+    }
 }
 
 fn build_geometry(
@@ -902,6 +1276,10 @@ fn geometry_allocation(source_revision: VoxelSceneRevision) -> RasterArtifactBui
 enum RasterResourceError {
     #[error("no complete raster artifact is installed")]
     MissingArtifact,
+    #[error(transparent)]
+    ArtifactGate(#[from] RasterArtifactInstallerError),
+    #[error(transparent)]
+    CameraControl(#[from] RasterCameraControlError),
     #[error("the raster artifact index count cannot be represented for indexed drawing")]
     IndexCount,
     #[error("the Raster Vertex stride cannot be represented for graphics state")]
@@ -971,6 +1349,8 @@ impl RasterResourceError {
             | Self::IndexCount
             | Self::VertexStride
             | Self::BufferSize(_) => RasterArtifactInstallationPhase::Upload,
+            Self::ArtifactGate(_) => RasterArtifactInstallationPhase::Upload,
+            Self::CameraControl(_) => RasterArtifactInstallationPhase::Record,
             _ => RasterArtifactInstallationPhase::PresentationConfiguration,
         }
     }
@@ -988,14 +1368,16 @@ impl RenderPath for RasterRenderPath {
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
         let source_revision = self
-            .artifact
-            .as_ref()
-            .map(RasterArtifact::source_revision)
+            .expected_source_revision
+            .or_else(|| self.artifact.as_ref().map(RasterArtifact::source_revision))
             .ok_or_else(|| {
                 Box::new(RasterResourceError::MissingArtifact)
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
-        let result = self.configure_resources(&device, target);
+        let result = self
+            .accept_staged_artifact()
+            .and_then(|()| self.configure_resources(&device, target))
+            .and_then(|()| self.mark_artifact_installed());
         if let Err(error) = result {
             let phase = error.installation_phase();
             self.release_resources(&device);
@@ -1010,9 +1392,8 @@ impl RenderPath for RasterRenderPath {
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
         let source_revision = self
-            .artifact
-            .as_ref()
-            .map(RasterArtifact::source_revision)
+            .expected_source_revision
+            .or_else(|| self.artifact.as_ref().map(RasterArtifact::source_revision))
             .ok_or(RasterResourceError::MissingArtifact)?;
         let result = self.record_frame(&frame);
         result.map_err(|error| {
@@ -1026,36 +1407,71 @@ impl RenderPath for RasterRenderPath {
 }
 
 impl RasterRenderPath {
+    fn accept_staged_artifact(&mut self) -> Result<(), RasterResourceError> {
+        let Some(installer) = &self.installation else {
+            return Ok(());
+        };
+        let mut state = installer
+            .state
+            .lock()
+            .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+        if let Some(artifact) = state.staged_artifact.take() {
+            self.artifact = Some(artifact);
+        }
+        Ok(())
+    }
+
+    fn mark_artifact_installed(&mut self) -> Result<(), RasterResourceError> {
+        let Some(artifact) = &self.artifact else {
+            return Ok(());
+        };
+        let source_revision = artifact.source_revision();
+        if self.expected_source_revision != Some(source_revision) {
+            return Err(RasterArtifactInstallerError::RevisionMismatch {
+                expected: self.expected_source_revision.unwrap_or(source_revision),
+                actual: source_revision,
+            }
+            .into());
+        }
+        self.installed_source_revision = Some(source_revision);
+        if let Some(installer) = &self.installation {
+            let mut state = installer
+                .state
+                .lock()
+                .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+            state.installed_revision = Some(source_revision);
+        }
+        Ok(())
+    }
+
     fn configure_resources(
         &mut self,
         device: &RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> Result<(), RasterResourceError> {
-        let artifact = self
-            .artifact
-            .as_ref()
-            .ok_or(RasterResourceError::MissingArtifact)?;
-        self.index_count =
-            u32::try_from(artifact.indices().len()).map_err(|_| RasterResourceError::IndexCount)?;
-        if !artifact.vertices().is_empty() {
-            let vertex = create_static_buffer(
-                device,
-                raster_vertex_bytes(artifact.vertices()),
-                vk::BufferUsageFlags::VERTEX_BUFFER,
-                "vertex",
-            )?;
-            self.vertex_buffer = vertex.buffer;
-            self.vertex_memory = vertex.memory;
-        }
-        if !artifact.indices().is_empty() {
-            let index = create_static_buffer(
-                device,
-                u32_bytes(artifact.indices()),
-                vk::BufferUsageFlags::INDEX_BUFFER,
-                "index",
-            )?;
-            self.index_buffer = index.buffer;
-            self.index_memory = index.memory;
+        if let Some(artifact) = &self.artifact {
+            self.index_count = u32::try_from(artifact.indices().len())
+                .map_err(|_| RasterResourceError::IndexCount)?;
+            if !artifact.vertices().is_empty() {
+                let vertex = create_static_buffer(
+                    device,
+                    raster_vertex_bytes(artifact.vertices()),
+                    vk::BufferUsageFlags::VERTEX_BUFFER,
+                    "vertex",
+                )?;
+                self.vertex_buffer = vertex.buffer;
+                self.vertex_memory = vertex.memory;
+            }
+            if !artifact.indices().is_empty() {
+                let index = create_static_buffer(
+                    device,
+                    u32_bytes(artifact.indices()),
+                    vk::BufferUsageFlags::INDEX_BUFFER,
+                    "index",
+                )?;
+                self.index_buffer = index.buffer;
+                self.index_memory = index.memory;
+            }
         }
         self.create_depth_resources(device, target.extent())?;
         self.create_render_pass(device, target.format())?;
@@ -1075,7 +1491,8 @@ impl RasterRenderPath {
         }
         self.configuration_id = Some(target.configuration_id());
         self.camera_constants = self
-            .camera_pose
+            .camera_control
+            .pose()?
             .view_projection([target.extent().width, target.extent().height])?;
         Ok(())
     }
@@ -1339,7 +1756,10 @@ impl RasterRenderPath {
         }
     }
 
-    fn record_frame(&self, frame: &RenderPathFrameContext<'_>) -> Result<(), RasterResourceError> {
+    fn record_frame(
+        &mut self,
+        frame: &RenderPathFrameContext<'_>,
+    ) -> Result<(), RasterResourceError> {
         let target = frame.target();
         if self.configuration_id != Some(target.configuration_id()) {
             return Err(RasterResourceError::StaleFrameTarget);
@@ -1367,6 +1787,10 @@ impl RasterRenderPath {
                 },
             },
         ];
+        self.camera_constants = self
+            .camera_control
+            .pose()?
+            .view_projection([target.extent().width, target.extent().height])?;
         let render_pass_info = vk::RenderPassBeginInfo::default()
             .render_pass(self.render_pass)
             .framebuffer(framebuffer)

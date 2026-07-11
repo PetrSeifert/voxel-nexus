@@ -832,6 +832,12 @@ impl RenderBackend {
         self.swapchain_needs_recreation = true;
     }
 
+    pub fn refresh_render_path(&mut self) -> Result<(), BackendError> {
+        unsafe { self.device.device_wait_idle() }.map_err(BackendError::WaitForDevice)?;
+        self.release_path()?;
+        self.configure_path()
+    }
+
     pub fn draw_frame(&mut self) -> Result<FrameOutcome, BackendError> {
         if drawable_extent_is_zero(self.drawable_extent) {
             return self.ensure_validation_clean(FrameOutcome::Suspended);

@@ -4,8 +4,10 @@ mod windows_adapter;
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 use raster_render_path::{
-    CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase, RasterRenderPath,
-    derive_raster_artifact,
+    CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
+    RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
+    RasterCameraController, RasterPreparationBarrier, RasterPreparationBarrierRelease,
+    RasterRenderPath,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -13,6 +15,7 @@ use render_backend::{
 #[cfg(target_os = "windows")]
 use render_backend::{FrameOutcome, RenderBackend};
 use std::process::ExitCode;
+use std::sync::{Arc, Mutex, mpsc};
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
@@ -24,7 +27,11 @@ use winit::application::ApplicationHandler;
 #[cfg(target_os = "windows")]
 use winit::event::WindowEvent;
 #[cfg(target_os = "windows")]
+use winit::event_loop::EventLoopProxy;
+#[cfg(target_os = "windows")]
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows;
 #[cfg(target_os = "windows")]
 use winit::window::{Window, WindowAttributes, WindowId};
 
@@ -62,6 +69,7 @@ impl CanonicalCameraSelection {
 struct CanonicalRenderConfiguration {
     scale: CanonicalSceneScale,
     camera: CanonicalCameraSelection,
+    hold_background_preparation: bool,
 }
 
 fn parse_canonical_configuration(
@@ -71,9 +79,11 @@ fn parse_canonical_configuration(
     let mut camera = CanonicalCameraSelection::Fixed(CanonicalCameraPose::Overview);
     let mut camera_was_selected = false;
     let mut report_only = false;
+    let mut hold_background_preparation = false;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--report-canonical-configuration" => report_only = true,
+            "--hold-background-preparation" => hold_background_preparation = true,
             "--scene-scale" => {
                 scale = match arguments.next().as_deref() {
                     Some("64") => CanonicalSceneScale::Small,
@@ -134,7 +144,14 @@ fn parse_canonical_configuration(
             unknown => return Err(format!("unknown desktop demo argument {unknown:?}")),
         }
     }
-    Ok((CanonicalRenderConfiguration { scale, camera }, report_only))
+    Ok((
+        CanonicalRenderConfiguration {
+            scale,
+            camera,
+            hold_background_preparation,
+        },
+        report_only,
+    ))
 }
 
 fn report_canonical_configuration(
@@ -195,6 +212,26 @@ fn format_vector<const LENGTH: usize>(components: [f32; LENGTH]) -> String {
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Clone, Copy)]
+enum DesktopEvent {
+    Preparation(RasterArtifactPreparationEvent),
+    ReleasePreparation,
+    SelectCamera(CanonicalCameraPose),
+    StartCameraMove,
+}
+
+#[cfg(target_os = "windows")]
+const RELEASE_PREPARATION_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 27;
+#[cfg(target_os = "windows")]
+const OVERVIEW_CAMERA_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 28;
+#[cfg(target_os = "windows")]
+const CAVITY_CAMERA_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 29;
+#[cfg(target_os = "windows")]
+const BOUNDARY_CAMERA_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 30;
+#[cfg(target_os = "windows")]
+const START_CAMERA_MOVE_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 31;
+
+#[cfg(target_os = "windows")]
 struct DesktopApplication {
     backend: Option<RenderBackend>,
     window: Option<Window>,
@@ -202,6 +239,17 @@ struct DesktopApplication {
     drawable_occluded: bool,
     presentation_retry_at: Option<Instant>,
     canonical_configuration: CanonicalRenderConfiguration,
+    event_proxy: EventLoopProxy<DesktopEvent>,
+    preparation: Option<RasterArtifactPreparation>,
+    preparation_release: Option<RasterPreparationBarrierRelease>,
+    artifact_installer: Option<RasterArtifactInstaller>,
+    camera_controller: Option<RasterCameraController>,
+    published_revision: Option<VoxelSceneRevision>,
+    first_matching_frame_presented: bool,
+    pending_camera_report: Option<String>,
+    camera_move_step: Option<u32>,
+    preparation_is_paused: bool,
+    drawable_extent: ash::vk::Extent2D,
 }
 
 #[cfg(target_os = "windows")]
@@ -209,7 +257,10 @@ const PRESENTATION_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 #[cfg(target_os = "windows")]
 impl DesktopApplication {
-    fn new(canonical_configuration: CanonicalRenderConfiguration) -> Self {
+    fn new(
+        canonical_configuration: CanonicalRenderConfiguration,
+        event_proxy: EventLoopProxy<DesktopEvent>,
+    ) -> Self {
         Self {
             backend: None,
             window: None,
@@ -217,14 +268,48 @@ impl DesktopApplication {
             drawable_occluded: false,
             presentation_retry_at: None,
             canonical_configuration,
+            event_proxy,
+            preparation: None,
+            preparation_release: None,
+            artifact_installer: None,
+            camera_controller: None,
+            published_revision: None,
+            first_matching_frame_presented: false,
+            pending_camera_report: None,
+            camera_move_step: None,
+            preparation_is_paused: false,
+            drawable_extent: ash::vk::Extent2D::default(),
         }
     }
 
+    fn set_status(&self, status: &str) {
+        if let Some(window) = &self.window {
+            window.set_title(&format!("Voxel Nexus Vulkan Demo | {status}"));
+        }
+    }
+
+    fn fail(&mut self, event_loop: &ActiveEventLoop, error: impl ToString) {
+        self.application_error = Some(error.to_string());
+        event_loop.exit();
+    }
+
     fn set_drawable_extent(&mut self, drawable_extent: ash::vk::Extent2D) {
+        self.drawable_extent = drawable_extent;
         if let Some(backend) = &mut self.backend {
             backend.set_drawable_extent(drawable_extent);
         }
         self.presentation_retry_at = None;
+        if self.preparation_is_paused {
+            if drawable_extent.width == 0 || drawable_extent.height == 0 {
+                println!("Desktop lifecycle serviced while preparation paused: suspended");
+                self.set_status("preparation-paused suspended");
+            } else {
+                println!(
+                    "Desktop lifecycle serviced while preparation paused: resize={}x{}",
+                    drawable_extent.width, drawable_extent.height
+                );
+            }
+        }
         if drawable_extent.width > 0
             && drawable_extent.height > 0
             && let Some(window) = &self.window
@@ -232,10 +317,145 @@ impl DesktopApplication {
             window.request_redraw();
         }
     }
+
+    fn complete_preparation(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(mut preparation) = self.preparation.take() else {
+            self.fail(
+                event_loop,
+                "background preparation completed more than once",
+            );
+            return;
+        };
+        let artifact = match preparation.try_complete() {
+            Ok(Some(artifact)) => artifact,
+            Ok(None) => {
+                self.preparation = Some(preparation);
+                self.fail(
+                    event_loop,
+                    "background preparation signaled completion without an artifact",
+                );
+                return;
+            }
+            Err(error) => {
+                self.fail(event_loop, error);
+                return;
+            }
+        };
+        let Some(installer) = &self.artifact_installer else {
+            self.fail(event_loop, "the raster artifact installer is unavailable");
+            return;
+        };
+        if let Err(error) = installer.publish_complete(artifact) {
+            self.fail(event_loop, error);
+            return;
+        }
+        let Some(backend) = &mut self.backend else {
+            self.fail(
+                event_loop,
+                "the Render Backend is unavailable for artifact installation",
+            );
+            return;
+        };
+        if let Err(error) = backend.refresh_render_path() {
+            self.fail(event_loop, error);
+            return;
+        }
+        let installed_revision = match installer.installed_source_revision() {
+            Ok(Some(revision)) => revision,
+            Ok(None) => {
+                self.fail(
+                    event_loop,
+                    "the Render Path refresh did not install a complete raster artifact",
+                );
+                return;
+            }
+            Err(error) => {
+                self.fail(event_loop, error);
+                return;
+            }
+        };
+        if Some(installed_revision) != self.published_revision {
+            self.fail(
+                event_loop,
+                format!(
+                    "installed raster artifact revision {installed_revision} does not match the published Voxel Scene Revision"
+                ),
+            );
+            return;
+        }
+        println!("Raster artifact installed: revision={installed_revision} count=1");
+        self.set_status(&format!("artifact-ready revision {installed_revision}"));
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn select_camera(&mut self, event_loop: &ActiveEventLoop, selection: CanonicalCameraSelection) {
+        let Some(camera_controller) = &self.camera_controller else {
+            self.fail(event_loop, "the raster camera controller is unavailable");
+            return;
+        };
+        if let Err(error) = camera_controller.set_pose(selection.pose()) {
+            self.fail(event_loop, error);
+            return;
+        }
+        self.pending_camera_report = Some(selection.report_identity());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn advance_camera_move(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(step) = self.camera_move_step else {
+            return;
+        };
+        let movement = match overview_to_cavity_camera_move() {
+            Ok(movement) => movement,
+            Err(error) => {
+                self.fail(event_loop, error);
+                return;
+            }
+        };
+        if step >= movement.total_steps() {
+            self.camera_move_step = None;
+            println!(
+                "Deterministic camera move completed: steps={}",
+                movement.total_steps()
+            );
+            self.set_status("camera-move-complete");
+            return;
+        }
+        let next_step = match step.checked_add(1) {
+            Some(step) => step,
+            None => {
+                self.fail(event_loop, "the deterministic camera move step overflowed");
+                return;
+            }
+        };
+        let pose = match movement.pose_at_step(next_step) {
+            Ok(pose) => pose,
+            Err(error) => {
+                self.fail(event_loop, error);
+                return;
+            }
+        };
+        let Some(camera_controller) = &self.camera_controller else {
+            self.fail(event_loop, "the raster camera controller is unavailable");
+            return;
+        };
+        if let Err(error) = camera_controller.set_pose(pose) {
+            self.fail(event_loop, error);
+            return;
+        }
+        self.camera_move_step = Some(next_step);
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
 }
 
 #[cfg(target_os = "windows")]
-impl ApplicationHandler for DesktopApplication {
+impl ApplicationHandler<DesktopEvent> for DesktopApplication {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -256,15 +476,35 @@ impl ApplicationHandler for DesktopApplication {
             width: drawable_size.width,
             height: drawable_size.height,
         };
-        let render_path = match canonical_raster_render_path(&self.canonical_configuration) {
-            Ok(render_path) => render_path,
+        self.drawable_extent = initial_drawable_extent;
+        let canonical = match generate_canonical_scene(self.canonical_configuration.scale) {
+            Ok(canonical) => canonical,
             Err(error) => {
-                self.application_error = Some(error);
+                self.application_error = Some(format!(
+                    "could not generate the canonical Voxel Scene: {error}"
+                ));
                 event_loop.exit();
                 return;
             }
         };
-        let installed_revision = render_path.installed_source_revision();
+        report_canonical_configuration(canonical.metadata(), &self.canonical_configuration);
+        let volume_identity = canonical.metadata().volume_identity().clone();
+        let view = match VoxelFrontend::new().publish(canonical.into_scene()) {
+            Ok(view) => view,
+            Err(error) => {
+                self.application_error = Some(format!(
+                    "could not publish the canonical Voxel Scene: {error}"
+                ));
+                event_loop.exit();
+                return;
+            }
+        };
+        let published_revision = view.revision();
+        let (render_path, artifact_installer, camera_controller) =
+            RasterRenderPath::awaiting_artifact_with_camera_control(
+                self.canonical_configuration.camera.pose(),
+                published_revision,
+            );
         let backend = match RenderBackend::initialize(
             c"Voxel Nexus Desktop Demo",
             &adapter,
@@ -280,9 +520,6 @@ impl ApplicationHandler for DesktopApplication {
         };
         let diagnostic_report = backend.runtime_context().to_string();
         println!("{diagnostic_report}");
-        if let Some(source_revision) = installed_revision {
-            println!("Raster artifact revision: {source_revision}");
-        }
         let runtime_context = backend.runtime_context();
         window.set_title(&format!(
             "Voxel Nexus Vulkan Demo | {} | Vulkan {}.{}.{} | Validation errors: {}",
@@ -294,6 +531,36 @@ impl ApplicationHandler for DesktopApplication {
         ));
         self.backend = Some(backend);
         self.window = Some(window);
+        self.artifact_installer = Some(artifact_installer);
+        self.camera_controller = Some(camera_controller);
+        self.published_revision = Some(published_revision);
+        let (barrier, preparation_release) =
+            if self.canonical_configuration.hold_background_preparation {
+                let (barrier, release) = RasterPreparationBarrier::held();
+                (Some(barrier), Some(release))
+            } else {
+                (None, None)
+            };
+        let event_proxy = self.event_proxy.clone();
+        let preparation =
+            match RasterArtifactPreparation::start(view, volume_identity, barrier, move |event| {
+                if event_proxy
+                    .send_event(DesktopEvent::Preparation(event))
+                    .is_err()
+                {
+                    eprintln!("desktop event loop closed before preparation notification");
+                }
+            }) {
+                Ok(preparation) => preparation,
+                Err(error) => {
+                    self.application_error = Some(error.to_string());
+                    event_loop.exit();
+                    return;
+                }
+            };
+        self.preparation = Some(preparation);
+        self.preparation_release = preparation_release;
+        self.set_status(&format!("preparing revision {published_revision}"));
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -307,6 +574,11 @@ impl ApplicationHandler for DesktopApplication {
     ) {
         match event {
             WindowEvent::CloseRequested => {
+                if let Some(release) = self.preparation_release.take()
+                    && let Err(error) = release.release()
+                {
+                    self.application_error = Some(error.to_string());
+                }
                 if let Some(backend) = &mut self.backend
                     && let Err(error) = backend.shutdown()
                 {
@@ -357,9 +629,35 @@ impl ApplicationHandler for DesktopApplication {
                 match outcome {
                     FrameOutcome::Redraw => {
                         self.presentation_retry_at = None;
-                        if let Some(window) = &self.window {
-                            window.request_redraw();
+                        let installed_revision = match &self.artifact_installer {
+                            Some(installer) => match installer.installed_source_revision() {
+                                Ok(revision) => revision,
+                                Err(error) => {
+                                    self.fail(event_loop, error);
+                                    return;
+                                }
+                            },
+                            None => None,
+                        };
+                        if !self.first_matching_frame_presented
+                            && installed_revision.is_some()
+                            && installed_revision == self.published_revision
+                        {
+                            let revision = installed_revision.unwrap_or(VoxelSceneRevision::new(0));
+                            self.first_matching_frame_presented = true;
+                            println!("First matching raster frame presented: revision={revision}");
                         }
+                        if let Some(camera) = self.pending_camera_report.take() {
+                            println!("Canonical camera presented: camera={camera}");
+                            self.set_status(&format!("camera-presented {camera}"));
+                        }
+                        if self.preparation_is_paused {
+                            self.set_status(&format!(
+                                "preparation-paused lifecycle-responsive {}x{}",
+                                self.drawable_extent.width, self.drawable_extent.height
+                            ));
+                        }
+                        self.advance_camera_move(event_loop);
                     }
                     FrameOutcome::RetryLater => {
                         self.presentation_retry_at =
@@ -371,6 +669,69 @@ impl ApplicationHandler for DesktopApplication {
                 }
             }
             _ => {}
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: DesktopEvent) {
+        match event {
+            DesktopEvent::Preparation(RasterArtifactPreparationEvent::PausedAtBarrier {
+                source_revision,
+            }) => {
+                self.preparation_is_paused = true;
+                println!("Background raster preparation paused: revision={source_revision}");
+                self.set_status(&format!("preparation-paused revision {source_revision}"));
+            }
+            DesktopEvent::Preparation(RasterArtifactPreparationEvent::Completed { .. }) => {
+                self.complete_preparation(event_loop);
+            }
+            DesktopEvent::ReleasePreparation => {
+                let Some(release) = self.preparation_release.take() else {
+                    self.fail(event_loop, "background preparation is not paused");
+                    return;
+                };
+                if let Err(error) = release.release() {
+                    self.fail(event_loop, error);
+                    return;
+                }
+                self.preparation_is_paused = false;
+                println!("Background raster preparation released");
+                self.set_status("preparation-released");
+            }
+            DesktopEvent::SelectCamera(pose) => {
+                self.select_camera(event_loop, CanonicalCameraSelection::Fixed(pose));
+            }
+            DesktopEvent::StartCameraMove => {
+                let movement = match overview_to_cavity_camera_move() {
+                    Ok(movement) => movement,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                let Some(camera_controller) = &self.camera_controller else {
+                    self.fail(event_loop, "the raster camera controller is unavailable");
+                    return;
+                };
+                let pose = match movement.pose_at_step(0) {
+                    Ok(pose) => pose,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if let Err(error) = camera_controller.set_pose(pose) {
+                    self.fail(event_loop, error);
+                    return;
+                }
+                self.camera_move_step = Some(0);
+                println!(
+                    "Deterministic camera move started: steps={}",
+                    movement.total_steps()
+                );
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
         }
     }
 
@@ -392,26 +753,29 @@ impl ApplicationHandler for DesktopApplication {
 }
 
 #[cfg(target_os = "windows")]
-fn canonical_raster_render_path(
-    configuration: &CanonicalRenderConfiguration,
-) -> Result<RasterRenderPath, String> {
-    let canonical = generate_canonical_scene(configuration.scale)
-        .map_err(|error| format!("could not generate the canonical Voxel Scene: {error}"))?;
-    report_canonical_configuration(canonical.metadata(), configuration);
-    let volume_identity = canonical.metadata().volume_identity().clone();
-    let view = VoxelFrontend::new()
-        .publish(canonical.into_scene())
-        .map_err(|error| format!("could not publish the canonical Voxel Scene: {error}"))?;
-    let artifact = derive_raster_artifact(&view, &volume_identity)
-        .map_err(|error| format!("could not derive the canonical raster artifact: {error}"))?;
-    let mut render_path = RasterRenderPath::with_camera_pose(configuration.camera.pose());
-    render_path.install_artifact(artifact);
-    Ok(render_path)
+fn desktop_event_for_windows_message(message: u32) -> Option<DesktopEvent> {
+    match message {
+        RELEASE_PREPARATION_MESSAGE => Some(DesktopEvent::ReleasePreparation),
+        OVERVIEW_CAMERA_MESSAGE => Some(DesktopEvent::SelectCamera(CanonicalCameraPose::Overview)),
+        CAVITY_CAMERA_MESSAGE => Some(DesktopEvent::SelectCamera(
+            CanonicalCameraPose::CavityMaterialCloseUp,
+        )),
+        BOUNDARY_CAMERA_MESSAGE => Some(DesktopEvent::SelectCamera(
+            CanonicalCameraPose::BoundaryCutaway,
+        )),
+        START_CAMERA_MOVE_MESSAGE => Some(DesktopEvent::StartCameraMove),
+        _ => None,
+    }
 }
 
 #[cfg(target_os = "windows")]
 fn run() -> Result<(), String> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if let Some(diagnostic_result) =
+        background_preparation_failure_diagnostic(arguments.clone().into_iter())
+    {
+        return diagnostic_result;
+    }
     if let Some(diagnostic_result) = render_path_failure_diagnostic(arguments.clone().into_iter()) {
         return diagnostic_result;
     }
@@ -427,9 +791,48 @@ fn run() -> Result<(), String> {
         report_canonical_configuration(canonical.metadata(), &configuration);
         return Ok(());
     }
-    let event_loop =
-        EventLoop::new().map_err(|error| format!("could not start the event loop: {error}"))?;
-    let mut application = DesktopApplication::new(configuration);
+    let event_proxy_slot = Arc::new(Mutex::new(None::<EventLoopProxy<DesktopEvent>>));
+    let mut event_loop_builder = EventLoop::<DesktopEvent>::with_user_event();
+    event_loop_builder.with_msg_hook({
+        let event_proxy_slot = event_proxy_slot.clone();
+        move |raw_message| {
+            if raw_message.is_null() {
+                return false;
+            }
+            let message = unsafe {
+                (*(raw_message as *const windows_sys::Win32::UI::WindowsAndMessaging::MSG)).message
+            };
+            let Some(event) = desktop_event_for_windows_message(message) else {
+                return false;
+            };
+            let event_proxy = match event_proxy_slot.lock() {
+                Ok(event_proxy) => event_proxy.clone(),
+                Err(_) => {
+                    eprintln!("desktop verification event proxy state is unavailable");
+                    return true;
+                }
+            };
+            match event_proxy {
+                Some(event_proxy) => {
+                    if event_proxy.send_event(event).is_err() {
+                        eprintln!("desktop event loop closed before verification event delivery");
+                    }
+                }
+                None => eprintln!("desktop verification event arrived before event-loop startup"),
+            }
+            true
+        }
+    });
+    let event_loop = event_loop_builder
+        .build()
+        .map_err(|error| format!("could not start the event loop: {error}"))?;
+    let event_proxy = event_loop.create_proxy();
+    let mut event_proxy_destination = event_proxy_slot
+        .lock()
+        .map_err(|_| "desktop verification event proxy state is unavailable".to_owned())?;
+    *event_proxy_destination = Some(event_proxy.clone());
+    drop(event_proxy_destination);
+    let mut application = DesktopApplication::new(configuration, event_proxy);
     event_loop
         .run_app(&mut application)
         .map_err(|error| format!("the desktop event loop failed: {error}"))?;
@@ -437,6 +840,58 @@ fn run() -> Result<(), String> {
         Some(error) => Err(error),
         None => Ok(()),
     }
+}
+
+fn background_preparation_failure_diagnostic(
+    mut arguments: impl Iterator<Item = String>,
+) -> Option<Result<(), String>> {
+    if arguments.next().as_deref() != Some("--verify-background-preparation-failure") {
+        return None;
+    }
+    let result = match arguments.next().as_deref() {
+        Some("derivation") => (|| {
+            let canonical =
+                generate_canonical_scene(CanonicalSceneScale::Small).map_err(|error| {
+                    format!("could not generate the diagnostic Voxel Scene: {error}")
+                })?;
+            let view = VoxelFrontend::new()
+                .publish(canonical.into_scene())
+                .map_err(|error| {
+                    format!("could not publish the diagnostic Voxel Scene: {error}")
+                })?;
+            let (completion_sender, completion_receiver) = mpsc::sync_channel(1);
+            let mut preparation = RasterArtifactPreparation::start(
+                view,
+                voxel_frontend::VoxelVolumeId::new("injected-missing-volume"),
+                None,
+                move |event| {
+                    if matches!(event, RasterArtifactPreparationEvent::Completed { .. })
+                        && completion_sender.send(()).is_err()
+                    {
+                        eprintln!("background preparation diagnostic receiver closed");
+                    }
+                },
+            )
+            .map_err(|error| error.to_string())?;
+            completion_receiver
+                .recv()
+                .map_err(|error| format!("background preparation diagnostic hung: {error}"))?;
+            match preparation.try_complete() {
+                Err(error) => Err(error.to_string()),
+                Ok(Some(_)) => Err(
+                    "the injected background derivation failure produced an artifact".to_owned(),
+                ),
+                Ok(None) => {
+                    Err("the injected background derivation failure did not complete".to_owned())
+                }
+            }
+        })(),
+        Some(case) => Err(format!(
+            "unknown background-preparation diagnostic {case:?}; expected derivation"
+        )),
+        None => Err("missing background-preparation diagnostic; expected derivation".to_owned()),
+    };
+    Some(result)
 }
 
 #[derive(Debug)]
@@ -551,6 +1006,9 @@ fn application_exit_code(result: Result<(), String>) -> ExitCode {
 #[cfg(not(target_os = "windows"))]
 fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if let Some(result) = background_preparation_failure_diagnostic(arguments.clone().into_iter()) {
+        return application_exit_code(result);
+    }
     if let Some(result) = render_path_failure_diagnostic(arguments.clone().into_iter()) {
         return application_exit_code(result);
     }

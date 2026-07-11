@@ -35,12 +35,14 @@ pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 `
 
 One validation-enabled `desktop-demo.exe` process is kept alive while the runner:
 
-1. captures two materially identical launch frames containing warm, green, and blue material-colored voxel faces plus clear background;
-2. resizes to landscape and portrait extents and repeats the stable paired-frame check at each extent;
-3. minimizes the window and verifies its minimized state;
-4. restores the same process and repeats the stable paired-frame check;
+1. waits for the real preparation worker to reach its held condition-variable barrier;
+2. observes landscape and portrait resize, zero-size suspension, minimize, restore, and presentation recreation through typed event-loop state while preparation remains paused;
+3. releases the worker through a dedicated desktop verification event, requires exactly one complete artifact installation for the published Voxel Scene Revision, and observes the first matching-revision frame;
+4. captures stable material-colored frames through the lifecycle, presents the overview, cavity/material, and finite-boundary poses, and completes all 120 steps of the deterministic overview-to-cavity move in that same process;
 5. sends a normal window-close request and requires exit code 0 within ten seconds; and
 6. requires zero Vulkan validation warnings and zero Vulkan validation errors in the complete stderr log.
+
+The application event loop waits when it has no work. Worker arrival and completion, barrier release, camera selection, and camera-move progression wake it with explicit events; no timing sleep or redraw spin is part of the synchronization protocol.
 
 With `-CaptureCanonicalInspectionSet`, three additional validation-enabled processes render the same generated 256×128×256 Voxel Scene at the cavity/material pose, boundary-cutaway pose, and step 60 of the fixed 120-step overview-to-cavity move. Each process retains a tolerant same-run pair, exits normally, and records zero validation findings. The manifest records generator identity and version, seed, dimensions, origin, voxel size, material catalogue, occupied and exposed-face counts, surface bound, and every exact camera parameter.
 
@@ -50,6 +52,7 @@ The evidence directory contains a JSON manifest with the Git revision, build pro
 
 The lifecycle runner separately invokes these deterministic diagnostics:
 
+- background derivation failure, retaining derivation phase, source revision, build phase, and injected missing-volume source context;
 - Render Path release, configure, and record failures, each retaining phase and injected source context at the desktop application boundary;
 - raster artifact upload failure retaining installation phase, Voxel Scene Revision 41, and injected source context at that boundary; and
 - Vulkan 1.2 and unavailable-presentation prerequisites, each retaining actionable qualification context.
@@ -59,6 +62,7 @@ target\debug\desktop-demo.exe --verify-render-path-failure release
 target\debug\desktop-demo.exe --verify-render-path-failure configure
 target\debug\desktop-demo.exe --verify-render-path-failure record
 target\debug\desktop-demo.exe --verify-render-path-failure upload
+target\debug\desktop-demo.exe --verify-background-preparation-failure derivation
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite vulkan-1.2
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite presentation
 ```

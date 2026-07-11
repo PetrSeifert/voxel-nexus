@@ -333,6 +333,7 @@ dependencies = [
  "raw-window-handle",
  "render-backend",
  "voxel-frontend",
+ "windows-sys 0.59.0",
  "winit",
 ]
 
