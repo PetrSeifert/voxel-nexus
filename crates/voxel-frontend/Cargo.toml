@@ -1,0 +1,10 @@
+[package]
+name = "voxel-frontend"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/voxel_frontend.rs"
+
+[dependencies]
+thiserror = "2.0.18"
