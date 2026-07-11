@@ -1,4 +1,4 @@
 interface:
   display_name: "Write Devlog Script"
-  short_description: "Turn finished milestones into video scripts"
-  default_prompt: "Use $write-devlog-script to turn the latest finished devlog milestone into a narration and shot script."
+  short_description: "Write story-led, evidence-backed devlogs"
+  default_prompt: "Use $write-devlog-script to turn the latest finished milestone into a story-led narration and shot script."

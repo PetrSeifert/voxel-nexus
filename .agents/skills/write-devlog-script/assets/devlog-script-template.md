@@ -2,70 +2,73 @@
 
 - Milestone: [#<number>](<url>)
 - Status: Draft
+- Episode role: <genesis or continuation>
 - Target duration: <minutes>
 - Estimated narration: <word count> words
 
-## ~00:00 — Cold open
+## Beat 1 — Hook (~00:00–00:45)
 
-### Narration
+**[Capture — Opening image: aspirational reference, visible result, or compelling problem]**
 
-<Open on the strongest visible result or problem.>
+**VO:**
+<Open on the future vision, strongest result, or compelling problem. Establish the honest contrast that will pay off later.>
 
-### Shots
+**[Capture — Title card: short series or episode title]**
 
-- **Capture — Gameplay:** <shot that proves the hook>
-- **Capture — On-screen text:** <short supporting label, if useful>
+## Beat 2 — Why this matters (~00:45–02:00)
 
-## ~00:20 — Milestone goal
+**VO:**
+<Explain what is being built and why the creator cares.>
 
-### Narration
+**[Capture — Project evidence: domain document, roadmap, comparison, or one explanatory diagram]**
 
-<Explain what this milestone set out to accomplish and why it matters.>
+**VO (continued):**
+<State the project-level bet and why this milestone is the right step. A genesis episode must orient a completely new viewer here.>
 
-### Shots
+## Beat 3 — Decision and messy middle (~02:00–05:30)
 
-- **Capture — Comparison or diagram:** <visual explanation>
+**VO:**
+<Frame the central decision as a tradeoff and explain why the easier-looking alternative was rejected.>
 
-## ~01:00 — Main development beat
+**[Capture — Decision: code, document, or diagram that makes the tradeoff clear]**
 
-### Narration
+**VO (continued):**
+<Develop the evidence-backed sequence of iteration. Explain consequences before mechanisms.>
 
-<Develop the main technical story through cause and effect.>
+**[Capture — Iteration: commit sequence, diff, failure, review fix, or before/after]**
 
-### Shots
+**VO (continued):**
+<Explain only the minimum technical mechanism needed to understand why the iteration mattered.>
 
-- **Capture — Before/after:** <observable change>
-- **Capture — Technical detail:** <only what helps explain the result>
+## Beat 4 — Honest payoff (~05:30–07:30)
 
-## ~04:30 — Unexpected work
+**[Existing — Final demonstration: verified strongest proof, if it exists]**
 
-### Narration
+**VO:**
+<Let the visible result land. Explain what it proves without overselling how impressive it looks.>
 
-<Integrate important incidental fixes or group small fixes into a montage.>
+**[Capture — Proof overlay: only the validation, test, or measurement that strengthens the payoff]**
 
-### Shots
+**VO (continued):**
+<Connect the unglamorous proof back to the episode's opening contrast.>
 
-- **Capture — Montage:** <brief demonstrations of incidental work>
+## Beat 5 — Next promise (~07:30–end)
 
-## ~06:00 — Result and retrospective
+**VO:**
+<Return to the larger vision and name the next grounded outcome.>
 
-### Narration
+**[Capture — Roadmap transition: show where this result leads next]**
 
-<Pay off the hook, summarize what changed, and reflect on verified lessons.>
+**VO (continued):**
+<Close naturally with one concise promise or image.>
 
-### Shots
+**[Capture — Closing image: final engine, gameplay, or end-card shot]**
 
-- **Capture — Final demonstration:** <strongest proof of the completed milestone>
+## Editing notes
 
-## ~07:00 — Next step
-
-### Narration
-
-<Tease only a known next direction and close naturally.>
-
-### Shots
-
-- **Capture — Closing image:** <final engine or gameplay shot>
+- **Best messy-middle material:** <strongest evidence-backed iteration or tradeoff footage>
+- **Capture gap worth investigating:** <missing footage or creator recollection; keep conditional>
+- **Reserve for another episode:** <good material that would dilute this story>
 
 ## Production source map
 
