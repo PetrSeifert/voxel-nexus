@@ -1,0 +1,16 @@
+
+running 2 tests
+test missing_presentation_failure_reaches_the_application_boundary ... ok
+test vulkan_1_2_failure_reaches_the_application_boundary ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 3 tests
+test raster_upload_failure_reaches_the_application_boundary_with_source_revision ... ok
+test every_render_path_phase_failure_reaches_the_application_boundary ... ok
+test background_derivation_failure_reaches_the_application_boundary_with_source_revision ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+Windows lifecycle proof passed. Evidence: E:\Programming\voxel-nexus-issue29-proof-80eb207\docs\evidence\milestone-completion\development-machine\lifecycle

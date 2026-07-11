@@ -1,0 +1,14 @@
+{
+  "Pose": "boundary",
+  "Captures": [
+    "boundary-a.png",
+    "boundary-b.png"
+  ],
+  "CaptureSha256": [
+    "153c7ddaf318c52e93fdf45d32ee75a5921c264d5ab5790ced474c2b267d9fcd",
+    "153c7ddaf318c52e93fdf45d32ee75a5921c264d5ab5790ced474c2b267d9fcd"
+  ],
+  "MaterialDifferenceFraction": 0.0,
+  "MaximumMaterialDifferenceFraction": 0.001,
+  "Passed": true
+}

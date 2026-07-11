@@ -1,0 +1,14 @@
+{
+  "Pose": "overview",
+  "Captures": [
+    "launch-a.png",
+    "launch-b.png"
+  ],
+  "CaptureSha256": [
+    "d8bb3645d140762fa286a2af6e810d8e743f4fe1141951e166f71d49c136a26f",
+    "d8bb3645d140762fa286a2af6e810d8e743f4fe1141951e166f71d49c136a26f"
+  ],
+  "MaterialDifferenceFraction": 0.0,
+  "MaximumMaterialDifferenceFraction": 0.001,
+  "Passed": true
+}

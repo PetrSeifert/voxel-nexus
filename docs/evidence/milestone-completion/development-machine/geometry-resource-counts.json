@@ -1,0 +1,42 @@
+{
+  "Scope": "Descriptive runtime evidence for this recorded Windows development machine only.",
+  "RepositoryRevision": "80eb2079239b6eaa8e398dd92eae8f6e9fbfd203",
+  "Scales": [
+    {
+      "Scale": 64,
+      "Resources": {
+        "occupied_voxels": 52608,
+        "exposed_quads": 13616,
+        "vertices": 54464,
+        "indices": 81696,
+        "draw_calls": 1,
+        "cpu_artifact_bytes": 2505344,
+        "gpu_buffer_bytes": 2505344
+      }
+    },
+    {
+      "Scale": 128,
+      "Resources": {
+        "occupied_voxels": 420864,
+        "exposed_quads": 54464,
+        "vertices": 217856,
+        "indices": 326784,
+        "draw_calls": 1,
+        "cpu_artifact_bytes": 10021376,
+        "gpu_buffer_bytes": 10021376
+      }
+    },
+    {
+      "Scale": 256,
+      "Resources": {
+        "occupied_voxels": 3366912,
+        "exposed_quads": 217856,
+        "vertices": 871424,
+        "indices": 1307136,
+        "draw_calls": 1,
+        "cpu_artifact_bytes": 40085504,
+        "gpu_buffer_bytes": 40085504
+      }
+    }
+  ]
+}

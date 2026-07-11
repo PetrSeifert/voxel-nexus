@@ -1,0 +1,62 @@
+[
+  {
+    "Event": "worker_paused",
+    "ElapsedSeconds": 1.243,
+    "RecordedAtUtc": "2026-07-11T19:31:48.1611843Z"
+  },
+  {
+    "Event": "landscape_resize_while_paused",
+    "ElapsedSeconds": 2.252,
+    "RecordedAtUtc": "2026-07-11T19:31:49.1665414Z"
+  },
+  {
+    "Event": "portrait_resize_while_paused",
+    "ElapsedSeconds": 3.284,
+    "RecordedAtUtc": "2026-07-11T19:31:50.1989830Z"
+  },
+  {
+    "Event": "minimized_while_paused",
+    "ElapsedSeconds": 4.346,
+    "RecordedAtUtc": "2026-07-11T19:31:51.2615166Z"
+  },
+  {
+    "Event": "restored_while_paused",
+    "ElapsedSeconds": 5.487,
+    "RecordedAtUtc": "2026-07-11T19:31:52.4017193Z"
+  },
+  {
+    "Event": "first_matching_revision_frame",
+    "ElapsedSeconds": 18.217,
+    "RecordedAtUtc": "2026-07-11T19:32:05.1316862Z"
+  },
+  {
+    "Event": "fixed_pose_overview",
+    "ElapsedSeconds": 32.727,
+    "RecordedAtUtc": "2026-07-11T19:32:19.6420965Z"
+  },
+  {
+    "Event": "fixed_pose_cavity",
+    "ElapsedSeconds": 33.798,
+    "RecordedAtUtc": "2026-07-11T19:32:20.7126314Z"
+  },
+  {
+    "Event": "fixed_pose_boundary",
+    "ElapsedSeconds": 34.861,
+    "RecordedAtUtc": "2026-07-11T19:32:21.7759676Z"
+  },
+  {
+    "Event": "deterministic_camera_move_started",
+    "ElapsedSeconds": 35.868,
+    "RecordedAtUtc": "2026-07-11T19:32:22.7832050Z"
+  },
+  {
+    "Event": "deterministic_camera_move_completed",
+    "ElapsedSeconds": 36.623,
+    "RecordedAtUtc": "2026-07-11T19:32:23.5379672Z"
+  },
+  {
+    "Event": "clean_close",
+    "ElapsedSeconds": 37.79,
+    "RecordedAtUtc": "2026-07-11T19:32:24.7053184Z"
+  }
+]

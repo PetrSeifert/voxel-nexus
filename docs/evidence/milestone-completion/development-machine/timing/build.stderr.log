@@ -1,0 +1,50 @@
+   Compiling proc-macro2 v1.0.106
+   Compiling quote v1.0.46
+   Compiling unicode-ident v1.0.24
+   Compiling find-msvc-tools v0.1.9
+   Compiling shlex v2.0.1
+   Compiling thiserror v2.0.18
+   Compiling pkg-config v0.3.33
+   Compiling roxmltree v0.20.0
+   Compiling libc v0.2.186
+   Compiling windows_x86_64_msvc v0.52.6
+   Compiling serde_core v1.0.228
+   Compiling ash v0.38.0+1.3.281
+   Compiling windows-link v0.2.1
+   Compiling zmij v1.0.21
+   Compiling libloading v0.8.9
+   Compiling cc v1.2.66
+   Compiling serde_json v1.0.150
+   Compiling serde v1.0.228
+   Compiling windows-targets v0.52.6
+   Compiling cfg_aliases v0.2.1
+   Compiling memchr v2.8.3
+   Compiling itoa v1.0.18
+   Compiling tracing-core v0.1.36
+   Compiling winit v0.30.13
+   Compiling pin-project-lite v0.2.17
+   Compiling raw-window-handle v0.6.2
+   Compiling windows-sys v0.52.0
+   Compiling smol_str v0.2.2
+   Compiling cmake v0.1.58
+   Compiling tracing v0.1.44
+   Compiling syn v2.0.118
+   Compiling cursor-icon v1.2.0
+   Compiling unicode-segmentation v1.13.3
+   Compiling dpi v0.1.2
+   Compiling bitflags v2.13.0
+   Compiling windows-sys v0.59.0
+   Compiling link-cplusplus v1.0.12
+   Compiling shaderc-sys v0.10.1
+   Compiling shaderc v0.10.1
+   Compiling thiserror-impl v2.0.18
+   Compiling serde_derive v1.0.228
+   Compiling raster-render-path v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\raster-render-path)
+   Compiling voxel-frontend v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\voxel-frontend)
+   Compiling canonical-scene v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\canonical-scene)
+   Compiling measurement-evidence v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\measurement-evidence)
+   Compiling render-backend v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\render-backend)
+   Compiling ash-window v0.13.0
+   Compiling canonical-inspection v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\canonical-inspection)
+   Compiling desktop-demo v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\apps\desktop-demo)
+    Finished `release` profile [optimized] target(s) in 13.32s

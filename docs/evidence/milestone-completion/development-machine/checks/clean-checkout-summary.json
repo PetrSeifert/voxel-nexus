@@ -1,0 +1,79 @@
+{
+  "Scope": "Commands executed from clean checkout 80eb2079239b6eaa8e398dd92eae8f6e9fbfd203 on the recorded Windows development machine.",
+  "RepositoryRevision": "80eb2079239b6eaa8e398dd92eae8f6e9fbfd203",
+  "WorkingTreeWasCleanBeforeCollection": true,
+  "Commands": [
+    {
+      "Name": "timing-evidence",
+      "Command": "pwsh -NoProfile -File scripts/collect-timing-evidence.ps1 -OutputDirectory docs\\evidence\\milestone-completion\\development-machine\\timing",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:28:22.7027625Z",
+      "FinishedAtUtc": "2026-07-11T19:31:06.9196931Z",
+      "StandardOutput": "timing-collector.stdout.log",
+      "StandardError": "timing-collector.stderr.log"
+    },
+    {
+      "Name": "generated-artifacts",
+      "Command": "cargo build --locked --workspace --all-targets",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:31:06.9478810Z",
+      "FinishedAtUtc": "2026-07-11T19:31:20.4508265Z",
+      "StandardOutput": "checks/generated-artifacts.stdout.log",
+      "StandardError": "checks/generated-artifacts.stderr.log"
+    },
+    {
+      "Name": "formatting",
+      "Command": "cargo fmt --all -- --check",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:31:20.4539112Z",
+      "FinishedAtUtc": "2026-07-11T19:31:20.7288291Z",
+      "StandardOutput": "checks/formatting.stdout.log",
+      "StandardError": "checks/formatting.stderr.log"
+    },
+    {
+      "Name": "strict-clippy",
+      "Command": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:31:20.7299358Z",
+      "FinishedAtUtc": "2026-07-11T19:31:29.3599401Z",
+      "StandardOutput": "checks/strict-clippy.stdout.log",
+      "StandardError": "checks/strict-clippy.stderr.log"
+    },
+    {
+      "Name": "workspace-tests",
+      "Command": "cargo test --locked --workspace",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:31:29.3607846Z",
+      "FinishedAtUtc": "2026-07-11T19:31:39.3730242Z",
+      "StandardOutput": "checks/workspace-tests.stdout.log",
+      "StandardError": "checks/workspace-tests.stderr.log"
+    },
+    {
+      "Name": "voxel-frontend-read",
+      "Command": "cargo test --locked --package voxel-frontend",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:31:39.3740497Z",
+      "FinishedAtUtc": "2026-07-11T19:31:39.6058181Z",
+      "StandardOutput": "checks/voxel-frontend-read.stdout.log",
+      "StandardError": "checks/voxel-frontend-read.stderr.log"
+    },
+    {
+      "Name": "diagnostic-surface",
+      "Command": "cargo test --locked --package raster-render-path --test derivation",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:31:39.6067989Z",
+      "FinishedAtUtc": "2026-07-11T19:31:39.7770150Z",
+      "StandardOutput": "checks/diagnostic-surface.stdout.log",
+      "StandardError": "checks/diagnostic-surface.stderr.log"
+    },
+    {
+      "Name": "lifecycle-failure-prerequisite-proof",
+      "Command": "pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory docs\\evidence\\milestone-completion\\development-machine\\lifecycle -CaptureCanonicalInspectionSet -VideoFile milestone-proof.mkv",
+      "ExitCode": 0,
+      "StartedAtUtc": "2026-07-11T19:31:39.7782093Z",
+      "FinishedAtUtc": "2026-07-11T19:33:00.6212535Z",
+      "StandardOutput": "lifecycle-run.stdout.log",
+      "StandardError": "lifecycle-run.stderr.log"
+    }
+  ]
+}

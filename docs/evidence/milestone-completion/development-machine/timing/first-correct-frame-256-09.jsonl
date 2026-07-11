@@ -1,0 +1,4 @@
+{"event":"scene_revision_published","source_revision":"1","elapsed_ms":0.0}
+{"event":"artifact_derived","source_revision":"1","elapsed_ms":651.1312,"resources":{"occupied_voxels":3366912,"exposed_quads":217856,"vertices":871424,"indices":1307136,"draw_calls":1,"cpu_artifact_bytes":40085504,"gpu_buffer_bytes":40085504}}
+{"event":"artifact_installed","source_revision":"1","elapsed_ms":657.4367}
+{"event":"matching_artifact_presented","source_revision":"1","elapsed_ms":658.1206}

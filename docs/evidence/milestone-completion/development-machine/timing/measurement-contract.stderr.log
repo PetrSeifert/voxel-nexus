@@ -1,0 +1,3 @@
+   Compiling measurement-evidence v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\measurement-evidence)
+    Finished `release` profile [optimized] target(s) in 0.50s
+     Running tests\public_contract.rs (target\release\deps\public_contract-fdc907befa59d724.exe)

@@ -1,0 +1,14 @@
+{
+  "Pose": "cavity",
+  "Captures": [
+    "cavity-a.png",
+    "cavity-b.png"
+  ],
+  "CaptureSha256": [
+    "f30c61213a82e86f21e8eb245c5f8fc2aa185e1d4b23507186f7d4ff9433b4de",
+    "f30c61213a82e86f21e8eb245c5f8fc2aa185e1d4b23507186f7d4ff9433b4de"
+  ],
+  "MaterialDifferenceFraction": 0.0,
+  "MaximumMaterialDifferenceFraction": 0.001,
+  "Passed": true
+}

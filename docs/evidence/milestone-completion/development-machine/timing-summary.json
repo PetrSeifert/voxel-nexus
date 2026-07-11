@@ -1,0 +1,648 @@
+{
+  "Scope": "Descriptive runtime evidence for this recorded Windows development machine only.",
+  "RepositoryRevision": "80eb2079239b6eaa8e398dd92eae8f6e9fbfd203",
+  "Scales": [
+    {
+      "Scale": 64,
+      "FirstCorrectFrame": {
+        "FreshReleaseRuns": 10,
+        "Samples": [
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 665.2441,
+            "UploadInstallMilliseconds": 4.650899999999979,
+            "PresentationMilliseconds": 0.7464999999999691,
+            "TotalMilliseconds": 670.6415,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-01.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 629.0862999999999,
+            "UploadInstallMilliseconds": 3.124500000000012,
+            "PresentationMilliseconds": 0.7183999999999742,
+            "TotalMilliseconds": 632.9291999999999,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-02.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 815.4185,
+            "UploadInstallMilliseconds": 2.9323000000000548,
+            "PresentationMilliseconds": 0.935799999999972,
+            "TotalMilliseconds": 819.2866,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-03.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 638.5441,
+            "UploadInstallMilliseconds": 4.734900000000039,
+            "PresentationMilliseconds": 0.9608000000000629,
+            "TotalMilliseconds": 644.2398000000001,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-04.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 650.6311999999999,
+            "UploadInstallMilliseconds": 9.254300000000057,
+            "PresentationMilliseconds": 0.843900000000076,
+            "TotalMilliseconds": 660.7294,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-05.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 658.5064000000001,
+            "UploadInstallMilliseconds": 16.565599999999904,
+            "PresentationMilliseconds": 2.125099999999975,
+            "TotalMilliseconds": 677.1971,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-06.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 693.1747,
+            "UploadInstallMilliseconds": 5.2654,
+            "PresentationMilliseconds": 0.8156000000000176,
+            "TotalMilliseconds": 699.2557,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-07.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 785.8038,
+            "UploadInstallMilliseconds": 9.412800000000061,
+            "PresentationMilliseconds": 1.6531999999998561,
+            "TotalMilliseconds": 796.8697999999999,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-08.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 767.6268,
+            "UploadInstallMilliseconds": 8.492399999999975,
+            "PresentationMilliseconds": 0.921100000000024,
+            "TotalMilliseconds": 777.0403,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-09.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 690.9719,
+            "UploadInstallMilliseconds": 5.731099999999969,
+            "PresentationMilliseconds": 4.36099999999999,
+            "TotalMilliseconds": 701.064,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-10.jsonl"
+          }
+        ],
+        "Derivation": {
+          "count": 10,
+          "median": 678.108,
+          "p95": 815.4185,
+          "maximum": 815.4185
+        },
+        "UploadInstall": {
+          "count": 10,
+          "median": 5.4982499999999845,
+          "p95": 16.565599999999904,
+          "maximum": 16.565599999999904
+        },
+        "Presentation": {
+          "count": 10,
+          "median": 0.928449999999998,
+          "p95": 4.36099999999999,
+          "maximum": 4.36099999999999
+        },
+        "Total": {
+          "count": 10,
+          "median": 688.2264,
+          "p95": 819.2866,
+          "maximum": 819.2866
+        }
+      },
+      "CpuFrame": {
+        "count": 116073,
+        "median": 0.2008,
+        "p95": 0.3632,
+        "maximum": 1.0723
+      },
+      "GpuFrame": {
+        "count": 116073,
+        "median": 0.153888,
+        "p95": 0.154592,
+        "maximum": 0.171776
+      }
+    },
+    {
+      "Scale": 128,
+      "FirstCorrectFrame": {
+        "FreshReleaseRuns": 10,
+        "Samples": [
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 469.6644,
+            "UploadInstallMilliseconds": 2.6368999999999687,
+            "PresentationMilliseconds": 0.5837000000000216,
+            "TotalMilliseconds": 472.885,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-01.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 419.40270000000004,
+            "UploadInstallMilliseconds": 2.4219999999999686,
+            "PresentationMilliseconds": 0.7588000000000079,
+            "TotalMilliseconds": 422.5835,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-02.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 404.8495,
+            "UploadInstallMilliseconds": 2.0655000000000427,
+            "PresentationMilliseconds": 0.638499999999965,
+            "TotalMilliseconds": 407.5535,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-03.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 442.4828,
+            "UploadInstallMilliseconds": 2.802099999999996,
+            "PresentationMilliseconds": 0.7973999999999819,
+            "TotalMilliseconds": 446.0823,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-04.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 416.356,
+            "UploadInstallMilliseconds": 2.422900000000027,
+            "PresentationMilliseconds": 0.6458999999999833,
+            "TotalMilliseconds": 419.4248,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-05.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 437.4748,
+            "UploadInstallMilliseconds": 2.171299999999974,
+            "PresentationMilliseconds": 0.6297000000000139,
+            "TotalMilliseconds": 440.2758,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-06.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 430.1857,
+            "UploadInstallMilliseconds": 2.738299999999981,
+            "PresentationMilliseconds": 0.6936000000000035,
+            "TotalMilliseconds": 433.6176,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-07.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 421.8576,
+            "UploadInstallMilliseconds": 2.1721000000000004,
+            "PresentationMilliseconds": 1.013900000000035,
+            "TotalMilliseconds": 425.0436,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-08.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 431.54179999999997,
+            "UploadInstallMilliseconds": 2.1978000000000293,
+            "PresentationMilliseconds": 0.6773000000000025,
+            "TotalMilliseconds": 434.4169,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-09.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 426.7468,
+            "UploadInstallMilliseconds": 2.4273000000000025,
+            "PresentationMilliseconds": 0.8421000000000163,
+            "TotalMilliseconds": 430.0162,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-10.jsonl"
+          }
+        ],
+        "Derivation": {
+          "count": 10,
+          "median": 428.46625,
+          "p95": 469.6644,
+          "maximum": 469.6644
+        },
+        "UploadInstall": {
+          "count": 10,
+          "median": 2.4224499999999978,
+          "p95": 2.802099999999996,
+          "maximum": 2.802099999999996
+        },
+        "Presentation": {
+          "count": 10,
+          "median": 0.685450000000003,
+          "p95": 1.013900000000035,
+          "maximum": 1.013900000000035
+        },
+        "Total": {
+          "count": 10,
+          "median": 431.81690000000003,
+          "p95": 472.885,
+          "maximum": 472.885
+        }
+      },
+      "CpuFrame": {
+        "count": 41355,
+        "median": 0.6468999999999999,
+        "p95": 0.9213,
+        "maximum": 2.368
+      },
+      "GpuFrame": {
+        "count": 41355,
+        "median": 0.590208,
+        "p95": 0.590944,
+        "maximum": 0.650272
+      }
+    },
+    {
+      "Scale": 256,
+      "FirstCorrectFrame": {
+        "FreshReleaseRuns": 10,
+        "Samples": [
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 728.9226,
+            "UploadInstallMilliseconds": 9.158700000000067,
+            "PresentationMilliseconds": 0.940599999999904,
+            "TotalMilliseconds": 739.0219,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-01.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 688.5149,
+            "UploadInstallMilliseconds": 6.644400000000019,
+            "PresentationMilliseconds": 0.9252999999999929,
+            "TotalMilliseconds": 696.0846,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-02.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 690.2976,
+            "UploadInstallMilliseconds": 7.41719999999998,
+            "PresentationMilliseconds": 0.6898000000001048,
+            "TotalMilliseconds": 698.4046000000001,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-03.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 665.7182,
+            "UploadInstallMilliseconds": 6.614999999999895,
+            "PresentationMilliseconds": 0.6336000000000013,
+            "TotalMilliseconds": 672.9667999999999,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-04.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 650.4942,
+            "UploadInstallMilliseconds": 5.9529,
+            "PresentationMilliseconds": 0.7238999999999578,
+            "TotalMilliseconds": 657.1709999999999,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-05.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 660.7758,
+            "UploadInstallMilliseconds": 5.66190000000006,
+            "PresentationMilliseconds": 0.681699999999978,
+            "TotalMilliseconds": 667.1194,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-06.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 658.1936000000001,
+            "UploadInstallMilliseconds": 6.71429999999998,
+            "PresentationMilliseconds": 0.6987000000000307,
+            "TotalMilliseconds": 665.6066000000001,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-07.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 658.1116000000001,
+            "UploadInstallMilliseconds": 5.7398999999999205,
+            "PresentationMilliseconds": 0.6553000000000111,
+            "TotalMilliseconds": 664.5068,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-08.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 651.1312,
+            "UploadInstallMilliseconds": 6.305499999999938,
+            "PresentationMilliseconds": 0.6838999999999942,
+            "TotalMilliseconds": 658.1206,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-09.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 660.1278000000001,
+            "UploadInstallMilliseconds": 6.17899999999986,
+            "PresentationMilliseconds": 0.6647000000001526,
+            "TotalMilliseconds": 666.9715000000001,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-10.jsonl"
+          }
+        ],
+        "Derivation": {
+          "count": 10,
+          "median": 660.4518,
+          "p95": 728.9226,
+          "maximum": 728.9226
+        },
+        "UploadInstall": {
+          "count": 10,
+          "median": 6.460249999999917,
+          "p95": 9.158700000000067,
+          "maximum": 9.158700000000067
+        },
+        "Presentation": {
+          "count": 10,
+          "median": 0.6868500000000495,
+          "p95": 0.940599999999904,
+          "maximum": 0.940599999999904
+        },
+        "Total": {
+          "count": 10,
+          "median": 667.0454500000001,
+          "p95": 739.0219,
+          "maximum": 739.0219
+        }
+      },
+      "CpuFrame": {
+        "count": 11272,
+        "median": 2.59915,
+        "p95": 2.8977,
+        "maximum": 3.8715
+      },
+      "GpuFrame": {
+        "count": 11272,
+        "median": 2.517248,
+        "p95": 2.814176,
+        "maximum": 3.539328
+      }
+    }
+  ]
+}

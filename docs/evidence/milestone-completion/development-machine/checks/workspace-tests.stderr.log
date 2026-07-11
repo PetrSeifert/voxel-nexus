@@ -1,0 +1,36 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src\canonical_inspection.rs (target\debug\deps\canonical_inspection-b85af3955ce82fc6.exe)
+     Running tests\camera.rs (target\debug\deps\camera-6a41ce4de0ce883e.exe)
+     Running unittests src\canonical_scene.rs (target\debug\deps\canonical_scene-ee9533bde30e20ba.exe)
+     Running tests\generation.rs (target\debug\deps\generation-7061badf8bb21562.exe)
+     Running unittests src\completion_evidence.rs (target\debug\deps\completion_evidence-e2ef49379134c871.exe)
+     Running unittests src\verify_completion_evidence.rs (target\debug\deps\verify_completion_evidence-703695a3640d611e.exe)
+     Running tests\public_contract.rs (target\debug\deps\public_contract-1b2c671cf90f6477.exe)
+     Running unittests src\main.rs (target\debug\deps\desktop_demo-ecca20748b1f84b9.exe)
+     Running tests\canonical_configuration.rs (target\debug\deps\canonical_configuration-8ed3b0210ba0404c.exe)
+     Running tests\render_path_failures.rs (target\debug\deps\render_path_failures-ef4b9fad47c136c8.exe)
+     Running tests\unsupported_prerequisites.rs (target\debug\deps\unsupported_prerequisites-a6cd7529d2ff04b7.exe)
+     Running unittests src\measurement_evidence.rs (target\debug\deps\measurement_evidence-1e1c6e79cc4a191e.exe)
+     Running unittests src\measurement_evidence_report.rs (target\debug\deps\measurement_evidence_report-c63de296a76edf4f.exe)
+     Running tests\public_contract.rs (target\debug\deps\public_contract-ccbde134c12cc52c.exe)
+     Running unittests src\raster_render_path.rs (target\debug\deps\raster_render_path-20c843b159c05ced.exe)
+     Running tests\artifact_gate.rs (target\debug\deps\artifact_gate-8a004d3ea7e1cb6c.exe)
+     Running tests\derivation.rs (target\debug\deps\derivation-c414ebcbfd8ee01a.exe)
+     Running tests\failures.rs (target\debug\deps\failures-91d867bfbac9cfba.exe)
+     Running tests\preparation.rs (target\debug\deps\preparation-fa3e070e5d9298c8.exe)
+     Running unittests src\render_backend.rs (target\debug\deps\render_backend-ecb371f3986d5250.exe)
+     Running tests\device_qualification.rs (target\debug\deps\device_qualification-937d80f78b737251.exe)
+     Running tests\frame_observation.rs (target\debug\deps\frame_observation-70c7226878eb581d.exe)
+     Running tests\render_path_protocol.rs (target\debug\deps\render_path_protocol-eec155fb57b1e7c9.exe)
+     Running tests\runtime_diagnostics.rs (target\debug\deps\runtime_diagnostics-853d0c3892393c2c.exe)
+     Running tests\swapchain_configuration.rs (target\debug\deps\swapchain_configuration-d5719512ea87ef8b.exe)
+     Running unittests src\voxel_frontend.rs (target\debug\deps\voxel_frontend-00fdc6d8183c790d.exe)
+     Running tests\publication.rs (target\debug\deps\publication-f44aa622079099e2.exe)
+     Running tests\validation.rs (target\debug\deps\validation-72797cd2df9b3ff9.exe)
+   Doc-tests canonical_inspection
+   Doc-tests canonical_scene
+   Doc-tests completion_evidence
+   Doc-tests measurement_evidence
+   Doc-tests raster_render_path
+   Doc-tests render_backend
+   Doc-tests voxel_frontend

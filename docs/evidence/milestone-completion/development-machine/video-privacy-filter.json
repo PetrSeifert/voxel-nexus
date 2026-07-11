@@ -1,0 +1,24 @@
+{
+  "Input": "lifecycle/milestone-proof.mkv",
+  "Output": "lifecycle/milestone-proof.mkv",
+  "ContinuousTransform": true,
+  "Crop": {
+    "X": 28,
+    "Y": 20,
+    "Width": 634,
+    "Height": 642
+  },
+  "BlackIntervals": [
+    {
+      "Meaning": "window minimized",
+      "StartSeconds": 4,
+      "EndSeconds": 5.987
+    },
+    {
+      "Meaning": "window cleanly closed",
+      "StartSeconds": 37.79,
+      "EndSeconds": "end of clip"
+    }
+  ],
+  "Filter": "crop=634:642:28:20,drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='between(t\\,4.000\\,5.987)+gte(t\\,37.790)'"
+}

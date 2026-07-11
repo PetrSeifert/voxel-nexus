@@ -1,0 +1,7 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+   Compiling canonical-scene v0.1.0 (E:\Programming\voxel-nexus-issue29-proof-80eb207\crates\canonical-scene)
+    Finished `release` profile [optimized] target(s) in 5.04s
+     Running tests\generation.rs (target\release\deps\generation-0020e511d5964cda.exe)

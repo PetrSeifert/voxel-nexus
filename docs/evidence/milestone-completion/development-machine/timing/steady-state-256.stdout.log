@@ -1,0 +1,12 @@
+Canonical scene: generator=voxel-nexus-canonical-dense version=1 seed=6219286665078134867 dimensions=256x128x256 origin=-8,-4,-8 voxel_size=0.0625 materials=canonical-warm,canonical-green,canonical-blue material_colors=0.95,0.22,0.1,1;0.12,0.75,0.28,1;0.1,0.32,0.95,1 occupied=3366912 exposed_faces=217856 exposed_face_limit=224000
+Canonical camera: camera=overview eye=20,14,22 target=0,0,0 up=0,1,0 fov_degrees=50 near=0.1 far=100
+Vulkan drawable extent: 1920x1080
+Vulkan device: NVIDIA GeForce RTX 4070
+Driver version: 2497200128 (0x94d84000)
+Vulkan API version: 1.4.329
+Vulkan validation: disabled
+Vulkan present mode: IMMEDIATE
+GPU timestamp valid bits: 64
+GPU timestamp period nanoseconds: 1
+Raster artifact installed: revision=1 count=1
+First matching raster frame presented: revision=1

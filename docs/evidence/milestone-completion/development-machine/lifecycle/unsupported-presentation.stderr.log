@@ -1,0 +1,2 @@
+Voxel Nexus could not start: no suitable Vulkan device was found:
+- Deterministic device without presentation: the VK_KHR_swapchain device extension is unavailable; the presentation surface exposes no image formats; the presentation surface exposes no presentation modes; no queue family can present to the window surface; update the graphics driver or use a GPU and desktop session with Vulkan presentation support
