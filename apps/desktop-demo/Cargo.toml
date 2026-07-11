@@ -12,6 +12,7 @@ ash = "0.38.0"
 ash-window = "0.13.0"
 canonical-inspection = { path = "../../crates/canonical-inspection" }
 canonical-scene = { path = "../../crates/canonical-scene" }
+measurement-evidence = { path = "../../crates/measurement-evidence" }
 raw-window-handle = "0.6.2"
 render-backend = { path = "../../crates/render-backend" }
 raster-render-path = { path = "../../crates/raster-render-path" }

@@ -8,25 +8,54 @@ use thiserror::Error;
 
 const VALIDATION_LAYER_NAME: &CStr = c"VK_LAYER_KHRONOS_validation";
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RuntimeContext {
     pub device_name: String,
     pub driver_version: u32,
     pub api_version: u32,
+    pub validation_enabled: bool,
+    pub present_mode: vk::PresentModeKHR,
+    pub timestamp_valid_bits: u32,
+    pub timestamp_period_nanoseconds: f64,
 }
 
 impl fmt::Display for RuntimeContext {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
-            "Vulkan device: {}\nDriver version: {} ({:#010x})\nVulkan API version: {}.{}.{}\nVulkan validation: enabled",
+            "Vulkan device: {}\nDriver version: {} ({:#010x})\nVulkan API version: {}.{}.{}\nVulkan validation: {}\nVulkan present mode: {:?}\nGPU timestamp valid bits: {}\nGPU timestamp period nanoseconds: {}",
             self.device_name,
             self.driver_version,
             self.driver_version,
             vk::api_version_major(self.api_version),
             vk::api_version_minor(self.api_version),
-            vk::api_version_patch(self.api_version)
+            vk::api_version_patch(self.api_version),
+            if self.validation_enabled {
+                "enabled"
+            } else {
+                "disabled"
+            },
+            self.present_mode,
+            self.timestamp_valid_bits,
+            self.timestamp_period_nanoseconds,
         )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RenderBackendOptions {
+    pub validation_enabled: bool,
+    pub presentation_throttling_enabled: bool,
+    pub gpu_timestamps_enabled: bool,
+}
+
+impl Default for RenderBackendOptions {
+    fn default() -> Self {
+        Self {
+            validation_enabled: true,
+            presentation_throttling_enabled: true,
+            gpu_timestamps_enabled: false,
+        }
     }
 }
 
@@ -181,6 +210,10 @@ pub enum SwapchainConfigurationError {
     NoSurfaceFormats,
     #[error("the presentation surface reported no usable presentation modes")]
     NoPresentModes,
+    #[error(
+        "presentation throttling was disabled, but VK_PRESENT_MODE_IMMEDIATE_KHR is unavailable"
+    )]
+    ImmediatePresentationUnavailable,
     #[error("the presentation surface reported no usable composite-alpha mode")]
     NoCompositeAlphaMode,
 }
@@ -225,6 +258,16 @@ pub enum BackendError {
     AllocateCommandBuffer(vk::Result),
     #[error("could not create Vulkan frame synchronization: {0}")]
     CreateFrameSynchronization(vk::Result),
+    #[error("could not create the Vulkan timestamp query pool: {0}")]
+    CreateTimestampQueryPool(vk::Result),
+    #[error("could not read Vulkan timestamp query results: {0}")]
+    ReadTimestampQueries(vk::Result),
+    #[error(
+        "GPU timestamps were requested, but the graphics queue exposes no valid timestamp bits"
+    )]
+    TimestampQueriesUnsupported,
+    #[error(transparent)]
+    FrameObservation(#[from] FrameObservationError),
     #[error("could not wait for the previous Vulkan frame: {0}")]
     WaitForFrame(vk::Result),
     #[error("could not wait for the Vulkan device before rebuilding presentation: {0}")]
@@ -748,6 +791,64 @@ pub enum FrameOutcome {
     Suspended,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FrameObservation {
+    pub gpu_frame_milliseconds: f64,
+}
+
+impl FrameObservation {
+    pub fn from_gpu_timestamps(
+        start: u64,
+        end: u64,
+        timestamp_period_nanoseconds: f64,
+    ) -> Result<Self, FrameObservationError> {
+        if !timestamp_period_nanoseconds.is_finite() || timestamp_period_nanoseconds <= 0.0 {
+            return Err(FrameObservationError::InvalidTimestampPeriod);
+        }
+        let ticks = end
+            .checked_sub(start)
+            .ok_or(FrameObservationError::ReversedTimestamps)?;
+        let gpu_frame_milliseconds = ticks as f64 * timestamp_period_nanoseconds / 1_000_000.0;
+        if !gpu_frame_milliseconds.is_finite() {
+            return Err(FrameObservationError::InvalidDuration);
+        }
+        Ok(Self {
+            gpu_frame_milliseconds,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum FrameObservationError {
+    #[error("GPU timestamps ended before they started")]
+    ReversedTimestamps,
+    #[error("the Vulkan timestamp period must be finite and positive")]
+    InvalidTimestampPeriod,
+    #[error("the GPU timestamp duration is not finite")]
+    InvalidDuration,
+}
+
+#[derive(Default)]
+pub struct FrameObservationBuffer {
+    latest: Option<FrameObservation>,
+}
+
+impl FrameObservationBuffer {
+    pub fn publish(&mut self, observation: FrameObservation) -> Result<(), FrameObservationError> {
+        if !observation.gpu_frame_milliseconds.is_finite()
+            || observation.gpu_frame_milliseconds.is_sign_negative()
+        {
+            return Err(FrameObservationError::InvalidDuration);
+        }
+        self.latest = Some(observation);
+        Ok(())
+    }
+
+    pub fn take(&mut self) -> Option<FrameObservation> {
+        self.latest.take()
+    }
+}
+
 pub struct RenderBackend {
     rendering: Option<PresentationResources>,
     path: Box<dyn RenderPath>,
@@ -762,6 +863,7 @@ pub struct RenderBackend {
     next_configuration_id: u64,
     path_is_configured: bool,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    options: RenderBackendOptions,
 }
 
 impl RenderBackend {
@@ -771,10 +873,29 @@ impl RenderBackend {
         initial_drawable_extent: vk::Extent2D,
         path: impl RenderPath + 'static,
     ) -> Result<Self, BackendError> {
+        Self::initialize_with_options(
+            application_name,
+            adapter,
+            initial_drawable_extent,
+            path,
+            RenderBackendOptions::default(),
+        )
+    }
+
+    pub fn initialize_with_options(
+        application_name: &CStr,
+        adapter: &impl PresentationAdapter,
+        initial_drawable_extent: vk::Extent2D,
+        path: impl RenderPath + 'static,
+        options: RenderBackendOptions,
+    ) -> Result<Self, BackendError> {
         let entry = unsafe { Entry::load()? };
         require_vulkan_1_3_loader(&entry)?;
-        require_validation_layer(&entry)?;
-        let presentation = create_instance_surface(entry, application_name, adapter)?;
+        if options.validation_enabled {
+            require_validation_layer(&entry)?;
+        }
+        let presentation =
+            create_instance_surface(entry, application_name, adapter, options.validation_enabled)?;
 
         let inspected_devices = inspect_devices(&presentation)?;
         let selected_device = select_inspected_device(inspected_devices)?;
@@ -794,11 +915,24 @@ impl RenderBackend {
             &selected_device,
             initial_drawable_extent,
             PresentationConfigurationId(0),
+            options,
+            selected_device.timestamp_period_nanoseconds,
         )?;
+        if options.gpu_timestamps_enabled && selected_device.timestamp_valid_bits == 0 {
+            return Err(BackendError::TimestampQueriesUnsupported);
+        }
+        let present_mode = rendering
+            .as_ref()
+            .map(|rendering| rendering.present_mode)
+            .unwrap_or(vk::PresentModeKHR::FIFO);
         let runtime_context = RuntimeContext {
             device_name: selected_device.candidate.name.clone(),
             driver_version: selected_device.candidate.driver_version,
             api_version: selected_device.candidate.api_version,
+            validation_enabled: options.validation_enabled,
+            present_mode,
+            timestamp_valid_bits: selected_device.timestamp_valid_bits,
+            timestamp_period_nanoseconds: selected_device.timestamp_period_nanoseconds,
         };
 
         let mut backend = Self {
@@ -815,6 +949,7 @@ impl RenderBackend {
             next_configuration_id: 1,
             path_is_configured: false,
             memory_properties,
+            options,
         };
         backend.configure_path()?;
         Ok(backend)
@@ -826,6 +961,12 @@ impl RenderBackend {
 
     pub fn validation_error_count(&self) -> usize {
         self.presentation.validation_diagnostics.error_count()
+    }
+
+    pub fn take_frame_observation(&mut self) -> Option<FrameObservation> {
+        self.rendering
+            .as_mut()
+            .and_then(PresentationResources::take_frame_observation)
     }
 
     pub fn set_drawable_extent(&mut self, drawable_extent: vk::Extent2D) {
@@ -881,6 +1022,8 @@ impl RenderBackend {
             &self.selected_device,
             self.drawable_extent,
             configuration_id,
+            self.options,
+            self.selected_device.timestamp_period_nanoseconds,
         )?;
         let swapchain_ready = rendering.is_some();
         self.rendering = rendering;
@@ -998,8 +1141,8 @@ impl Drop for LogicalDevice {
 struct InstanceSurface {
     _entry: Entry,
     instance: Instance,
-    debug_loader: ash::ext::debug_utils::Instance,
-    debug_messenger: vk::DebugUtilsMessengerEXT,
+    debug_loader: Option<ash::ext::debug_utils::Instance>,
+    debug_messenger: Option<vk::DebugUtilsMessengerEXT>,
     validation_diagnostics: Box<ValidationDiagnostics>,
     surface_loader: ash::khr::surface::Instance,
     surface: vk::SurfaceKHR,
@@ -1009,8 +1152,11 @@ impl Drop for InstanceSurface {
     fn drop(&mut self) {
         unsafe {
             self.surface_loader.destroy_surface(self.surface, None);
-            self.debug_loader
-                .destroy_debug_utils_messenger(self.debug_messenger, None);
+            if let (Some(debug_loader), Some(debug_messenger)) =
+                (&self.debug_loader, self.debug_messenger)
+            {
+                debug_loader.destroy_debug_utils_messenger(debug_messenger, None);
+            }
             self.instance.destroy_instance(None);
         }
     }
@@ -1022,6 +1168,8 @@ struct InspectedDevice {
     candidate: DeviceCandidate,
     graphics_queue_family_index: u32,
     presentation_queue_family_index: u32,
+    timestamp_valid_bits: u32,
+    timestamp_period_nanoseconds: f64,
 }
 
 #[derive(Default)]
@@ -1049,6 +1197,11 @@ struct PresentationResources {
     extent: vk::Extent2D,
     format: vk::Format,
     configuration_id: PresentationConfigurationId,
+    present_mode: vk::PresentModeKHR,
+    timestamp_query_pool: vk::QueryPool,
+    timestamp_period_nanoseconds: f64,
+    timestamp_query_pending: bool,
+    frame_observations: FrameObservationBuffer,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1064,10 +1217,15 @@ impl PresentationResources {
         selected_device: &InspectedDevice,
         initial_drawable_extent: vk::Extent2D,
         configuration_id: PresentationConfigurationId,
+        options: RenderBackendOptions,
+        timestamp_period_nanoseconds: f64,
     ) -> Result<Option<Self>, BackendError> {
         let surface_support = query_surface_support(presentation, selected_device.physical_device)?;
-        let configuration =
-            select_swapchain_configuration(&surface_support, initial_drawable_extent)?;
+        let configuration = select_swapchain_configuration_for_mode(
+            &surface_support,
+            initial_drawable_extent,
+            options.presentation_throttling_enabled,
+        )?;
         let SwapchainConfigurationState::Ready(configuration) = configuration else {
             return Ok(None);
         };
@@ -1086,6 +1244,11 @@ impl PresentationResources {
             extent: vk::Extent2D::default(),
             format: configuration.format,
             configuration_id,
+            present_mode: configuration.present_mode,
+            timestamp_query_pool: vk::QueryPool::null(),
+            timestamp_period_nanoseconds,
+            timestamp_query_pending: false,
+            frame_observations: FrameObservationBuffer::default(),
         };
 
         resources.extent = configuration.extent;
@@ -1099,7 +1262,19 @@ impl PresentationResources {
         resources.create_image_views(&images, configuration.format)?;
         resources.create_commands(selected_device.graphics_queue_family_index)?;
         resources.create_synchronization()?;
+        if options.gpu_timestamps_enabled {
+            resources.create_timestamp_queries()?;
+        }
         Ok(Some(resources))
+    }
+
+    fn create_timestamp_queries(&mut self) -> Result<(), BackendError> {
+        let create_info = vk::QueryPoolCreateInfo::default()
+            .query_type(vk::QueryType::TIMESTAMP)
+            .query_count(2);
+        self.timestamp_query_pool = unsafe { self.device.create_query_pool(&create_info, None) }
+            .map_err(BackendError::CreateTimestampQueryPool)?;
+        Ok(())
     }
 
     fn create_swapchain(
@@ -1208,6 +1383,7 @@ impl PresentationResources {
                 .wait_for_fences(&[self.frame_fence], true, u64::MAX)
                 .map_err(BackendError::WaitForFrame)?;
         }
+        self.collect_timestamp_observation()?;
         let (image_index, acquire_suboptimal) = match unsafe {
             self.swapchain_loader.acquire_next_image(
                 self.swapchain,
@@ -1253,6 +1429,7 @@ impl PresentationResources {
                 .queue_submit(graphics_queue, &[submit_info], self.frame_fence)
                 .map_err(BackendError::SubmitFrame)?;
         }
+        self.timestamp_query_pending = self.timestamp_query_pool != vk::QueryPool::null();
 
         let swapchains = [self.swapchain];
         let image_indices = [image_index];
@@ -1293,6 +1470,20 @@ impl PresentationResources {
             self.device
                 .begin_command_buffer(self.command_buffer, &begin_info)
                 .map_err(BackendError::RecordCommands)?;
+            if self.timestamp_query_pool != vk::QueryPool::null() {
+                self.device.cmd_reset_query_pool(
+                    self.command_buffer,
+                    self.timestamp_query_pool,
+                    0,
+                    2,
+                );
+                self.device.cmd_write_timestamp(
+                    self.command_buffer,
+                    vk::PipelineStageFlags::TOP_OF_PIPE,
+                    self.timestamp_query_pool,
+                    0,
+                );
+            }
         }
         run_render_path_phase(RenderPathPhase::Record, || {
             path.record(RenderPathFrameContext {
@@ -1312,11 +1503,47 @@ impl PresentationResources {
             })
         })?;
         unsafe {
+            if self.timestamp_query_pool != vk::QueryPool::null() {
+                self.device.cmd_write_timestamp(
+                    self.command_buffer,
+                    vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+                    self.timestamp_query_pool,
+                    1,
+                );
+            }
             self.device
                 .end_command_buffer(self.command_buffer)
                 .map_err(BackendError::RecordCommands)?;
         }
         Ok(())
+    }
+
+    fn collect_timestamp_observation(&mut self) -> Result<(), BackendError> {
+        if !self.timestamp_query_pending {
+            return Ok(());
+        }
+        let mut timestamps = [0_u64; 2];
+        unsafe {
+            self.device.get_query_pool_results(
+                self.timestamp_query_pool,
+                0,
+                &mut timestamps,
+                vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
+            )
+        }
+        .map_err(BackendError::ReadTimestampQueries)?;
+        let observation = FrameObservation::from_gpu_timestamps(
+            timestamps[0],
+            timestamps[1],
+            self.timestamp_period_nanoseconds,
+        )?;
+        self.frame_observations.publish(observation)?;
+        self.timestamp_query_pending = false;
+        Ok(())
+    }
+
+    fn take_frame_observation(&mut self) -> Option<FrameObservation> {
+        self.frame_observations.take()
     }
 
     fn render_path_target(&self) -> RenderPathTarget<'_> {
@@ -1332,6 +1559,10 @@ impl PresentationResources {
 impl Drop for PresentationResources {
     fn drop(&mut self) {
         unsafe {
+            if self.timestamp_query_pool != vk::QueryPool::null() {
+                self.device
+                    .destroy_query_pool(self.timestamp_query_pool, None);
+            }
             if self.frame_fence != vk::Fence::null() {
                 self.device.destroy_fence(self.frame_fence, None);
             }
@@ -1359,6 +1590,7 @@ fn create_instance_surface(
     entry: Entry,
     application_name: &CStr,
     adapter: &impl PresentationAdapter,
+    validation_enabled: bool,
 ) -> Result<InstanceSurface, BackendError> {
     let extension_names = adapter
         .required_instance_extensions()
@@ -1367,8 +1599,10 @@ fn create_instance_surface(
         .iter()
         .map(|extension_name| extension_name.as_ptr())
         .collect();
-    extension_name_pointers.push(ash::ext::debug_utils::NAME.as_ptr());
-    let layer_names = [VALIDATION_LAYER_NAME.as_ptr()];
+    if validation_enabled {
+        extension_name_pointers.push(ash::ext::debug_utils::NAME.as_ptr());
+    }
+    let layer_names = validation_enabled.then_some(VALIDATION_LAYER_NAME.as_ptr());
     let application_info = vk::ApplicationInfo::default()
         .application_name(application_name)
         .application_version(0)
@@ -1378,28 +1612,37 @@ fn create_instance_surface(
     let instance_create_info = vk::InstanceCreateInfo::default()
         .application_info(&application_info)
         .enabled_extension_names(&extension_name_pointers)
-        .enabled_layer_names(&layer_names);
+        .enabled_layer_names(layer_names.as_slice());
     let instance = unsafe { entry.create_instance(&instance_create_info, None) }
         .map_err(BackendError::CreateInstance)?;
-    let debug_loader = ash::ext::debug_utils::Instance::new(&entry, &instance);
     let validation_diagnostics = Box::new(ValidationDiagnostics::default());
-    let validation_diagnostics_pointer = (&raw const *validation_diagnostics)
-        .cast_mut()
-        .cast::<c_void>();
-    let messenger_info = validation_messenger_create_info(validation_diagnostics_pointer);
-    let debug_messenger =
-        match unsafe { debug_loader.create_debug_utils_messenger(&messenger_info, None) } {
-            Ok(messenger) => messenger,
-            Err(error) => {
-                unsafe { instance.destroy_instance(None) };
-                return Err(BackendError::CreateValidationMessenger(error));
-            }
-        };
+    let (debug_loader, debug_messenger) = if validation_enabled {
+        let debug_loader = ash::ext::debug_utils::Instance::new(&entry, &instance);
+        let validation_diagnostics_pointer = (&raw const *validation_diagnostics)
+            .cast_mut()
+            .cast::<c_void>();
+        let messenger_info = validation_messenger_create_info(validation_diagnostics_pointer);
+        let debug_messenger =
+            match unsafe { debug_loader.create_debug_utils_messenger(&messenger_info, None) } {
+                Ok(messenger) => messenger,
+                Err(error) => {
+                    unsafe { instance.destroy_instance(None) };
+                    return Err(BackendError::CreateValidationMessenger(error));
+                }
+            };
+        (Some(debug_loader), Some(debug_messenger))
+    } else {
+        (None, None)
+    };
     let surface = match unsafe { adapter.create_surface(&entry, &instance) } {
         Ok(surface) => surface,
         Err(error) => {
             unsafe {
-                debug_loader.destroy_debug_utils_messenger(debug_messenger, None);
+                if let (Some(debug_loader), Some(debug_messenger)) =
+                    (&debug_loader, debug_messenger)
+                {
+                    debug_loader.destroy_debug_utils_messenger(debug_messenger, None);
+                }
                 instance.destroy_instance(None);
             }
             return Err(BackendError::PlatformAdapter(error));
@@ -1552,6 +1795,11 @@ fn inspect_device(
         .position(|queue_family| queue_family.supports_presentation)
         .and_then(|index| u32::try_from(index).ok())
         .unwrap_or(u32::MAX);
+    let timestamp_valid_bits = usize::try_from(graphics_queue_family_index)
+        .ok()
+        .and_then(|index| queue_properties.get(index))
+        .map(|properties| properties.timestamp_valid_bits)
+        .unwrap_or(0);
 
     Ok(InspectedDevice {
         physical_device,
@@ -1566,6 +1814,8 @@ fn inspect_device(
         },
         graphics_queue_family_index,
         presentation_queue_family_index,
+        timestamp_valid_bits,
+        timestamp_period_nanoseconds: f64::from(properties.limits.timestamp_period),
     })
 }
 
@@ -1672,6 +1922,14 @@ pub fn select_swapchain_configuration(
     support: &SurfaceSupport,
     drawable_extent: vk::Extent2D,
 ) -> Result<SwapchainConfigurationState, SwapchainConfigurationError> {
+    select_swapchain_configuration_for_mode(support, drawable_extent, true)
+}
+
+fn select_swapchain_configuration_for_mode(
+    support: &SurfaceSupport,
+    drawable_extent: vk::Extent2D,
+    presentation_throttling_enabled: bool,
+) -> Result<SwapchainConfigurationState, SwapchainConfigurationError> {
     if drawable_extent_is_zero(drawable_extent) {
         return Ok(SwapchainConfigurationState::Suspended);
     }
@@ -1685,12 +1943,23 @@ pub fn select_swapchain_configuration(
         })
         .or_else(|| support.formats.first().copied())
         .ok_or(SwapchainConfigurationError::NoSurfaceFormats)?;
+    let required_present_mode = if presentation_throttling_enabled {
+        vk::PresentModeKHR::FIFO
+    } else {
+        vk::PresentModeKHR::IMMEDIATE
+    };
     let present_mode = support
         .present_modes
         .iter()
         .copied()
-        .find(|mode| *mode == vk::PresentModeKHR::FIFO)
-        .ok_or(SwapchainConfigurationError::NoPresentModes)?;
+        .find(|mode| *mode == required_present_mode)
+        .ok_or({
+            if presentation_throttling_enabled {
+                SwapchainConfigurationError::NoPresentModes
+            } else {
+                SwapchainConfigurationError::ImmediatePresentationUnavailable
+            }
+        })?;
     let extent = if support.capabilities.current_extent.width != u32::MAX {
         support.capabilities.current_extent
     } else {

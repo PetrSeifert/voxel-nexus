@@ -3,6 +3,8 @@ mod windows_adapter;
 
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
+#[cfg(target_os = "windows")]
+use measurement_evidence::{MeasurementEvent, ResourceCounts};
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
@@ -13,7 +15,12 @@ use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
 };
 #[cfg(target_os = "windows")]
-use render_backend::{FrameOutcome, RenderBackend};
+use render_backend::{FrameOutcome, RenderBackend, RenderBackendOptions};
+#[cfg(target_os = "windows")]
+use std::fs::File;
+#[cfg(target_os = "windows")]
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::{Arc, Mutex, mpsc};
 #[cfg(target_os = "windows")]
@@ -71,6 +78,19 @@ struct CanonicalRenderConfiguration {
     camera: CanonicalCameraSelection,
     hold_background_preparation: bool,
     inject_raster_upload_failure: bool,
+    measurement: Option<MeasurementConfiguration>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MeasurementMode {
+    FirstCorrectFrame,
+    SteadyState,
+}
+
+#[derive(Clone)]
+struct MeasurementConfiguration {
+    mode: MeasurementMode,
+    output: PathBuf,
 }
 
 fn parse_canonical_configuration(
@@ -82,11 +102,31 @@ fn parse_canonical_configuration(
     let mut report_only = false;
     let mut hold_background_preparation = false;
     let mut inject_raster_upload_failure = false;
+    let mut measurement_mode = None;
+    let mut measurement_output = None;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--report-canonical-configuration" => report_only = true,
             "--hold-background-preparation" => hold_background_preparation = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
+            "--measurement-mode" => {
+                measurement_mode = Some(match arguments.next().as_deref() {
+                    Some("first-correct-frame") => MeasurementMode::FirstCorrectFrame,
+                    Some("steady-state") => MeasurementMode::SteadyState,
+                    Some(value) => {
+                        return Err(format!(
+                            "unknown measurement mode {value:?}; expected first-correct-frame or steady-state"
+                        ));
+                    }
+                    None => return Err("missing measurement mode".to_owned()),
+                });
+            }
+            "--measurement-output" => {
+                measurement_output =
+                    Some(PathBuf::from(arguments.next().ok_or_else(|| {
+                        "missing measurement output path".to_owned()
+                    })?));
+            }
             "--scene-scale" => {
                 scale = match arguments.next().as_deref() {
                     Some("64") => CanonicalSceneScale::Small,
@@ -147,12 +187,22 @@ fn parse_canonical_configuration(
             unknown => return Err(format!("unknown desktop demo argument {unknown:?}")),
         }
     }
+    let measurement = match (measurement_mode, measurement_output) {
+        (Some(mode), Some(output)) => Some(MeasurementConfiguration { mode, output }),
+        (None, None) => None,
+        _ => {
+            return Err(
+                "measurement mode and measurement output must be supplied together".to_owned(),
+            );
+        }
+    };
     Ok((
         CanonicalRenderConfiguration {
             scale,
             camera,
             hold_background_preparation,
             inject_raster_upload_failure,
+            measurement,
         },
         report_only,
     ))
@@ -236,6 +286,55 @@ const BOUNDARY_CAMERA_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging
 const START_CAMERA_MOVE_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 31;
 
 #[cfg(target_os = "windows")]
+struct MeasurementSession {
+    mode: MeasurementMode,
+    output: BufWriter<File>,
+    publication_at: Option<Instant>,
+    derivation_at: Option<Instant>,
+    installation_at: Option<Instant>,
+    warmup_ends_at: Option<Instant>,
+    collection_ends_at: Option<Instant>,
+    sequence: u64,
+}
+
+#[cfg(target_os = "windows")]
+impl MeasurementSession {
+    fn new(configuration: &MeasurementConfiguration) -> Result<Self, String> {
+        let output = File::create(&configuration.output).map_err(|error| {
+            format!(
+                "could not create measurement output {}: {error}",
+                configuration.output.display()
+            )
+        })?;
+        Ok(Self {
+            mode: configuration.mode,
+            output: BufWriter::new(output),
+            publication_at: None,
+            derivation_at: None,
+            installation_at: None,
+            warmup_ends_at: None,
+            collection_ends_at: None,
+            sequence: 0,
+        })
+    }
+
+    fn elapsed_milliseconds(&self, at: Instant) -> Result<f64, String> {
+        self.publication_at
+            .map(|publication_at| at.duration_since(publication_at).as_secs_f64() * 1_000.0)
+            .ok_or_else(|| "measurement began before Voxel Scene Revision publication".to_owned())
+    }
+
+    fn record(&mut self, event: MeasurementEvent) -> Result<(), String> {
+        let line = event
+            .to_json_line()
+            .map_err(|error| format!("could not serialize measurement event: {error}"))?;
+        writeln!(self.output, "{line}")
+            .and_then(|()| self.output.flush())
+            .map_err(|error| format!("could not write measurement event: {error}"))
+    }
+}
+
+#[cfg(target_os = "windows")]
 struct DesktopApplication {
     backend: Option<RenderBackend>,
     window: Option<Window>,
@@ -254,6 +353,8 @@ struct DesktopApplication {
     camera_move_step: Option<u32>,
     preparation_is_paused: bool,
     drawable_extent: ash::vk::Extent2D,
+    measurement: Option<MeasurementSession>,
+    occupied_voxels: u64,
 }
 
 #[cfg(target_os = "windows")]
@@ -264,8 +365,13 @@ impl DesktopApplication {
     fn new(
         canonical_configuration: CanonicalRenderConfiguration,
         event_proxy: EventLoopProxy<DesktopEvent>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        let measurement = canonical_configuration
+            .measurement
+            .as_ref()
+            .map(MeasurementSession::new)
+            .transpose()?;
+        Ok(Self {
             backend: None,
             window: None,
             application_error: None,
@@ -283,7 +389,9 @@ impl DesktopApplication {
             camera_move_step: None,
             preparation_is_paused: false,
             drawable_extent: ash::vk::Extent2D::default(),
-        }
+            measurement,
+            occupied_voxels: 0,
+        })
     }
 
     fn set_status(&self, status: &str) {
@@ -345,6 +453,52 @@ impl DesktopApplication {
                 return;
             }
         };
+        if let Some(measurement) = &mut self.measurement {
+            let derived_at = Instant::now();
+            let source_revision = artifact.source_revision().to_string();
+            let resource_counts = (|| {
+                let exposed_quads = u64::try_from(artifact.semantic_faces().len())
+                    .map_err(|_| "exposed quad count cannot be represented".to_owned())?;
+                let vertices = u64::try_from(artifact.vertices().len())
+                    .map_err(|_| "vertex count cannot be represented".to_owned())?;
+                let indices = u64::try_from(artifact.indices().len())
+                    .map_err(|_| "index count cannot be represented".to_owned())?;
+                let vertex_bytes = u64::try_from(artifact.vertex_byte_size())
+                    .map_err(|_| "vertex byte count cannot be represented".to_owned())?;
+                let index_bytes = u64::try_from(artifact.index_byte_size())
+                    .map_err(|_| "index byte count cannot be represented".to_owned())?;
+                let geometry_bytes = vertex_bytes
+                    .checked_add(index_bytes)
+                    .ok_or_else(|| "raster artifact byte count overflowed".to_owned())?;
+                Ok::<_, String>(ResourceCounts {
+                    occupied_voxels: self.occupied_voxels,
+                    exposed_quads,
+                    vertices,
+                    indices,
+                    draw_calls: u64::from(indices > 0),
+                    cpu_artifact_bytes: geometry_bytes,
+                    gpu_buffer_bytes: geometry_bytes,
+                })
+            })();
+            let elapsed_ms = measurement.elapsed_milliseconds(derived_at);
+            match (resource_counts, elapsed_ms) {
+                (Ok(resources), Ok(elapsed_ms)) => {
+                    if let Err(error) = measurement.record(MeasurementEvent::ArtifactDerived {
+                        source_revision,
+                        elapsed_ms,
+                        resources,
+                    }) {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                    measurement.derivation_at = Some(derived_at);
+                }
+                (Err(error), _) | (_, Err(error)) => {
+                    self.fail(event_loop, error);
+                    return;
+                }
+            }
+        }
         let Some(installer) = &self.artifact_installer else {
             self.fail(event_loop, "the raster artifact installer is unavailable");
             return;
@@ -395,6 +549,24 @@ impl DesktopApplication {
                 ),
             );
             return;
+        }
+        if let Some(measurement) = &mut self.measurement {
+            let installation_at = Instant::now();
+            let elapsed_ms = match measurement.elapsed_milliseconds(installation_at) {
+                Ok(elapsed_ms) => elapsed_ms,
+                Err(error) => {
+                    self.fail(event_loop, error);
+                    return;
+                }
+            };
+            if let Err(error) = measurement.record(MeasurementEvent::ArtifactInstalled {
+                source_revision: installed_revision.to_string(),
+                elapsed_ms,
+            }) {
+                self.fail(event_loop, error);
+                return;
+            }
+            measurement.installation_at = Some(installation_at);
         }
         println!("Raster artifact installed: revision={installed_revision} count=1");
         self.set_status(&format!("artifact-ready revision {installed_revision}"));
@@ -474,7 +646,16 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             return;
         }
 
-        let attributes = WindowAttributes::default().with_title("Voxel Nexus Vulkan Demo");
+        let mut attributes = WindowAttributes::default().with_title("Voxel Nexus Vulkan Demo");
+        if matches!(
+            self.canonical_configuration
+                .measurement
+                .as_ref()
+                .map(|measurement| measurement.mode),
+            Some(MeasurementMode::SteadyState)
+        ) {
+            attributes = attributes.with_inner_size(winit::dpi::PhysicalSize::new(1920, 1080));
+        }
         let window = match event_loop.create_window(attributes) {
             Ok(window) => window,
             Err(error) => {
@@ -501,6 +682,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
         };
         report_canonical_configuration(canonical.metadata(), &self.canonical_configuration);
+        self.occupied_voxels = canonical.metadata().occupied_count();
         let volume_identity = canonical.metadata().volume_identity().clone();
         let view = match VoxelFrontend::new().publish(canonical.into_scene()) {
             Ok(view) => view,
@@ -513,6 +695,18 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
         };
         let published_revision = view.revision();
+        if let Some(measurement) = &mut self.measurement {
+            let publication_at = Instant::now();
+            measurement.publication_at = Some(publication_at);
+            if let Err(error) = measurement.record(MeasurementEvent::SceneRevisionPublished {
+                source_revision: published_revision.to_string(),
+                elapsed_ms: 0.0,
+            }) {
+                self.application_error = Some(error);
+                event_loop.exit();
+                return;
+            }
+        }
         let (render_path, artifact_installer, camera_controller) =
             RasterRenderPath::awaiting_artifact_with_camera_control(
                 self.canonical_configuration.camera.pose(),
@@ -525,11 +719,27 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             event_loop.exit();
             return;
         }
-        let backend = match RenderBackend::initialize(
+        let options = if matches!(
+            self.canonical_configuration
+                .measurement
+                .as_ref()
+                .map(|measurement| measurement.mode),
+            Some(MeasurementMode::SteadyState)
+        ) {
+            RenderBackendOptions {
+                validation_enabled: false,
+                presentation_throttling_enabled: false,
+                gpu_timestamps_enabled: true,
+            }
+        } else {
+            RenderBackendOptions::default()
+        };
+        let backend = match RenderBackend::initialize_with_options(
             c"Voxel Nexus Desktop Demo",
             &adapter,
             initial_drawable_extent,
             render_path,
+            options,
         ) {
             Ok(backend) => backend,
             Err(error) => {
@@ -635,17 +845,19 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 self.set_drawable_extent(drawable_extent);
             }
             WindowEvent::RedrawRequested => {
-                let outcome = match &mut self.backend {
+                let frame_started_at = Instant::now();
+                let (outcome, gpu_observation) = match &mut self.backend {
                     Some(backend) => match backend.draw_frame() {
-                        Ok(outcome) => outcome,
+                        Ok(outcome) => (outcome, backend.take_frame_observation()),
                         Err(error) => {
                             self.application_error = Some(error.to_string());
                             event_loop.exit();
                             return;
                         }
                     },
-                    None => FrameOutcome::Suspended,
+                    None => (FrameOutcome::Suspended, None),
                 };
+                let cpu_frame_milliseconds = frame_started_at.elapsed().as_secs_f64() * 1_000.0;
                 match outcome {
                     FrameOutcome::Presented => {
                         self.presentation_retry_at = None;
@@ -666,6 +878,95 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             let revision = installed_revision.unwrap_or(VoxelSceneRevision::new(0));
                             self.first_matching_frame_presented = true;
                             println!("First matching raster frame presented: revision={revision}");
+                            if let Some(measurement) = &mut self.measurement {
+                                let presented_at = Instant::now();
+                                let elapsed_ms =
+                                    match measurement.elapsed_milliseconds(presented_at) {
+                                        Ok(elapsed_ms) => elapsed_ms,
+                                        Err(error) => {
+                                            self.fail(event_loop, error);
+                                            return;
+                                        }
+                                    };
+                                if let Err(error) = measurement.record(
+                                    MeasurementEvent::MatchingArtifactPresented {
+                                        source_revision: revision.to_string(),
+                                        elapsed_ms,
+                                    },
+                                ) {
+                                    self.fail(event_loop, error);
+                                    return;
+                                }
+                                match measurement.mode {
+                                    MeasurementMode::FirstCorrectFrame => {
+                                        if let Some(backend) = &mut self.backend
+                                            && let Err(error) = backend.shutdown()
+                                        {
+                                            self.fail(event_loop, error);
+                                            return;
+                                        }
+                                        event_loop.exit();
+                                        return;
+                                    }
+                                    MeasurementMode::SteadyState => {
+                                        let warmup_ends_at = presented_at + Duration::from_secs(5);
+                                        measurement.warmup_ends_at = Some(warmup_ends_at);
+                                        measurement.collection_ends_at =
+                                            Some(warmup_ends_at + Duration::from_secs(30));
+                                    }
+                                }
+                            }
+                        }
+                        let now = Instant::now();
+                        if let Some(measurement) = &mut self.measurement
+                            && measurement.mode == MeasurementMode::SteadyState
+                        {
+                            if measurement
+                                .warmup_ends_at
+                                .is_some_and(|warmup_ends_at| now >= warmup_ends_at)
+                                && let Some(gpu_observation) = gpu_observation
+                            {
+                                measurement.sequence = match measurement.sequence.checked_add(1) {
+                                    Some(sequence) => sequence,
+                                    None => {
+                                        self.fail(event_loop, "steady frame sequence overflowed");
+                                        return;
+                                    }
+                                };
+                                if let Err(error) =
+                                    measurement.record(MeasurementEvent::SteadyFrame {
+                                        sequence: measurement.sequence,
+                                        cpu_frame_ms: cpu_frame_milliseconds,
+                                        gpu_frame_ms: gpu_observation.gpu_frame_milliseconds,
+                                    })
+                                {
+                                    self.fail(event_loop, error);
+                                    return;
+                                }
+                            }
+                            if measurement
+                                .collection_ends_at
+                                .is_some_and(|collection_ends_at| now >= collection_ends_at)
+                            {
+                                if measurement.sequence == 0 {
+                                    self.fail(
+                                        event_loop,
+                                        "steady-state collection produced no valid GPU timestamp samples",
+                                    );
+                                    return;
+                                }
+                                if let Some(backend) = &mut self.backend
+                                    && let Err(error) = backend.shutdown()
+                                {
+                                    self.fail(event_loop, error);
+                                    return;
+                                }
+                                event_loop.exit();
+                                return;
+                            }
+                            if let Some(window) = &self.window {
+                                window.request_redraw();
+                            }
                         }
                         if let Some(camera) = self.pending_camera_report.take() {
                             println!("Canonical camera presented: camera={camera}");
@@ -858,7 +1159,7 @@ fn run() -> Result<(), String> {
         .map_err(|_| "desktop verification event proxy state is unavailable".to_owned())?;
     *event_proxy_destination = Some(event_proxy.clone());
     drop(event_proxy_destination);
-    let mut application = DesktopApplication::new(configuration, event_proxy);
+    let mut application = DesktopApplication::new(configuration, event_proxy)?;
     event_loop
         .run_app(&mut application)
         .map_err(|error| format!("the desktop event loop failed: {error}"))?;
