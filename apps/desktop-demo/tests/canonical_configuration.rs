@@ -98,3 +98,19 @@ fn desktop_command_rejects_an_out_of_range_camera_move_without_panicking()
     assert!(!standard_error.contains("panicked"));
     Ok(())
 }
+
+#[test]
+fn desktop_command_reports_the_front_face_winding_diagnostic()
+-> Result<(), Box<dyn std::error::Error>> {
+    let output = report(&["--report-canonical-configuration", "--winding-diagnostic"])?;
+    let standard_output = String::from_utf8(output.stdout)?;
+
+    assert!(output.status.success());
+    assert!(standard_output.contains(
+        "Diagnostic scene: identity=raster-front-face-winding dimensions=1x1x2 origin=0,0,0 voxel_size=1 materials=winding-diagnostic-far-blue,winding-diagnostic-near-warm occupied=2 exposed_faces=10"
+    ));
+    assert!(standard_output.contains(
+        "Diagnostic camera: camera=winding-diagnostic eye=0.5,0.5,4 target=0.5,0.5,1 up=0,1,0 fov_degrees=60 near=0.1 far=10"
+    ));
+    Ok(())
+}

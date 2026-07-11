@@ -28,7 +28,11 @@ use std::sync::{Arc, Mutex, mpsc};
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
-use voxel_frontend::{VoxelFrontend, VoxelSceneRevision};
+use voxel_frontend::{
+    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
+    VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelSceneRevision,
+    VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+};
 #[cfg(target_os = "windows")]
 use windows_adapter::{WindowsPresentationAdapter, set_measurement_extent};
 #[cfg(target_os = "windows")]
@@ -45,8 +49,9 @@ use winit::platform::windows::EventLoopBuilderExtWindows;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 #[derive(Clone, Copy)]
-enum CanonicalCameraSelection {
+enum DesktopCameraSelection {
     Fixed(CanonicalCameraPose),
+    WindingDiagnostic,
     MoveStep {
         step: u32,
         total_steps: u32,
@@ -54,10 +59,18 @@ enum CanonicalCameraSelection {
     },
 }
 
-impl CanonicalCameraSelection {
+impl DesktopCameraSelection {
     fn pose(self) -> CameraPose {
         match self {
             Self::Fixed(identity) => identity.pose(),
+            Self::WindingDiagnostic => CameraPose::new(
+                [0.5, 0.5, 4.0],
+                [0.5, 0.5, 1.0],
+                [0.0, 1.0, 0.0],
+                60.0,
+                0.1,
+                10.0,
+            ),
             Self::MoveStep { pose, .. } => pose,
         }
     }
@@ -67,6 +80,7 @@ impl CanonicalCameraSelection {
             Self::Fixed(CanonicalCameraPose::Overview) => "overview".to_owned(),
             Self::Fixed(CanonicalCameraPose::CavityMaterialCloseUp) => "cavity".to_owned(),
             Self::Fixed(CanonicalCameraPose::BoundaryCutaway) => "boundary".to_owned(),
+            Self::WindingDiagnostic => "winding-diagnostic".to_owned(),
             Self::MoveStep {
                 step, total_steps, ..
             } => format!("overview-to-cavity-step-{step}-of-{total_steps}"),
@@ -75,9 +89,10 @@ impl CanonicalCameraSelection {
 }
 
 #[derive(Clone)]
-struct CanonicalRenderConfiguration {
+struct DesktopRenderConfiguration {
     scale: CanonicalSceneScale,
-    camera: CanonicalCameraSelection,
+    camera: DesktopCameraSelection,
+    winding_diagnostic: bool,
     hold_background_preparation: bool,
     inject_raster_upload_failure: bool,
     measurement: Option<MeasurementConfiguration>,
@@ -95,12 +110,13 @@ struct MeasurementConfiguration {
     output: PathBuf,
 }
 
-fn parse_canonical_configuration(
+fn parse_render_configuration(
     mut arguments: impl Iterator<Item = String>,
-) -> Result<(CanonicalRenderConfiguration, bool), String> {
+) -> Result<(DesktopRenderConfiguration, bool), String> {
     let mut scale = CanonicalSceneScale::Large;
-    let mut camera = CanonicalCameraSelection::Fixed(CanonicalCameraPose::Overview);
+    let mut camera = DesktopCameraSelection::Fixed(CanonicalCameraPose::Overview);
     let mut camera_was_selected = false;
+    let mut winding_diagnostic = false;
     let mut report_only = false;
     let mut hold_background_preparation = false;
     let mut inject_raster_upload_failure = false;
@@ -111,6 +127,16 @@ fn parse_canonical_configuration(
             "--report-canonical-configuration" => report_only = true,
             "--hold-background-preparation" => hold_background_preparation = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
+            "--winding-diagnostic" => {
+                if camera_was_selected {
+                    return Err(
+                        "the winding diagnostic cannot use a canonical camera selection".to_owned(),
+                    );
+                }
+                winding_diagnostic = true;
+                camera = DesktopCameraSelection::WindingDiagnostic;
+                camera_was_selected = true;
+            }
             "--measurement-mode" => {
                 measurement_mode = Some(match arguments.next().as_deref() {
                     Some("first-correct-frame") => MeasurementMode::FirstCorrectFrame,
@@ -148,13 +174,13 @@ fn parse_canonical_configuration(
                 }
                 camera = match arguments.next().as_deref() {
                     Some("overview") => {
-                        CanonicalCameraSelection::Fixed(CanonicalCameraPose::Overview)
+                        DesktopCameraSelection::Fixed(CanonicalCameraPose::Overview)
                     }
                     Some("cavity") => {
-                        CanonicalCameraSelection::Fixed(CanonicalCameraPose::CavityMaterialCloseUp)
+                        DesktopCameraSelection::Fixed(CanonicalCameraPose::CavityMaterialCloseUp)
                     }
                     Some("boundary") => {
-                        CanonicalCameraSelection::Fixed(CanonicalCameraPose::BoundaryCutaway)
+                        DesktopCameraSelection::Fixed(CanonicalCameraPose::BoundaryCutaway)
                     }
                     Some(value) => {
                         return Err(format!(
@@ -179,7 +205,7 @@ fn parse_canonical_configuration(
                 let pose = movement
                     .pose_at_step(step)
                     .map_err(|error| error.to_string())?;
-                camera = CanonicalCameraSelection::MoveStep {
+                camera = DesktopCameraSelection::MoveStep {
                     step,
                     total_steps: movement.total_steps(),
                     pose,
@@ -199,9 +225,10 @@ fn parse_canonical_configuration(
         }
     };
     Ok((
-        CanonicalRenderConfiguration {
+        DesktopRenderConfiguration {
             scale,
             camera,
+            winding_diagnostic,
             hold_background_preparation,
             inject_raster_upload_failure,
             measurement,
@@ -210,9 +237,52 @@ fn parse_canonical_configuration(
     ))
 }
 
+fn winding_diagnostic_scene() -> (DenseVoxelScene, VoxelVolumeId) {
+    let volume_identity = VoxelVolumeId::new("winding-diagnostic-volume");
+    let far_material_identity = VoxelMaterialId::new("winding-diagnostic-far-blue");
+    let near_material_identity = VoxelMaterialId::new("winding-diagnostic-near-warm");
+    let extent = VoxelExtent::new(1, 1, 2);
+    let scene = DenseVoxelScene::new(
+        VoxelSceneId::new("raster-front-face-winding"),
+        VoxelSceneRevision::new(1),
+        vec![
+            VoxelMaterial::new(far_material_identity.clone(), [0.1, 0.32, 0.95, 1.0]),
+            VoxelMaterial::new(near_material_identity.clone(), [0.95, 0.22, 0.1, 1.0]),
+        ],
+        vec![DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(volume_identity.clone(), extent, [0.0, 0.0, 0.0], 1.0),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                vec![
+                    VoxelValue::Occupied(far_material_identity),
+                    VoxelValue::Occupied(near_material_identity),
+                ],
+            )],
+        )],
+    );
+    (scene, volume_identity)
+}
+
+fn report_winding_diagnostic_configuration(configuration: &DesktopRenderConfiguration) {
+    println!(
+        "Diagnostic scene: identity=raster-front-face-winding dimensions=1x1x2 origin=0,0,0 voxel_size=1 materials=winding-diagnostic-far-blue,winding-diagnostic-near-warm occupied=2 exposed_faces=10"
+    );
+    let camera = configuration.camera.pose();
+    println!(
+        "Diagnostic camera: camera={} eye={} target={} up={} fov_degrees={} near={} far={}",
+        configuration.camera.report_identity(),
+        format_vector(camera.eye()),
+        format_vector(camera.target()),
+        format_vector(camera.up()),
+        camera.field_of_view_degrees(),
+        camera.near_plane(),
+        camera.far_plane(),
+    );
+}
+
 fn report_canonical_configuration(
     metadata: &CanonicalSceneMetadata,
-    configuration: &CanonicalRenderConfiguration,
+    configuration: &DesktopRenderConfiguration,
 ) {
     let [width, height, depth] = metadata.dimensions();
     let [origin_x, origin_y, origin_z] = metadata.scene_origin();
@@ -461,7 +531,7 @@ struct DesktopApplication {
     application_error: Option<String>,
     drawable_occluded: bool,
     presentation_retry_at: Option<Instant>,
-    canonical_configuration: CanonicalRenderConfiguration,
+    render_configuration: DesktopRenderConfiguration,
     event_proxy: EventLoopProxy<DesktopEvent>,
     preparation: Option<RasterArtifactPreparation>,
     preparation_release: Option<RasterPreparationBarrierRelease>,
@@ -488,10 +558,10 @@ const STEADY_MEASUREMENT_EXTENT: ash::vk::Extent2D = ash::vk::Extent2D {
 #[cfg(target_os = "windows")]
 impl DesktopApplication {
     fn new(
-        canonical_configuration: CanonicalRenderConfiguration,
+        render_configuration: DesktopRenderConfiguration,
         event_proxy: EventLoopProxy<DesktopEvent>,
     ) -> Result<Self, String> {
-        let measurement = canonical_configuration
+        let measurement = render_configuration
             .measurement
             .as_ref()
             .map(MeasurementSession::new)
@@ -502,7 +572,7 @@ impl DesktopApplication {
             application_error: None,
             drawable_occluded: false,
             presentation_retry_at: None,
-            canonical_configuration,
+            render_configuration,
             event_proxy,
             preparation: None,
             preparation_release: None,
@@ -712,7 +782,7 @@ impl DesktopApplication {
         }
     }
 
-    fn select_camera(&mut self, event_loop: &ActiveEventLoop, selection: CanonicalCameraSelection) {
+    fn select_camera(&mut self, event_loop: &ActiveEventLoop, selection: DesktopCameraSelection) {
         let Some(camera_controller) = &self.camera_controller else {
             self.fail(event_loop, "the raster camera controller is unavailable");
             return;
@@ -785,7 +855,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
 
         let mut attributes = WindowAttributes::default().with_title("Voxel Nexus Vulkan Demo");
         if matches!(
-            self.canonical_configuration
+            self.render_configuration
                 .measurement
                 .as_ref()
                 .map(|measurement| measurement.mode),
@@ -807,7 +877,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
         };
         if matches!(
-            self.canonical_configuration
+            self.render_configuration
                 .measurement
                 .as_ref()
                 .map(|measurement| measurement.mode),
@@ -825,20 +895,29 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             height: drawable_size.height,
         };
         self.drawable_extent = initial_drawable_extent;
-        let canonical = match generate_canonical_scene(self.canonical_configuration.scale) {
-            Ok(canonical) => canonical,
-            Err(error) => {
-                self.application_error = Some(format!(
-                    "could not generate the canonical Voxel Scene: {error}"
-                ));
-                event_loop.exit();
-                return;
-            }
-        };
-        report_canonical_configuration(canonical.metadata(), &self.canonical_configuration);
-        self.occupied_voxels = canonical.metadata().occupied_count();
-        let volume_identity = canonical.metadata().volume_identity().clone();
-        let view = match VoxelFrontend::new().publish(canonical.into_scene()) {
+        let (scene, volume_identity, occupied_voxels) =
+            if self.render_configuration.winding_diagnostic {
+                let (scene, volume_identity) = winding_diagnostic_scene();
+                report_winding_diagnostic_configuration(&self.render_configuration);
+                (scene, volume_identity, 2)
+            } else {
+                let canonical = match generate_canonical_scene(self.render_configuration.scale) {
+                    Ok(canonical) => canonical,
+                    Err(error) => {
+                        self.application_error = Some(format!(
+                            "could not generate the canonical Voxel Scene: {error}"
+                        ));
+                        event_loop.exit();
+                        return;
+                    }
+                };
+                report_canonical_configuration(canonical.metadata(), &self.render_configuration);
+                let occupied_voxels = canonical.metadata().occupied_count();
+                let volume_identity = canonical.metadata().volume_identity().clone();
+                (canonical.into_scene(), volume_identity, occupied_voxels)
+            };
+        self.occupied_voxels = occupied_voxels;
+        let view = match VoxelFrontend::new().publish(scene) {
             Ok(view) => view,
             Err(error) => {
                 self.application_error = Some(format!(
@@ -870,10 +949,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         }
         let (render_path, artifact_installer, camera_controller) =
             RasterRenderPath::awaiting_artifact_with_camera_control(
-                self.canonical_configuration.camera.pose(),
+                self.render_configuration.camera.pose(),
                 published_revision,
             );
-        if self.canonical_configuration.inject_raster_upload_failure
+        if self.render_configuration.inject_raster_upload_failure
             && let Err(error) = artifact_installer.inject_next_upload_failure()
         {
             self.application_error = Some(error.to_string());
@@ -881,7 +960,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             return;
         }
         let options = if matches!(
-            self.canonical_configuration
+            self.render_configuration
                 .measurement
                 .as_ref()
                 .map(|measurement| measurement.mode),
@@ -947,7 +1026,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.camera_controller = Some(camera_controller);
         self.published_revision = Some(published_revision);
         let (barrier, preparation_release) =
-            if self.canonical_configuration.hold_background_preparation {
+            if self.render_configuration.hold_background_preparation {
                 let (barrier, release) = RasterPreparationBarrier::held();
                 (Some(barrier), Some(release))
             } else {
@@ -1000,7 +1079,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
             WindowEvent::Resized(drawable_size) => {
                 let steady_measurement = matches!(
-                    self.canonical_configuration
+                    self.render_configuration
                         .measurement
                         .as_ref()
                         .map(|measurement| measurement.mode),
@@ -1051,7 +1130,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             WindowEvent::Occluded(occluded) => {
                 if occluded
                     && matches!(
-                        self.canonical_configuration
+                        self.render_configuration
                             .measurement
                             .as_ref()
                             .map(|measurement| measurement.mode),
@@ -1100,7 +1179,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         None => (FrameOutcome::Suspended, None, None, None),
                     };
                 if matches!(
-                    self.canonical_configuration
+                    self.render_configuration
                         .measurement
                         .as_ref()
                         .map(|measurement| measurement.mode),
@@ -1276,7 +1355,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 self.set_status("preparation-released");
             }
             DesktopEvent::SelectCamera(pose) => {
-                self.select_camera(event_loop, CanonicalCameraSelection::Fixed(pose));
+                self.select_camera(event_loop, DesktopCameraSelection::Fixed(pose));
             }
             DesktopEvent::StartCameraMove => {
                 let movement = match overview_to_cavity_camera_move() {
@@ -1362,11 +1441,16 @@ fn run() -> Result<(), String> {
     {
         return diagnostic_result;
     }
-    let (configuration, report_only) = parse_canonical_configuration(arguments.into_iter())?;
+    let (configuration, report_only) = parse_render_configuration(arguments.into_iter())?;
     if report_only {
-        let canonical = generate_canonical_scene(configuration.scale)
-            .map_err(|error| format!("could not generate the canonical Voxel Scene: {error}"))?;
-        report_canonical_configuration(canonical.metadata(), &configuration);
+        if configuration.winding_diagnostic {
+            report_winding_diagnostic_configuration(&configuration);
+        } else {
+            let canonical = generate_canonical_scene(configuration.scale).map_err(|error| {
+                format!("could not generate the canonical Voxel Scene: {error}")
+            })?;
+            report_canonical_configuration(canonical.metadata(), &configuration);
+        }
         return Ok(());
     }
     let event_proxy_slot = Arc::new(Mutex::new(None::<EventLoopProxy<DesktopEvent>>));
@@ -1642,11 +1726,16 @@ fn main() -> ExitCode {
         .any(|argument| argument == "--report-canonical-configuration")
     {
         let result =
-            parse_canonical_configuration(arguments.into_iter()).and_then(|(configuration, _)| {
-                let canonical = generate_canonical_scene(configuration.scale).map_err(|error| {
-                    format!("could not generate the canonical Voxel Scene: {error}")
-                })?;
-                report_canonical_configuration(canonical.metadata(), &configuration);
+            parse_render_configuration(arguments.into_iter()).and_then(|(configuration, _)| {
+                if configuration.winding_diagnostic {
+                    report_winding_diagnostic_configuration(&configuration);
+                } else {
+                    let canonical =
+                        generate_canonical_scene(configuration.scale).map_err(|error| {
+                            format!("could not generate the canonical Voxel Scene: {error}")
+                        })?;
+                    report_canonical_configuration(canonical.metadata(), &configuration);
+                }
                 Ok(())
             });
         return application_exit_code(result);
