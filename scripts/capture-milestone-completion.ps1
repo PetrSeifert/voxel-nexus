@@ -96,18 +96,29 @@ function Invoke-RequiredCommand {
         -Arguments $Arguments `
         -StandardOutputPath (Join-Path $evidencePath "checks/$Name.stdout.log") `
         -StandardErrorPath (Join-Path $evidencePath "checks/$Name.stderr.log")
-    $script:commandRecords.Add([ordered]@{
-        Name = $Name
-        Command = $result.Command
-        ExitCode = $result.ExitCode
-        StartedAtUtc = $result.StartedAtUtc
-        FinishedAtUtc = $result.FinishedAtUtc
-        StandardOutput = $result.StandardOutput
-        StandardError = $result.StandardError
-    })
+    Add-CommandRecord -Name $Name -Result $result
     if ($result.ExitCode -ne 0) {
         throw "$Name failed with exit code $($result.ExitCode)."
     }
+}
+
+function Add-CommandRecord {
+    param(
+        [string]$Name,
+        [PSCustomObject]$Result,
+        [string]$StandardOutput = $Result.StandardOutput,
+        [string]$StandardError = $Result.StandardError
+    )
+
+    $script:commandRecords.Add([ordered]@{
+        Name = $Name
+        Command = $Result.Command
+        ExitCode = $Result.ExitCode
+        StartedAtUtc = $Result.StartedAtUtc
+        FinishedAtUtc = $Result.FinishedAtUtc
+        StandardOutput = $StandardOutput
+        StandardError = $StandardError
+    })
 }
 
 function Write-JsonFile {
@@ -167,8 +178,11 @@ $relativeTimingDirectory = [System.IO.Path]::GetRelativePath(
     $repositoryRoot,
     (Join-Path $evidencePath "timing")
 )
-$temporaryTimingStandardOutput = [System.IO.Path]::GetTempFileName()
-$temporaryTimingStandardError = [System.IO.Path]::GetTempFileName()
+$temporaryIdentity = [Guid]::NewGuid().ToString("n")
+$temporaryDirectory = [System.IO.Path]::GetTempPath()
+$temporaryTimingStandardOutput = Join-Path $temporaryDirectory "voxel-nexus-$temporaryIdentity.stdout.log"
+$temporaryTimingStandardError = Join-Path $temporaryDirectory "voxel-nexus-$temporaryIdentity.stderr.log"
+$timingCollectionError = $null
 try {
     $timingCollector = Invoke-CapturedProcess `
         -FilePath "pwsh" `
@@ -179,22 +193,30 @@ try {
     [System.IO.File]::Move($temporaryTimingStandardOutput, (Join-Path $evidencePath "timing-collector.stdout.log"), $true)
     [System.IO.File]::Move($temporaryTimingStandardError, (Join-Path $evidencePath "timing-collector.stderr.log"), $true)
 }
+catch {
+    $timingCollectionError = $_
+    throw
+}
 finally {
     foreach ($temporaryPath in @($temporaryTimingStandardOutput, $temporaryTimingStandardError)) {
         if ([System.IO.File]::Exists($temporaryPath)) {
-            [System.IO.File]::Delete($temporaryPath)
+            try {
+                [System.IO.File]::Delete($temporaryPath)
+            }
+            catch {
+                if ($null -eq $timingCollectionError) {
+                    throw
+                }
+                Write-Warning "Could not remove temporary timing log $temporaryPath after collection failure: $($_.Exception.Message)"
+            }
         }
     }
 }
-$script:commandRecords.Add([ordered]@{
-    Name = "timing-evidence"
-    Command = $timingCollector.Command
-    ExitCode = $timingCollector.ExitCode
-    StartedAtUtc = $timingCollector.StartedAtUtc
-    FinishedAtUtc = $timingCollector.FinishedAtUtc
-    StandardOutput = "timing-collector.stdout.log"
-    StandardError = "timing-collector.stderr.log"
-})
+Add-CommandRecord `
+    -Name "timing-evidence" `
+    -Result $timingCollector `
+    -StandardOutput "timing-collector.stdout.log" `
+    -StandardError "timing-collector.stderr.log"
 if ($timingCollector.ExitCode -ne 0) {
     throw "Timing evidence collection failed with exit code $($timingCollector.ExitCode)."
 }
@@ -216,15 +238,7 @@ $lifecycleResult = Invoke-CapturedProcess `
     ) `
     -StandardOutputPath (Join-Path $evidencePath "lifecycle-run.stdout.log") `
     -StandardErrorPath (Join-Path $evidencePath "lifecycle-run.stderr.log")
-$script:commandRecords.Add([ordered]@{
-    Name = "lifecycle-failure-prerequisite-proof"
-    Command = $lifecycleResult.Command
-    ExitCode = $lifecycleResult.ExitCode
-    StartedAtUtc = $lifecycleResult.StartedAtUtc
-    FinishedAtUtc = $lifecycleResult.FinishedAtUtc
-    StandardOutput = $lifecycleResult.StandardOutput
-    StandardError = $lifecycleResult.StandardError
-})
+Add-CommandRecord -Name "lifecycle-failure-prerequisite-proof" -Result $lifecycleResult
 if ($lifecycleResult.ExitCode -ne 0) {
     throw "Windows lifecycle proof failed with exit code $($lifecycleResult.ExitCode)."
 }
