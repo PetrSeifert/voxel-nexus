@@ -1,9 +1,11 @@
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
+use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 use raster_render_path::{
-    RasterArtifactInstallationError, RasterArtifactInstallationPhase, RasterRenderPath,
-    derive_raster_artifact,
+    CameraPose, CanonicalCameraPose, RasterArtifactInstallationError,
+    RasterArtifactInstallationPhase, RasterRenderPath, derive_raster_artifact,
+    overview_to_cavity_camera_move,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -14,11 +16,7 @@ use std::process::ExitCode;
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
-use voxel_frontend::{
-    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
-    VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelSceneRevision,
-    VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
-};
+use voxel_frontend::{VoxelFrontend, VoxelSceneRevision};
 #[cfg(target_os = "windows")]
 use windows_adapter::WindowsPresentationAdapter;
 #[cfg(target_os = "windows")]
@@ -30,14 +28,163 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 #[cfg(target_os = "windows")]
 use winit::window::{Window, WindowAttributes, WindowId};
 
+#[derive(Clone)]
+struct CanonicalCameraSelection {
+    label: String,
+    pose: CameraPose,
+}
+
+#[derive(Clone)]
+struct CanonicalRenderConfiguration {
+    scale: CanonicalSceneScale,
+    camera: CanonicalCameraSelection,
+}
+
+fn parse_canonical_configuration(
+    mut arguments: impl Iterator<Item = String>,
+) -> Result<(CanonicalRenderConfiguration, bool), String> {
+    let mut scale = CanonicalSceneScale::Large;
+    let mut camera = CanonicalCameraSelection {
+        label: "overview".to_owned(),
+        pose: CanonicalCameraPose::Overview.pose(),
+    };
+    let mut camera_was_selected = false;
+    let mut report_only = false;
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--report-canonical-configuration" => report_only = true,
+            "--scene-scale" => {
+                scale = match arguments.next().as_deref() {
+                    Some("64") => CanonicalSceneScale::Small,
+                    Some("128") => CanonicalSceneScale::Medium,
+                    Some("256") => CanonicalSceneScale::Large,
+                    Some(value) => {
+                        return Err(format!(
+                            "unknown canonical scene scale {value:?}; expected 64, 128, or 256"
+                        ));
+                    }
+                    None => return Err("missing canonical scene scale".to_owned()),
+                };
+            }
+            "--camera-pose" => {
+                if camera_was_selected {
+                    return Err("select either one fixed camera pose or one move step".to_owned());
+                }
+                camera = match arguments.next().as_deref() {
+                    Some("overview") => CanonicalCameraSelection {
+                        label: "overview".to_owned(),
+                        pose: CanonicalCameraPose::Overview.pose(),
+                    },
+                    Some("cavity") => CanonicalCameraSelection {
+                        label: "cavity".to_owned(),
+                        pose: CanonicalCameraPose::CavityMaterialCloseUp.pose(),
+                    },
+                    Some("boundary") => CanonicalCameraSelection {
+                        label: "boundary".to_owned(),
+                        pose: CanonicalCameraPose::BoundaryCutaway.pose(),
+                    },
+                    Some(value) => {
+                        return Err(format!(
+                            "unknown canonical camera pose {value:?}; expected overview, cavity, or boundary"
+                        ));
+                    }
+                    None => return Err("missing canonical camera pose".to_owned()),
+                };
+                camera_was_selected = true;
+            }
+            "--camera-move-step" => {
+                if camera_was_selected {
+                    return Err("select either one fixed camera pose or one move step".to_owned());
+                }
+                let step = arguments
+                    .next()
+                    .ok_or_else(|| "missing camera move step".to_owned())?
+                    .parse::<u32>()
+                    .map_err(|error| format!("invalid camera move step: {error}"))?;
+                let movement = overview_to_cavity_camera_move();
+                let pose = movement
+                    .pose_at_step(step)
+                    .map_err(|error| error.to_string())?;
+                camera = CanonicalCameraSelection {
+                    label: format!(
+                        "overview-to-cavity-step-{step}-of-{}",
+                        movement.total_steps()
+                    ),
+                    pose,
+                };
+                camera_was_selected = true;
+            }
+            unknown => return Err(format!("unknown desktop demo argument {unknown:?}")),
+        }
+    }
+    Ok((CanonicalRenderConfiguration { scale, camera }, report_only))
+}
+
+fn report_canonical_configuration(
+    metadata: &CanonicalSceneMetadata,
+    configuration: &CanonicalRenderConfiguration,
+) {
+    let [width, height, depth] = metadata.dimensions();
+    let [origin_x, origin_y, origin_z] = metadata.scene_origin();
+    let material_identities = metadata
+        .material_catalogue()
+        .iter()
+        .map(|material| material.identity())
+        .collect::<Vec<_>>()
+        .join(",");
+    let material_colors = metadata
+        .material_catalogue()
+        .iter()
+        .map(|material| format_vector(material.linear_base_color()))
+        .collect::<Vec<_>>()
+        .join(";");
+    println!(
+        "Canonical scene: generator={} version={} seed={} dimensions={}x{}x{} origin={},{},{} voxel_size={} materials={} material_colors={} occupied={} exposed_faces={} exposed_face_limit={}",
+        metadata.generator_identity(),
+        metadata.generator_version(),
+        metadata.seed(),
+        width,
+        height,
+        depth,
+        origin_x,
+        origin_y,
+        origin_z,
+        metadata.voxel_size(),
+        material_identities,
+        material_colors,
+        metadata.occupied_count(),
+        metadata.exposed_face_count(),
+        metadata.exposed_face_limit(),
+    );
+    let camera = configuration.camera.pose;
+    println!(
+        "Canonical camera: camera={} eye={} target={} up={} fov_degrees={} near={} far={}",
+        configuration.camera.label,
+        format_vector(camera.eye()),
+        format_vector(camera.target()),
+        format_vector(camera.up()),
+        camera.field_of_view_degrees(),
+        camera.near_plane(),
+        camera.far_plane(),
+    );
+}
+
+fn format_vector<const LENGTH: usize>(components: [f32; LENGTH]) -> String {
+    components
+        .iter()
+        .map(|component| component.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 #[cfg(target_os = "windows")]
-#[derive(Default)]
 struct DesktopApplication {
     backend: Option<RenderBackend>,
     window: Option<Window>,
     application_error: Option<String>,
     drawable_occluded: bool,
     presentation_retry_at: Option<Instant>,
+    canonical_configuration: CanonicalRenderConfiguration,
 }
 
 #[cfg(target_os = "windows")]
@@ -45,6 +192,17 @@ const PRESENTATION_RETRY_DELAY: Duration = Duration::from_millis(100);
 
 #[cfg(target_os = "windows")]
 impl DesktopApplication {
+    fn new(canonical_configuration: CanonicalRenderConfiguration) -> Self {
+        Self {
+            backend: None,
+            window: None,
+            application_error: None,
+            drawable_occluded: false,
+            presentation_retry_at: None,
+            canonical_configuration,
+        }
+    }
+
     fn set_drawable_extent(&mut self, drawable_extent: ash::vk::Extent2D) {
         if let Some(backend) = &mut self.backend {
             backend.set_drawable_extent(drawable_extent);
@@ -81,7 +239,7 @@ impl ApplicationHandler for DesktopApplication {
             width: drawable_size.width,
             height: drawable_size.height,
         };
-        let render_path = match diagnostic_raster_render_path() {
+        let render_path = match canonical_raster_render_path(&self.canonical_configuration) {
             Ok(render_path) => render_path,
             Err(error) => {
                 self.application_error = Some(error);
@@ -217,63 +375,44 @@ impl ApplicationHandler for DesktopApplication {
 }
 
 #[cfg(target_os = "windows")]
-fn diagnostic_raster_render_path() -> Result<RasterRenderPath, String> {
-    let warm = VoxelMaterialId::new("warm");
-    let green = VoxelMaterialId::new("green");
-    let blue = VoxelMaterialId::new("blue");
-    let volume_identity = VoxelVolumeId::new("diagnostic-volume");
-    let extent = VoxelExtent::new(3, 2, 2);
-    let values = vec![
-        VoxelValue::Occupied(warm.clone()),
-        VoxelValue::Occupied(warm.clone()),
-        VoxelValue::Occupied(blue.clone()),
-        VoxelValue::Occupied(warm.clone()),
-        VoxelValue::Empty,
-        VoxelValue::Occupied(blue.clone()),
-        VoxelValue::Occupied(green.clone()),
-        VoxelValue::Occupied(green.clone()),
-        VoxelValue::Occupied(blue.clone()),
-        VoxelValue::Empty,
-        VoxelValue::Occupied(green.clone()),
-        VoxelValue::Occupied(blue.clone()),
-    ];
-    let scene = DenseVoxelScene::new(
-        VoxelSceneId::new("desktop-diagnostic-scene"),
-        VoxelSceneRevision::new(41),
-        vec![
-            VoxelMaterial::new(warm, [0.95, 0.22, 0.1, 1.0]),
-            VoxelMaterial::new(green, [0.12, 0.75, 0.28, 1.0]),
-            VoxelMaterial::new(blue, [0.1, 0.32, 0.95, 1.0]),
-        ],
-        vec![DenseVoxelVolume::new(
-            VoxelVolumeMetadata::new(volume_identity.clone(), extent, [-1.5, -1.0, -1.0], 1.0),
-            vec![DenseVoxelBatch::new(
-                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
-                values,
-            )],
-        )],
-    );
+fn canonical_raster_render_path(
+    configuration: &CanonicalRenderConfiguration,
+) -> Result<RasterRenderPath, String> {
+    let canonical = generate_canonical_scene(configuration.scale)
+        .map_err(|error| format!("could not generate the canonical Voxel Scene: {error}"))?;
+    report_canonical_configuration(canonical.metadata(), configuration);
+    let volume_identity = canonical.metadata().volume_identity().clone();
     let view = VoxelFrontend::new()
-        .publish(scene)
-        .map_err(|error| format!("could not publish the diagnostic Voxel Scene: {error}"))?;
+        .publish(canonical.into_scene())
+        .map_err(|error| format!("could not publish the canonical Voxel Scene: {error}"))?;
     let artifact = derive_raster_artifact(&view, &volume_identity)
-        .map_err(|error| format!("could not derive the diagnostic raster artifact: {error}"))?;
-    let mut render_path = RasterRenderPath::new();
+        .map_err(|error| format!("could not derive the canonical raster artifact: {error}"))?;
+    let mut render_path = RasterRenderPath::with_camera_pose(configuration.camera.pose);
     render_path.install_artifact(artifact);
     Ok(render_path)
 }
 
 #[cfg(target_os = "windows")]
 fn run() -> Result<(), String> {
-    if let Some(diagnostic_result) = render_path_failure_diagnostic(std::env::args().skip(1)) {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if let Some(diagnostic_result) = render_path_failure_diagnostic(arguments.clone().into_iter()) {
         return diagnostic_result;
     }
-    if let Some(diagnostic_result) = unsupported_prerequisite_diagnostic(std::env::args().skip(1)) {
+    if let Some(diagnostic_result) =
+        unsupported_prerequisite_diagnostic(arguments.clone().into_iter())
+    {
         return diagnostic_result;
+    }
+    let (configuration, report_only) = parse_canonical_configuration(arguments.into_iter())?;
+    if report_only {
+        let canonical = generate_canonical_scene(configuration.scale)
+            .map_err(|error| format!("could not generate the canonical Voxel Scene: {error}"))?;
+        report_canonical_configuration(canonical.metadata(), &configuration);
+        return Ok(());
     }
     let event_loop =
         EventLoop::new().map_err(|error| format!("could not start the event loop: {error}"))?;
-    let mut application = DesktopApplication::default();
+    let mut application = DesktopApplication::new(configuration);
     event_loop
         .run_app(&mut application)
         .map_err(|error| format!("the desktop event loop failed: {error}"))?;
@@ -394,10 +533,25 @@ fn application_exit_code(result: Result<(), String>) -> ExitCode {
 
 #[cfg(not(target_os = "windows"))]
 fn main() -> ExitCode {
-    if let Some(result) = render_path_failure_diagnostic(std::env::args().skip(1)) {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if let Some(result) = render_path_failure_diagnostic(arguments.clone().into_iter()) {
         return application_exit_code(result);
     }
-    if let Some(result) = unsupported_prerequisite_diagnostic(std::env::args().skip(1)) {
+    if let Some(result) = unsupported_prerequisite_diagnostic(arguments.clone().into_iter()) {
+        return application_exit_code(result);
+    }
+    if arguments
+        .iter()
+        .any(|argument| argument == "--report-canonical-configuration")
+    {
+        let result =
+            parse_canonical_configuration(arguments.into_iter()).and_then(|(configuration, _)| {
+                let canonical = generate_canonical_scene(configuration.scale).map_err(|error| {
+                    format!("could not generate the canonical Voxel Scene: {error}")
+                })?;
+                report_canonical_configuration(canonical.metadata(), &configuration);
+                Ok(())
+            });
         return application_exit_code(result);
     }
     eprintln!("The Voxel Nexus desktop demo currently supports Windows only.");

@@ -23,6 +23,14 @@ pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory ar
 
 The explicit build command proves the clean checkout can produce the executable and generated shaders. The runner repeats that locked build, runs the deterministic failure integration tests, and then performs the runtime proof.
 
+To retain the canonical overview lifecycle plus stable paired captures for the cavity/material close-up, finite-boundary cutaway, and deterministic move midpoint, add `-CaptureCanonicalInspectionSet`:
+
+```powershell
+pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 `
+    -EvidenceDirectory artifacts/canonical-scene `
+    -CaptureCanonicalInspectionSet
+```
+
 ## What the runner proves
 
 One validation-enabled `desktop-demo.exe` process is kept alive while the runner:
@@ -33,6 +41,8 @@ One validation-enabled `desktop-demo.exe` process is kept alive while the runner
 4. restores the same process and repeats the stable paired-frame check;
 5. sends a normal window-close request and requires exit code 0 within ten seconds; and
 6. requires zero Vulkan validation warnings and zero Vulkan validation errors in the complete stderr log.
+
+With `-CaptureCanonicalInspectionSet`, three additional validation-enabled processes render the same generated 256×128×256 Voxel Scene at the cavity/material pose, boundary-cutaway pose, and step 60 of the fixed 120-step overview-to-cavity move. Each process retains a tolerant same-run pair, exits normally, and records zero validation findings. The manifest records generator identity and version, seed, dimensions, origin, voxel size, material catalogue, occupied and exposed-face counts, surface bound, and every exact camera parameter.
 
 The evidence directory contains a JSON manifest with the Git revision, build profile, Windows version, toolchain, validation context, lifecycle sequence, client extents, material pixel counts, capture hashes, process result, and deterministic failure results. Raw stdout records the device, driver version, Vulkan API version, and installed raster artifact revision. Raw stderr is retained as the complete validation log, even when empty. PNG pairs make material-colored, depth-correct exposed voxel faces at each visible state auditable.
 

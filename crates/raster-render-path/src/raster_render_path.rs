@@ -56,6 +56,150 @@ const AXIS_NORMALS: [AxisNormal; 6] = [
     AxisNormal::PositiveZ,
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CameraPose {
+    eye: [f32; 3],
+    target: [f32; 3],
+    up: [f32; 3],
+    field_of_view_degrees: f32,
+    near_plane: f32,
+    far_plane: f32,
+}
+
+impl CameraPose {
+    pub fn eye(self) -> [f32; 3] {
+        self.eye
+    }
+
+    pub fn target(self) -> [f32; 3] {
+        self.target
+    }
+
+    pub fn up(self) -> [f32; 3] {
+        self.up
+    }
+
+    pub fn field_of_view_degrees(self) -> f32 {
+        self.field_of_view_degrees
+    }
+
+    pub fn near_plane(self) -> f32 {
+        self.near_plane
+    }
+
+    pub fn far_plane(self) -> f32 {
+        self.far_plane
+    }
+
+    pub fn view_projection(
+        self,
+        drawable_dimensions: [u32; 2],
+    ) -> Result<[f32; 16], CameraConfigurationError> {
+        let [width, height] = drawable_dimensions;
+        if width == 0 || height == 0 {
+            return Err(CameraConfigurationError::ZeroDrawableExtent);
+        }
+        let aspect_ratio = width as f32 / height as f32;
+        let projection = perspective(
+            self.field_of_view_degrees.to_radians(),
+            aspect_ratio,
+            self.near_plane,
+            self.far_plane,
+        );
+        let view = look_at(self.eye, self.target, self.up);
+        Ok(multiply_matrices(projection, view))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CanonicalCameraPose {
+    Overview,
+    CavityMaterialCloseUp,
+    BoundaryCutaway,
+}
+
+impl CanonicalCameraPose {
+    pub fn pose(self) -> CameraPose {
+        match self {
+            Self::Overview => CameraPose {
+                eye: [20.0, 14.0, 22.0],
+                target: [0.0, 0.0, 0.0],
+                up: [0.0, 1.0, 0.0],
+                field_of_view_degrees: 50.0,
+                near_plane: 0.1,
+                far_plane: 100.0,
+            },
+            Self::CavityMaterialCloseUp => CameraPose {
+                eye: [0.0, 1.0, 17.0],
+                target: [-0.75, -0.5, 0.0],
+                up: [0.0, 1.0, 0.0],
+                field_of_view_degrees: 45.0,
+                near_plane: 0.1,
+                far_plane: 100.0,
+            },
+            Self::BoundaryCutaway => CameraPose {
+                eye: [-14.0, 2.0, 8.0],
+                target: [-7.5, -1.0, 0.0],
+                up: [0.0, 1.0, 0.0],
+                field_of_view_degrees: 45.0,
+                near_plane: 0.1,
+                far_plane: 100.0,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeterministicCameraMove {
+    start: CameraPose,
+    end: CameraPose,
+    total_steps: u32,
+}
+
+impl DeterministicCameraMove {
+    pub fn total_steps(self) -> u32 {
+        self.total_steps
+    }
+
+    pub fn pose_at_step(self, step: u32) -> Result<CameraPose, CameraConfigurationError> {
+        if step > self.total_steps {
+            return Err(CameraConfigurationError::MoveStepOutOfRange {
+                step,
+                total_steps: self.total_steps,
+            });
+        }
+        let progress = step as f32 / self.total_steps as f32;
+        Ok(CameraPose {
+            eye: interpolate_vector(self.start.eye, self.end.eye, progress),
+            target: interpolate_vector(self.start.target, self.end.target, progress),
+            up: interpolate_vector(self.start.up, self.end.up, progress),
+            field_of_view_degrees: interpolate_scalar(
+                self.start.field_of_view_degrees,
+                self.end.field_of_view_degrees,
+                progress,
+            ),
+            near_plane: interpolate_scalar(self.start.near_plane, self.end.near_plane, progress),
+            far_plane: interpolate_scalar(self.start.far_plane, self.end.far_plane, progress),
+        })
+    }
+}
+
+pub fn overview_to_cavity_camera_move() -> DeterministicCameraMove {
+    DeterministicCameraMove {
+        start: CanonicalCameraPose::Overview.pose(),
+        end: CanonicalCameraPose::CavityMaterialCloseUp.pose(),
+        total_steps: 120,
+    }
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum CameraConfigurationError {
+    #[error("camera projection requires a non-zero drawable extent")]
+    ZeroDrawableExtent,
+    #[error("camera move step {step} exceeds the final step {total_steps}")]
+    MoveStepOutOfRange { step: u32, total_steps: u32 },
+}
+
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SemanticFace {
     volume_identity: VoxelVolumeId,
@@ -181,6 +325,7 @@ impl RasterArtifactInstallationError {
 
 pub struct RasterRenderPath {
     artifact: Option<RasterArtifact>,
+    camera_pose: CameraPose,
     vertex_buffer: vk::Buffer,
     vertex_memory: vk::DeviceMemory,
     index_buffer: vk::Buffer,
@@ -202,6 +347,7 @@ impl Default for RasterRenderPath {
     fn default() -> Self {
         Self {
             artifact: None,
+            camera_pose: CanonicalCameraPose::Overview.pose(),
             vertex_buffer: vk::Buffer::null(),
             vertex_memory: vk::DeviceMemory::null(),
             index_buffer: vk::Buffer::null(),
@@ -224,6 +370,17 @@ impl Default for RasterRenderPath {
 impl RasterRenderPath {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_camera_pose(camera_pose: CameraPose) -> Self {
+        Self {
+            camera_pose,
+            ..Self::default()
+        }
+    }
+
+    pub fn camera_pose(&self) -> CameraPose {
+        self.camera_pose
     }
 
     pub fn install_artifact(&mut self, artifact: RasterArtifact) {
@@ -753,6 +910,8 @@ enum RasterResourceError {
     IndexCount,
     #[error("the Raster Vertex stride cannot be represented for graphics state")]
     VertexStride,
+    #[error("could not configure the raster camera: {0}")]
+    Camera(#[from] CameraConfigurationError),
     #[error("the static {0} buffer byte length cannot be represented by Vulkan")]
     BufferSize(&'static str),
     #[error("could not create the static {kind} buffer: {source}")]
@@ -919,7 +1078,9 @@ impl RasterRenderPath {
             self.configured_attachments.push(attachment.identity());
         }
         self.configuration_id = Some(target.configuration_id());
-        self.camera_constants = camera_view_projection(target.extent());
+        self.camera_constants = self
+            .camera_pose
+            .view_projection([target.extent().width, target.extent().height])?;
         Ok(())
     }
 
@@ -1368,13 +1529,6 @@ fn f32_bytes(values: &[f32]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 
-fn camera_view_projection(extent: vk::Extent2D) -> [f32; 16] {
-    let aspect_ratio = extent.width as f32 / extent.height as f32;
-    let projection = perspective(55_f32.to_radians(), aspect_ratio, 0.1, 100.0);
-    let view = look_at([5.0, 4.0, 6.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0]);
-    multiply_matrices(projection, view)
-}
-
 fn perspective(field_of_view: f32, aspect_ratio: f32, near: f32, far: f32) -> [f32; 16] {
     let focal_length = 1.0 / (field_of_view * 0.5).tan();
     [
@@ -1395,6 +1549,20 @@ fn perspective(field_of_view: f32, aspect_ratio: f32, near: f32, far: f32) -> [f
         near * far / (near - far),
         0.0,
     ]
+}
+
+fn interpolate_vector(start: [f32; 3], end: [f32; 3], progress: f32) -> [f32; 3] {
+    let [start_x, start_y, start_z] = start;
+    let [end_x, end_y, end_z] = end;
+    [
+        interpolate_scalar(start_x, end_x, progress),
+        interpolate_scalar(start_y, end_y, progress),
+        interpolate_scalar(start_z, end_z, progress),
+    ]
+}
+
+fn interpolate_scalar(start: f32, end: f32, progress: f32) -> f32 {
+    start + (end - start) * progress
 }
 
 fn look_at(eye: [f32; 3], center: [f32; 3], up: [f32; 3]) -> [f32; 16] {

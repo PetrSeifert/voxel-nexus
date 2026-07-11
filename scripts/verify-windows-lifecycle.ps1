@@ -1,7 +1,10 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$EvidenceDirectory
+    [string]$EvidenceDirectory,
+    [ValidateSet("overview", "cavity", "boundary")]
+    [string]$CameraPose = "overview",
+    [switch]$CaptureCanonicalInspectionSet
 )
 
 Set-StrictMode -Version Latest
@@ -13,6 +16,7 @@ if (-not $IsWindows -and $PSVersionTable.PSEdition -eq "Core") {
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $evidencePath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $EvidenceDirectory))
+$currentCameraSelection = $CameraPose
 if ([System.IO.Directory]::Exists($evidencePath) -and [System.IO.Directory]::EnumerateFileSystemEntries($evidencePath).GetEnumerator().MoveNext()) {
     throw "The evidence directory must be new or empty: $evidencePath"
 }
@@ -256,7 +260,9 @@ function Save-ClientCapture {
         $blueMaterialFraction = $blueMaterialPixels / $sampledPixels
         $backgroundFraction = $backgroundPixels / $sampledPixels
         $materialFraction = $warmMaterialFraction + $greenMaterialFraction + $blueMaterialFraction
-        if ($warmMaterialFraction -lt 0.005 -or $greenMaterialFraction -lt 0.005 -or $blueMaterialFraction -lt 0.005 -or $materialFraction -lt 0.03 -or $materialFraction -gt 0.16 -or $backgroundFraction -lt 0.84 -or $backgroundFraction -gt 0.97) {
+        $requiresAllMaterials = $script:currentCameraSelection -ne "boundary"
+        $missingRequiredMaterial = $requiresAllMaterials -and ($warmMaterialFraction -lt 0.005 -or $greenMaterialFraction -lt 0.005 -or $blueMaterialFraction -lt 0.005)
+        if ($missingRequiredMaterial -or $materialFraction -lt 0.03 -or $materialFraction -gt 0.98 -or $backgroundFraction -lt 0.02 -or $backgroundFraction -gt 0.97) {
             throw "Capture $Name does not contain the expected warm, green, and blue voxel materials with clear background (warm: $warmMaterialFraction; green: $greenMaterialFraction; blue: $blueMaterialFraction; background: $backgroundFraction)."
         }
     }
@@ -354,6 +360,128 @@ function Capture-StablePresentation {
     throw "Could not obtain a stable paired $Name capture after twelve attempts: $lastFailure"
 }
 
+function Read-CanonicalSceneRecord {
+    param([string]$StandardOutput)
+
+    $match = [Regex]::Match(
+        $StandardOutput,
+        "(?m)^Canonical scene: generator=(?<Generator>\S+) version=(?<Version>\d+) seed=(?<Seed>\d+) dimensions=(?<Width>\d+)x(?<Height>\d+)x(?<Depth>\d+) origin=(?<Origin>\S+) voxel_size=(?<VoxelSize>\S+) materials=(?<Materials>\S+) material_colors=(?<Colors>\S+) occupied=(?<Occupied>\d+) exposed_faces=(?<Exposed>\d+) exposed_face_limit=(?<Limit>\d+)$"
+    )
+    if (-not $match.Success) {
+        throw "The desktop demo did not report complete canonical scene metadata."
+    }
+    [PSCustomObject]@{
+        GeneratorIdentity = $match.Groups["Generator"].Value
+        GeneratorVersion = [uint32]$match.Groups["Version"].Value
+        Seed = [uint64]$match.Groups["Seed"].Value
+        Dimensions = @(
+            [uint32]$match.Groups["Width"].Value,
+            [uint32]$match.Groups["Height"].Value,
+            [uint32]$match.Groups["Depth"].Value
+        )
+        Origin = @($match.Groups["Origin"].Value.Split(",") | ForEach-Object { [double]$_ })
+        VoxelSize = [double]$match.Groups["VoxelSize"].Value
+        MaterialCatalogue = @($match.Groups["Materials"].Value.Split(","))
+        MaterialLinearBaseColors = @(
+            $match.Groups["Colors"].Value.Split(";") |
+                ForEach-Object { ,@($_.Split(",") | ForEach-Object { [double]$_ }) }
+        )
+        OccupiedCount = [uint64]$match.Groups["Occupied"].Value
+        ExposedFaceCount = [uint64]$match.Groups["Exposed"].Value
+        ExposedFaceLimit = [uint64]$match.Groups["Limit"].Value
+    }
+}
+
+function Read-CanonicalCameraRecord {
+    param([string]$StandardOutput)
+
+    $match = [Regex]::Match(
+        $StandardOutput,
+        "(?m)^Canonical camera: camera=(?<Camera>\S+) eye=(?<Eye>\S+) target=(?<Target>\S+) up=(?<Up>\S+) fov_degrees=(?<Fov>\S+) near=(?<Near>\S+) far=(?<Far>\S+)$"
+    )
+    if (-not $match.Success) {
+        throw "The desktop demo did not report complete canonical camera metadata."
+    }
+    [PSCustomObject]@{
+        Selection = $match.Groups["Camera"].Value
+        Eye = @($match.Groups["Eye"].Value.Split(",") | ForEach-Object { [double]$_ })
+        Target = @($match.Groups["Target"].Value.Split(",") | ForEach-Object { [double]$_ })
+        Up = @($match.Groups["Up"].Value.Split(",") | ForEach-Object { [double]$_ })
+        FieldOfViewDegrees = [double]$match.Groups["Fov"].Value
+        NearPlane = [double]$match.Groups["Near"].Value
+        FarPlane = [double]$match.Groups["Far"].Value
+    }
+}
+
+function Capture-AdditionalCanonicalPresentation {
+    param(
+        [string]$BinaryPath,
+        [string]$Name,
+        [string[]]$Arguments,
+        [string]$CameraSelection
+    )
+
+    $previousCameraSelection = $script:currentCameraSelection
+    $script:currentCameraSelection = $CameraSelection
+    $captureProcess = $null
+    try {
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = $BinaryPath
+        $startInfo.WorkingDirectory = $repositoryRoot
+        $startInfo.UseShellExecute = $false
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        foreach ($argument in $Arguments) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+        $captureProcess = [System.Diagnostics.Process]::new()
+        $captureProcess.StartInfo = $startInfo
+        if (-not $captureProcess.Start()) {
+            throw "Could not start the $Name canonical capture process."
+        }
+        $window = Wait-ForWindow -Process $captureProcess
+        if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
+            throw "Could not set the $Name canonical capture extent."
+        }
+        $capture = Capture-StablePresentation -Window $window -Name $Name
+        if (-not [LifecycleWindow]::PostMessage($window, [LifecycleWindow]::CloseMessage, [IntPtr]::Zero, [IntPtr]::Zero)) {
+            throw "Could not request a normal $Name canonical capture close."
+        }
+        if (-not $captureProcess.WaitForExit(10000)) {
+            throw "The $Name canonical capture did not exit within 10 seconds."
+        }
+        $standardOutput = $captureProcess.StandardOutput.ReadToEnd()
+        $standardError = $captureProcess.StandardError.ReadToEnd()
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "$Name.stdout.log"), $standardOutput)
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "$Name.stderr.log"), $standardError)
+        if ($captureProcess.ExitCode -ne 0) {
+            throw "The $Name canonical capture exited with code $($captureProcess.ExitCode)."
+        }
+        $validationWarnings = ([Regex]::Matches($standardError, "(?m)^Vulkan validation WARNING")).Count
+        $validationErrors = ([Regex]::Matches($standardError, "(?m)^Vulkan validation ERROR")).Count
+        if ($validationWarnings -ne 0 -or $validationErrors -ne 0) {
+            throw "The $Name canonical capture produced $validationWarnings validation warning(s) and $validationErrors validation error(s)."
+        }
+        return [PSCustomObject]@{
+            Name = $Name
+            CameraSelection = $CameraSelection
+            Capture = $capture
+            StandardOutput = "$Name.stdout.log"
+            ValidationLog = "$Name.stderr.log"
+            ValidationWarnings = $validationWarnings
+            ValidationErrors = $validationErrors
+            Scene = Read-CanonicalSceneRecord -StandardOutput $standardOutput
+            Camera = Read-CanonicalCameraRecord -StandardOutput $standardOutput
+        }
+    }
+    finally {
+        $script:currentCameraSelection = $previousCameraSelection
+        if ($null -ne $captureProcess -and -not $captureProcess.HasExited) {
+            Stop-LifecycleProcess -Process $captureProcess
+        }
+    }
+}
+
 Push-Location $repositoryRoot
 try {
     Invoke-Cargo -Arguments @("build", "--locked", "--package", "desktop-demo")
@@ -410,6 +538,10 @@ try {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = $binaryPath
     $startInfo.WorkingDirectory = $repositoryRoot
+    $startInfo.ArgumentList.Add("--scene-scale")
+    $startInfo.ArgumentList.Add("256")
+    $startInfo.ArgumentList.Add("--camera-pose")
+    $startInfo.ArgumentList.Add($CameraPose)
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
@@ -478,6 +610,50 @@ try {
     $deviceMatch = [Regex]::Match($demoStandardOutput, "(?m)^Vulkan device: (.+)$")
     $driverMatch = [Regex]::Match($demoStandardOutput, "(?m)^Driver version: (.+)$")
     $apiMatch = [Regex]::Match($demoStandardOutput, "(?m)^Vulkan API version: (.+)$")
+    $overviewCapture = $captures | Select-Object -First 1
+    if ($null -eq $overviewCapture) {
+        throw "The lifecycle run did not retain the canonical overview capture."
+    }
+    $canonicalScene = Read-CanonicalSceneRecord -StandardOutput $demoStandardOutput
+    $canonicalInspections = @(
+        [PSCustomObject]@{
+            Name = "overview"
+            CameraSelection = $CameraPose
+            Capture = $overviewCapture
+            StandardOutput = "desktop-demo.stdout.log"
+            ValidationLog = "desktop-demo.stderr.log"
+            ValidationWarnings = $validationWarnings
+            ValidationErrors = $validationErrors
+            Scene = $canonicalScene
+            Camera = Read-CanonicalCameraRecord -StandardOutput $demoStandardOutput
+        }
+    )
+    if ($CaptureCanonicalInspectionSet) {
+        $canonicalInspections += Capture-AdditionalCanonicalPresentation `
+            -BinaryPath $binaryPath `
+            -Name "cavity" `
+            -Arguments @("--scene-scale", "256", "--camera-pose", "cavity") `
+            -CameraSelection "cavity"
+        $canonicalInspections += Capture-AdditionalCanonicalPresentation `
+            -BinaryPath $binaryPath `
+            -Name "boundary" `
+            -Arguments @("--scene-scale", "256", "--camera-pose", "boundary") `
+            -CameraSelection "boundary"
+        $canonicalInspections += Capture-AdditionalCanonicalPresentation `
+            -BinaryPath $binaryPath `
+            -Name "move-midpoint" `
+            -Arguments @("--scene-scale", "256", "--camera-move-step", "60") `
+            -CameraSelection "move"
+        foreach ($inspection in $canonicalInspections) {
+            if ($inspection.Scene.GeneratorIdentity -ne $canonicalScene.GeneratorIdentity `
+                -or $inspection.Scene.GeneratorVersion -ne $canonicalScene.GeneratorVersion `
+                -or $inspection.Scene.Seed -ne $canonicalScene.Seed `
+                -or $inspection.Scene.OccupiedCount -ne $canonicalScene.OccupiedCount `
+                -or $inspection.Scene.ExposedFaceCount -ne $canonicalScene.ExposedFaceCount) {
+                throw "Canonical inspection $($inspection.Name) did not render the same generated Voxel Scene."
+            }
+        }
+    }
 
     $revision = (& git rev-parse HEAD).Trim()
     if ($LASTEXITCODE -ne 0) {
@@ -487,7 +663,7 @@ try {
     $cargoVersion = (& cargo --version).Trim()
     $operatingSystem = Get-CimInstance Win32_OperatingSystem
     $manifest = [ordered]@{
-        SchemaVersion = 1
+        SchemaVersion = 2
         Scope = "Runtime execution proven only on this Windows development machine."
         RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
         RepositoryRevision = $revision
@@ -514,6 +690,8 @@ try {
         ValidationLog = "desktop-demo.stderr.log"
         Lifecycle = @("launch", "landscape resize", "portrait resize", "minimize", "restore", "normal close", "clean process exit")
         Presentations = $captures
+        CanonicalScene = $canonicalScene
+        CanonicalInspections = $canonicalInspections
         UnsupportedPrerequisites = $unsupportedCases
         RenderPathFailures = $renderPathFailures
     }

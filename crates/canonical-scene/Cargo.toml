@@ -1,0 +1,14 @@
+[package]
+name = "canonical-scene"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/canonical_scene.rs"
+
+[dependencies]
+thiserror = "2.0.18"
+voxel-frontend = { path = "../voxel-frontend" }
+
+[dev-dependencies]
+raster-render-path = { path = "../raster-render-path" }
