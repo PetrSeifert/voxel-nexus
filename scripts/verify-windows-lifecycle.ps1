@@ -636,6 +636,25 @@ try {
         throw "Background derivation failure did not terminate cleanly."
     }
 
+    $uploadInstallationFailure = Invoke-CapturedProcess `
+        -Executable $binaryPath `
+        -Arguments @("--scene-scale", "64", "--inject-raster-upload-failure") `
+        -StandardOutputPath (Join-Path $evidencePath "raster-install-upload.stdout.log") `
+        -StandardErrorPath (Join-Path $evidencePath "raster-install-upload.stderr.log") `
+        -TimeoutMilliseconds 30000
+    foreach ($requiredFailureContext in @(
+        "raster artifact upload failed for Voxel Scene Revision 1",
+        "injected GPU upload failure",
+        "installed raster artifact revision after failure: None"
+    )) {
+        if ($uploadInstallationFailure.StandardError -notmatch [Regex]::Escape($requiredFailureContext)) {
+            throw "Raster upload/install failure did not preserve '$requiredFailureContext' at the application boundary."
+        }
+    }
+    if ($uploadInstallationFailure.ExitCode -ne 1 -or $uploadInstallationFailure.StandardError -match "panicked") {
+        throw "Raster upload/install failure did not terminate cleanly."
+    }
+
     $demoProcess = Start-DesktopDemoProcess `
         -BinaryPath $binaryPath `
         -Arguments @("--scene-scale", "256", "--camera-pose", $CameraPose, "--hold-background-preparation")
@@ -886,6 +905,13 @@ try {
             SourceRevision = 1
             ExitCode = $preparationFailure.ExitCode
             StandardError = "background-derivation.stderr.log"
+        }
+        UploadInstallationFailure = [ordered]@{
+            Phase = "upload"
+            SourceRevision = 1
+            InstalledRevisionAfterFailure = $null
+            ExitCode = $uploadInstallationFailure.ExitCode
+            StandardError = "raster-install-upload.stderr.log"
         }
         RenderPathFailures = $renderPathFailures
     }

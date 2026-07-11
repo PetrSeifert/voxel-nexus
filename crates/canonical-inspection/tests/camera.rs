@@ -65,9 +65,11 @@ fn overview_to_cavity_move_has_fixed_step_outputs() -> Result<(), Box<dyn std::e
 }
 
 #[test]
-fn raster_render_path_retains_the_selected_logical_camera_pose() {
+fn raster_render_path_retains_the_selected_logical_camera_pose()
+-> Result<(), Box<dyn std::error::Error>> {
     let pose = CanonicalCameraPose::BoundaryCutaway.pose();
     let render_path = RasterRenderPath::with_camera_pose(pose);
 
-    assert_eq!(render_path.camera_pose(), pose);
+    assert_eq!(render_path.camera_pose()?, pose);
+    Ok(())
 }

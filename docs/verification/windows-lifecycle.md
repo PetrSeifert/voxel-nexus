@@ -53,6 +53,7 @@ The evidence directory contains a JSON manifest with the Git revision, build pro
 The lifecycle runner separately invokes these deterministic diagnostics:
 
 - background derivation failure, retaining derivation phase, source revision, build phase, and injected missing-volume source context;
+- a one-shot failure inside the real raster GPU upload/install path, retaining upload phase and source revision while reporting no installed revision;
 - Render Path release, configure, and record failures, each retaining phase and injected source context at the desktop application boundary;
 - raster artifact upload failure retaining installation phase, Voxel Scene Revision 41, and injected source context at that boundary; and
 - Vulkan 1.2 and unavailable-presentation prerequisites, each retaining actionable qualification context.
@@ -63,6 +64,7 @@ target\debug\desktop-demo.exe --verify-render-path-failure configure
 target\debug\desktop-demo.exe --verify-render-path-failure record
 target\debug\desktop-demo.exe --verify-render-path-failure upload
 target\debug\desktop-demo.exe --verify-background-preparation-failure derivation
+target\debug\desktop-demo.exe --scene-scale 64 --inject-raster-upload-failure
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite vulkan-1.2
 target\debug\desktop-demo.exe --verify-unsupported-prerequisite presentation
 ```

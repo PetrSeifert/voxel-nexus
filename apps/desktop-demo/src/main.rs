@@ -70,6 +70,7 @@ struct CanonicalRenderConfiguration {
     scale: CanonicalSceneScale,
     camera: CanonicalCameraSelection,
     hold_background_preparation: bool,
+    inject_raster_upload_failure: bool,
 }
 
 fn parse_canonical_configuration(
@@ -80,10 +81,12 @@ fn parse_canonical_configuration(
     let mut camera_was_selected = false;
     let mut report_only = false;
     let mut hold_background_preparation = false;
+    let mut inject_raster_upload_failure = false;
     while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--report-canonical-configuration" => report_only = true,
             "--hold-background-preparation" => hold_background_preparation = true,
+            "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
             "--scene-scale" => {
                 scale = match arguments.next().as_deref() {
                     Some("64") => CanonicalSceneScale::Small,
@@ -149,6 +152,7 @@ fn parse_canonical_configuration(
             scale,
             camera,
             hold_background_preparation,
+            inject_raster_upload_failure,
         },
         report_only,
     ))
@@ -357,7 +361,16 @@ impl DesktopApplication {
             return;
         };
         if let Err(error) = backend.refresh_render_path() {
-            self.fail(event_loop, error);
+            let installed_revision = installer
+                .installed_source_revision()
+                .map(|revision| format!("{revision:?}"))
+                .unwrap_or_else(|status_error| format!("unavailable ({status_error})"));
+            self.fail(
+                event_loop,
+                format!(
+                    "{error}; installed raster artifact revision after failure: {installed_revision}"
+                ),
+            );
             return;
         }
         let installed_revision = match installer.installed_source_revision() {
@@ -505,6 +518,13 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 self.canonical_configuration.camera.pose(),
                 published_revision,
             );
+        if self.canonical_configuration.inject_raster_upload_failure
+            && let Err(error) = artifact_installer.inject_next_upload_failure()
+        {
+            self.application_error = Some(error.to_string());
+            event_loop.exit();
+            return;
+        }
         let backend = match RenderBackend::initialize(
             c"Voxel Nexus Desktop Demo",
             &adapter,
@@ -627,7 +647,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     None => FrameOutcome::Suspended,
                 };
                 match outcome {
-                    FrameOutcome::Redraw => {
+                    FrameOutcome::Presented => {
                         self.presentation_retry_at = None;
                         let installed_revision = match &self.artifact_installer {
                             Some(installer) => match installer.installed_source_revision() {
@@ -658,6 +678,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             ));
                         }
                         self.advance_camera_move(event_loop);
+                    }
+                    FrameOutcome::Recreate => {
+                        self.presentation_retry_at = None;
+                        if let Some(window) = &self.window {
+                            window.request_redraw();
+                        }
                     }
                     FrameOutcome::RetryLater => {
                         self.presentation_retry_at =

@@ -297,6 +297,7 @@ struct RasterArtifactInstallationState {
     staged_artifact: Option<RasterArtifact>,
     artifact_was_published: bool,
     installed_revision: Option<VoxelSceneRevision>,
+    inject_upload_failure: bool,
 }
 
 #[derive(Clone)]
@@ -349,6 +350,15 @@ pub enum RasterArtifactInstallerError {
 }
 
 impl RasterArtifactInstaller {
+    pub fn inject_next_upload_failure(&self) -> Result<(), RasterArtifactInstallerError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+        state.inject_upload_failure = true;
+        Ok(())
+    }
+
     pub fn publish_complete(
         &self,
         artifact: RasterArtifact,
@@ -425,7 +435,6 @@ pub struct RasterRenderPath {
     installation: Option<RasterArtifactInstaller>,
     expected_source_revision: Option<VoxelSceneRevision>,
     installed_source_revision: Option<VoxelSceneRevision>,
-    camera_pose: CameraPose,
     camera_control: RasterCameraController,
     vertex_buffer: vk::Buffer,
     vertex_memory: vk::DeviceMemory,
@@ -459,7 +468,6 @@ impl Default for RasterRenderPath {
             installation: None,
             expected_source_revision: None,
             installed_source_revision: None,
-            camera_pose,
             camera_control: RasterCameraController {
                 camera_pose: Arc::new(Mutex::new(camera_pose)),
             },
@@ -489,7 +497,6 @@ impl RasterRenderPath {
 
     pub fn with_camera_pose(camera_pose: CameraPose) -> Self {
         Self {
-            camera_pose,
             camera_control: RasterCameraController {
                 camera_pose: Arc::new(Mutex::new(camera_pose)),
             },
@@ -516,13 +523,13 @@ impl RasterRenderPath {
                 staged_artifact: None,
                 artifact_was_published: false,
                 installed_revision: None,
+                inject_upload_failure: false,
             })),
         };
         let camera_control = RasterCameraController {
             camera_pose: Arc::new(Mutex::new(camera_pose)),
         };
         let render_path = Self {
-            camera_pose,
             camera_control: camera_control.clone(),
             installation: Some(installer.clone()),
             expected_source_revision: Some(expected_source_revision),
@@ -531,8 +538,8 @@ impl RasterRenderPath {
         (render_path, installer, camera_control)
     }
 
-    pub fn camera_pose(&self) -> CameraPose {
-        self.camera_pose
+    pub fn camera_pose(&self) -> Result<CameraPose, RasterCameraControlError> {
+        self.camera_control.pose()
     }
 
     pub fn install_artifact(&mut self, artifact: RasterArtifact) {
@@ -930,10 +937,15 @@ impl RasterPreparationBarrierRelease {
 
 impl Drop for RasterPreparationBarrierRelease {
     fn drop(&mut self) {
-        if let Ok(mut state) = self.shared.state.lock() {
-            state.released = true;
-            self.shared.released.notify_one();
-        }
+        let mut state = match self.shared.state.lock() {
+            Ok(state) => state,
+            Err(poisoned) => {
+                eprintln!("raster preparation barrier was poisoned during implicit release");
+                poisoned.into_inner()
+            }
+        };
+        state.released = true;
+        self.shared.released.notify_one();
     }
 }
 
@@ -1280,6 +1292,8 @@ enum RasterResourceError {
     ArtifactGate(#[from] RasterArtifactInstallerError),
     #[error(transparent)]
     CameraControl(#[from] RasterCameraControlError),
+    #[error("injected GPU upload failure")]
+    InjectedUploadFailure,
     #[error("the raster artifact index count cannot be represented for indexed drawing")]
     IndexCount,
     #[error("the Raster Vertex stride cannot be represented for graphics state")]
@@ -1350,6 +1364,7 @@ impl RasterResourceError {
             | Self::VertexStride
             | Self::BufferSize(_) => RasterArtifactInstallationPhase::Upload,
             Self::ArtifactGate(_) => RasterArtifactInstallationPhase::Upload,
+            Self::InjectedUploadFailure => RasterArtifactInstallationPhase::Upload,
             Self::CameraControl(_) => RasterArtifactInstallationPhase::Record,
             _ => RasterArtifactInstallationPhase::PresentationConfiguration,
         }
@@ -1376,6 +1391,7 @@ impl RenderPath for RasterRenderPath {
             })?;
         let result = self
             .accept_staged_artifact()
+            .and_then(|()| self.inject_upload_failure())
             .and_then(|()| self.configure_resources(&device, target))
             .and_then(|()| self.mark_artifact_installed());
         if let Err(error) = result {
@@ -1407,6 +1423,24 @@ impl RenderPath for RasterRenderPath {
 }
 
 impl RasterRenderPath {
+    fn inject_upload_failure(&self) -> Result<(), RasterResourceError> {
+        if self.artifact.is_none() || self.installed_source_revision.is_some() {
+            return Ok(());
+        }
+        let Some(installer) = &self.installation else {
+            return Ok(());
+        };
+        let mut state = installer
+            .state
+            .lock()
+            .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+        if !state.inject_upload_failure {
+            return Ok(());
+        }
+        state.inject_upload_failure = false;
+        Err(RasterResourceError::InjectedUploadFailure)
+    }
+
     fn accept_staged_artifact(&mut self) -> Result<(), RasterResourceError> {
         let Some(installer) = &self.installation else {
             return Ok(());
