@@ -1,8 +1,8 @@
 {
   "SchemaVersion": 1,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-11T16:29:04.0553372Z",
-  "RepositoryRevision": "d731627dbb2d56e162275f5aaefda0ff2250ff77",
+  "RecordedAtUtc": "2026-07-11T16:36:23.0981922Z",
+  "RepositoryRevision": "9a9ff174bee5791eaf286dcdf1b4dbbdc3b7e58f",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
   "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
