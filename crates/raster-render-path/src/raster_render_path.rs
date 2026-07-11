@@ -331,38 +331,7 @@ pub fn derive_raster_artifact(
         ));
     }
 
-    let mut face_count = 0_usize;
-    for (index, value) in values.iter().enumerate() {
-        if !matches!(value, Some(VoxelValue::Occupied(_))) {
-            continue;
-        }
-        let coordinate = coordinate_from_index(dimensions, index).ok_or_else(|| {
-            build_error(
-                source_revision,
-                RasterArtifactBuildPhase::FaceExtraction,
-                RasterArtifactBuildCause::ArithmeticOverflow,
-            )
-        })?;
-        for normal in AXIS_NORMALS {
-            if face_is_exposed(&values, dimensions, coordinate, normal) {
-                face_count = face_count.checked_add(1).ok_or_else(|| {
-                    build_error(
-                        source_revision,
-                        RasterArtifactBuildPhase::FaceExtraction,
-                        RasterArtifactBuildCause::ArithmeticOverflow,
-                    )
-                })?;
-            }
-        }
-    }
     let mut pending_faces = Vec::new();
-    pending_faces.try_reserve_exact(face_count).map_err(|_| {
-        build_error(
-            source_revision,
-            RasterArtifactBuildPhase::FaceExtraction,
-            RasterArtifactBuildCause::AllocationFailed,
-        )
-    })?;
     for (index, value) in values.iter().enumerate() {
         let Some(VoxelValue::Occupied(material_identity)) = value else {
             continue;
@@ -388,6 +357,13 @@ pub fn derive_raster_artifact(
             })?;
         for normal in AXIS_NORMALS {
             if face_is_exposed(&values, dimensions, coordinate, normal) {
+                pending_faces.try_reserve(1).map_err(|_| {
+                    build_error(
+                        source_revision,
+                        RasterArtifactBuildPhase::FaceExtraction,
+                        RasterArtifactBuildCause::AllocationFailed,
+                    )
+                })?;
                 pending_faces.push(PendingFace {
                     coordinate,
                     normal,
@@ -396,13 +372,6 @@ pub fn derive_raster_artifact(
                 });
             }
         }
-    }
-    if pending_faces.len() != face_count {
-        return Err(build_error(
-            source_revision,
-            RasterArtifactBuildPhase::FaceExtraction,
-            RasterArtifactBuildCause::ArithmeticOverflow,
-        ));
     }
 
     build_geometry(source_revision, volume_identity, metadata, pending_faces)
@@ -513,17 +482,18 @@ fn checked_dimensions(extent: VoxelExtent) -> Option<[usize; 3]> {
 
 fn dense_index(dimensions: [usize; 3], coordinate: VoxelCoordinate) -> Option<usize> {
     let [coordinate_x, coordinate_y, coordinate_z] = coordinate.components();
-    let x = usize::try_from(coordinate_x).ok()?;
-    let y = usize::try_from(coordinate_y).ok()?;
-    let z = usize::try_from(coordinate_z).ok()?;
+    let coordinate_x = usize::try_from(coordinate_x).ok()?;
+    let coordinate_y = usize::try_from(coordinate_y).ok()?;
+    let coordinate_z = usize::try_from(coordinate_z).ok()?;
     let [width, height, depth] = dimensions;
-    if x >= width || y >= height || z >= depth {
+    if coordinate_x >= width || coordinate_y >= height || coordinate_z >= depth {
         return None;
     }
-    z.checked_mul(height)?
-        .checked_add(y)?
+    coordinate_z
+        .checked_mul(height)?
+        .checked_add(coordinate_y)?
         .checked_mul(width)?
-        .checked_add(x)
+        .checked_add(coordinate_x)
 }
 
 fn coordinate_from_index(dimensions: [usize; 3], index: usize) -> Option<VoxelCoordinate> {
@@ -532,24 +502,24 @@ fn coordinate_from_index(dimensions: [usize; 3], index: usize) -> Option<VoxelCo
     if plane_size == 0 || index >= plane_size.checked_mul(depth)? {
         return None;
     }
-    let z = index / plane_size;
+    let coordinate_z = index / plane_size;
     let within_plane = index % plane_size;
-    let y = within_plane / width;
-    let x = within_plane % width;
+    let coordinate_y = within_plane / width;
+    let coordinate_x = within_plane % width;
     Some(VoxelCoordinate::new(
-        i32::try_from(x).ok()?,
-        i32::try_from(y).ok()?,
-        i32::try_from(z).ok()?,
+        i32::try_from(coordinate_x).ok()?,
+        i32::try_from(coordinate_y).ok()?,
+        i32::try_from(coordinate_z).ok()?,
     ))
 }
 
 fn offset_coordinate(coordinate: VoxelCoordinate, normal: AxisNormal) -> Option<VoxelCoordinate> {
-    let [x, y, z] = coordinate.components();
+    let [coordinate_x, coordinate_y, coordinate_z] = coordinate.components();
     let [offset_x, offset_y, offset_z] = normal.offset();
     Some(VoxelCoordinate::new(
-        x.checked_add(offset_x)?,
-        y.checked_add(offset_y)?,
-        z.checked_add(offset_z)?,
+        coordinate_x.checked_add(offset_x)?,
+        coordinate_y.checked_add(offset_y)?,
+        coordinate_z.checked_add(offset_z)?,
     ))
 }
 
@@ -570,21 +540,63 @@ fn face_positions(
     coordinate: VoxelCoordinate,
     normal: AxisNormal,
 ) -> Option<[[f32; 3]; 4]> {
-    let [x, y, z] = coordinate.components();
+    let [coordinate_x, coordinate_y, coordinate_z] = coordinate.components();
     let [origin_x, origin_y, origin_z] = metadata.scene_origin();
-    let x0 = scene_component(origin_x, metadata.voxel_size(), x)?;
-    let y0 = scene_component(origin_y, metadata.voxel_size(), y)?;
-    let z0 = scene_component(origin_z, metadata.voxel_size(), z)?;
-    let x1 = scene_component(origin_x, metadata.voxel_size(), x.checked_add(1)?)?;
-    let y1 = scene_component(origin_y, metadata.voxel_size(), y.checked_add(1)?)?;
-    let z1 = scene_component(origin_z, metadata.voxel_size(), z.checked_add(1)?)?;
+    let minimum_x = scene_component(origin_x, metadata.voxel_size(), coordinate_x)?;
+    let minimum_y = scene_component(origin_y, metadata.voxel_size(), coordinate_y)?;
+    let minimum_z = scene_component(origin_z, metadata.voxel_size(), coordinate_z)?;
+    let maximum_x = scene_component(
+        origin_x,
+        metadata.voxel_size(),
+        coordinate_x.checked_add(1)?,
+    )?;
+    let maximum_y = scene_component(
+        origin_y,
+        metadata.voxel_size(),
+        coordinate_y.checked_add(1)?,
+    )?;
+    let maximum_z = scene_component(
+        origin_z,
+        metadata.voxel_size(),
+        coordinate_z.checked_add(1)?,
+    )?;
     Some(match normal {
-        AxisNormal::NegativeX => [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
-        AxisNormal::PositiveX => [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
-        AxisNormal::NegativeY => [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
-        AxisNormal::PositiveY => [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]],
-        AxisNormal::NegativeZ => [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]],
-        AxisNormal::PositiveZ => [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+        AxisNormal::NegativeX => [
+            [minimum_x, minimum_y, minimum_z],
+            [minimum_x, minimum_y, maximum_z],
+            [minimum_x, maximum_y, maximum_z],
+            [minimum_x, maximum_y, minimum_z],
+        ],
+        AxisNormal::PositiveX => [
+            [maximum_x, minimum_y, minimum_z],
+            [maximum_x, maximum_y, minimum_z],
+            [maximum_x, maximum_y, maximum_z],
+            [maximum_x, minimum_y, maximum_z],
+        ],
+        AxisNormal::NegativeY => [
+            [minimum_x, minimum_y, minimum_z],
+            [maximum_x, minimum_y, minimum_z],
+            [maximum_x, minimum_y, maximum_z],
+            [minimum_x, minimum_y, maximum_z],
+        ],
+        AxisNormal::PositiveY => [
+            [minimum_x, maximum_y, minimum_z],
+            [minimum_x, maximum_y, maximum_z],
+            [maximum_x, maximum_y, maximum_z],
+            [maximum_x, maximum_y, minimum_z],
+        ],
+        AxisNormal::NegativeZ => [
+            [minimum_x, minimum_y, minimum_z],
+            [minimum_x, maximum_y, minimum_z],
+            [maximum_x, maximum_y, minimum_z],
+            [maximum_x, minimum_y, minimum_z],
+        ],
+        AxisNormal::PositiveZ => [
+            [minimum_x, minimum_y, maximum_z],
+            [maximum_x, minimum_y, maximum_z],
+            [maximum_x, maximum_y, maximum_z],
+            [minimum_x, maximum_y, maximum_z],
+        ],
     })
 }
 

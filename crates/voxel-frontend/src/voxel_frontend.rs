@@ -3,29 +3,29 @@ use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct VoxelSceneId(String);
+pub struct VoxelSceneId(Arc<str>);
 
 impl VoxelSceneId {
     pub fn new(identity: impl Into<String>) -> Self {
-        Self(identity.into())
+        Self(Arc::from(identity.into()))
     }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct VoxelVolumeId(String);
+pub struct VoxelVolumeId(Arc<str>);
 
 impl VoxelVolumeId {
     pub fn new(identity: impl Into<String>) -> Self {
-        Self(identity.into())
+        Self(Arc::from(identity.into()))
     }
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct VoxelMaterialId(String);
+pub struct VoxelMaterialId(Arc<str>);
 
 impl VoxelMaterialId {
     pub fn new(identity: impl Into<String>) -> Self {
-        Self(identity.into())
+        Self(Arc::from(identity.into()))
     }
 }
 

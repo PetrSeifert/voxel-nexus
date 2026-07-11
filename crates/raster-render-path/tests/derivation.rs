@@ -44,14 +44,14 @@ fn diagnostic_artifacts(
     let width = usize::try_from(width)?;
     let height = usize::try_from(height)?;
     let mut reversed_single_voxel_batches = Vec::new();
-    for z in (0..usize::try_from(depth)?).rev() {
-        for y in (0..height).rev() {
-            for x in (0..width).rev() {
-                let index = z
+    for coordinate_z in (0..usize::try_from(depth)?).rev() {
+        for coordinate_y in (0..height).rev() {
+            for coordinate_x in (0..width).rev() {
+                let index = coordinate_z
                     .checked_mul(height)
-                    .and_then(|value| value.checked_add(y))
+                    .and_then(|value| value.checked_add(coordinate_y))
                     .and_then(|value| value.checked_mul(width))
-                    .and_then(|value| value.checked_add(x))
+                    .and_then(|value| value.checked_add(coordinate_x))
                     .ok_or("diagnostic index overflow")?;
                 let value = values
                     .get(index)
@@ -60,9 +60,9 @@ fn diagnostic_artifacts(
                 reversed_single_voxel_batches.push(DenseVoxelBatch::new(
                     VoxelRegion::new(
                         VoxelCoordinate::new(
-                            i32::try_from(x)?,
-                            i32::try_from(y)?,
-                            i32::try_from(z)?,
+                            i32::try_from(coordinate_x)?,
+                            i32::try_from(coordinate_y)?,
+                            i32::try_from(coordinate_z)?,
                         ),
                         VoxelExtent::new(1, 1, 1),
                     ),
@@ -93,10 +93,10 @@ fn face_set(artifact: &raster_render_path::RasterArtifact) -> HashSet<SemanticFa
 }
 
 fn semantic_face(coordinate: [i32; 3], normal: AxisNormal, material: &str) -> SemanticFace {
-    let [x, y, z] = coordinate;
+    let [coordinate_x, coordinate_y, coordinate_z] = coordinate;
     SemanticFace::new(
         VoxelVolumeId::new("diagnostic"),
-        VoxelCoordinate::new(x, y, z),
+        VoxelCoordinate::new(coordinate_x, coordinate_y, coordinate_z),
         normal,
         VoxelMaterialId::new(material),
     )
@@ -304,22 +304,41 @@ fn hollow_three_cube_includes_outer_boundary_and_inner_cavity_faces_for_every_ba
         values,
     )?;
     let mut expected = HashSet::new();
-    for z in 0..3 {
-        for y in 0..3 {
-            for x in 0..3 {
-                if [x, y, z] == [1, 1, 1] {
+    for coordinate_z in 0..3 {
+        for coordinate_y in 0..3 {
+            for coordinate_x in 0..3 {
+                let coordinate = [coordinate_x, coordinate_y, coordinate_z];
+                if coordinate == [1, 1, 1] {
                     continue;
                 }
                 for (normal, exposed) in [
-                    (AxisNormal::NegativeX, x == 0 || [x, y, z] == [2, 1, 1]),
-                    (AxisNormal::PositiveX, x == 2 || [x, y, z] == [0, 1, 1]),
-                    (AxisNormal::NegativeY, y == 0 || [x, y, z] == [1, 2, 1]),
-                    (AxisNormal::PositiveY, y == 2 || [x, y, z] == [1, 0, 1]),
-                    (AxisNormal::NegativeZ, z == 0 || [x, y, z] == [1, 1, 2]),
-                    (AxisNormal::PositiveZ, z == 2 || [x, y, z] == [1, 1, 0]),
+                    (
+                        AxisNormal::NegativeX,
+                        coordinate_x == 0 || coordinate == [2, 1, 1],
+                    ),
+                    (
+                        AxisNormal::PositiveX,
+                        coordinate_x == 2 || coordinate == [0, 1, 1],
+                    ),
+                    (
+                        AxisNormal::NegativeY,
+                        coordinate_y == 0 || coordinate == [1, 2, 1],
+                    ),
+                    (
+                        AxisNormal::PositiveY,
+                        coordinate_y == 2 || coordinate == [1, 0, 1],
+                    ),
+                    (
+                        AxisNormal::NegativeZ,
+                        coordinate_z == 0 || coordinate == [1, 1, 2],
+                    ),
+                    (
+                        AxisNormal::PositiveZ,
+                        coordinate_z == 2 || coordinate == [1, 1, 0],
+                    ),
                 ] {
                     if exposed {
-                        expected.insert(semantic_face([x, y, z], normal, "stone"));
+                        expected.insert(semantic_face(coordinate, normal, "stone"));
                     }
                 }
             }
