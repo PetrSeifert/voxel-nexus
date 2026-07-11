@@ -12,7 +12,7 @@ if (-not $IsWindows) {
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $outputPath = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $OutputDirectory))
-$expectedRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot "docs/evidence/timing-baseline"))
+$expectedRoot = [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot "docs/evidence"))
 $relativeOutputPath = [System.IO.Path]::GetRelativePath($expectedRoot, $outputPath)
 if ([System.IO.Path]::IsPathRooted($relativeOutputPath) -or
     $relativeOutputPath -eq "." -or

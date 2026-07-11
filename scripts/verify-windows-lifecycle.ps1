@@ -4,7 +4,8 @@ param(
     [string]$EvidenceDirectory,
     [ValidateSet("overview", "cavity", "boundary")]
     [string]$CameraPose = "overview",
-    [switch]$CaptureCanonicalInspectionSet
+    [switch]$CaptureCanonicalInspectionSet,
+    [string]$VideoFile = ""
 )
 
 Set-StrictMode -Version Latest
@@ -23,6 +24,7 @@ if ([System.IO.Directory]::Exists($evidencePath) -and [System.IO.Directory]::Enu
 [System.IO.Directory]::CreateDirectory($evidencePath) | Out-Null
 
 Add-Type -AssemblyName System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -132,6 +134,117 @@ function Stop-LifecycleProcess {
     if (-not $Process.HasExited) {
         $Process.Kill()
         $Process.WaitForExit()
+    }
+}
+
+function Start-CompletionVideoRecording {
+    param([string]$FileName)
+
+    $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+    if ($null -eq $ffmpeg) {
+        throw "ffmpeg is required to record the uninterrupted completion video."
+    }
+    $videoPath = Join-Path $evidencePath $FileName
+    $backdrop = [System.Windows.Forms.Form]::new()
+    $backdrop.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+    $backdrop.Location = [System.Drawing.Point]::new(80, 80)
+    $backdrop.ClientSize = [System.Drawing.Size]::new(1140, 940)
+    $backdrop.BackColor = [System.Drawing.Color]::Black
+    $backdrop.FormBorderStyle = [System.Windows.Forms.FormBorderStyle]::None
+    $backdrop.ShowInTaskbar = $false
+    $backdrop.TopMost = $true
+    $backdrop.Show()
+    [System.Windows.Forms.Application]::DoEvents()
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $ffmpeg.Source
+    $startInfo.WorkingDirectory = $repositoryRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in @(
+        "-hide_banner", "-y",
+        "-f", "gdigrab",
+        "-framerate", "30",
+        "-draw_mouse", "0",
+        "-offset_x", "80",
+        "-offset_y", "80",
+        "-video_size", "1140x940",
+        "-i", "desktop",
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        $videoPath
+    )) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        $backdrop.Dispose()
+        throw "Could not start ffmpeg completion video recording."
+    }
+    $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+    $standardErrorTask = $process.StandardError.ReadToEndAsync()
+    Start-Sleep -Seconds 1
+    if ($process.HasExited) {
+        $standardError = $standardErrorTask.GetAwaiter().GetResult()
+        $backdrop.Dispose()
+        throw "ffmpeg completion video recording exited before the proof began: $standardError"
+    }
+    [PSCustomObject]@{
+        Process = $process
+        StandardOutputTask = $standardOutputTask
+        StandardErrorTask = $standardErrorTask
+        Backdrop = $backdrop
+        File = $FileName
+        Path = $videoPath
+        CaptureScope = "1140x940 controlled black-backed desktop region at screen coordinates 80,80"
+    }
+}
+
+function Stop-CompletionVideoRecording {
+    param([PSCustomObject]$Recording)
+
+    try {
+        if (-not $Recording.Process.HasExited) {
+            $Recording.Process.StandardInput.WriteLine("q")
+            $Recording.Process.StandardInput.Close()
+            if (-not $Recording.Process.WaitForExit(15000)) {
+                $Recording.Process.Kill()
+                $Recording.Process.WaitForExit()
+                throw "ffmpeg did not finish the completion video within 15 seconds."
+            }
+        }
+        $standardOutput = $Recording.StandardOutputTask.GetAwaiter().GetResult()
+        $standardError = $Recording.StandardErrorTask.GetAwaiter().GetResult()
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "completion-video.stdout.log"), $standardOutput)
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "completion-video.stderr.log"), $standardError)
+        if ($Recording.Process.ExitCode -ne 0) {
+            throw "ffmpeg completion video recording failed with code $($Recording.Process.ExitCode)."
+        }
+        $video = Get-Item -LiteralPath $Recording.Path
+        if ($video.Length -le 0) {
+            throw "ffmpeg produced an empty completion video."
+        }
+    }
+    finally {
+        $Recording.Backdrop.Dispose()
+    }
+}
+
+function Add-CompletionVideoEvent {
+    param([string]$Event)
+
+    if ($null -ne $script:completionVideoStopwatch) {
+        $script:completionVideoEvents.Add([ordered]@{
+            Event = $Event
+            ElapsedSeconds = [Math]::Round($script:completionVideoStopwatch.Elapsed.TotalSeconds, 3)
+            RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
+        })
     }
 }
 
@@ -564,6 +677,10 @@ function Capture-AdditionalCanonicalPresentation {
     }
 }
 
+$script:completionVideoStopwatch = $null
+$script:completionVideoEvents = [System.Collections.Generic.List[object]]::new()
+$completionVideoRecording = $null
+
 Push-Location $repositoryRoot
 try {
     Invoke-Cargo -Arguments @("build", "--locked", "--package", "desktop-demo")
@@ -664,6 +781,18 @@ try {
         -Process $demoProcess `
         -Window $window `
         -Pattern "preparation-paused"
+    if ($VideoFile) {
+        if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
+            throw "Could not set the paused desktop demo recording extent."
+        }
+        $script:completionVideoStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $completionVideoRecording = Start-CompletionVideoRecording -FileName $VideoFile
+        if (-not [LifecycleWindow]::SetWindowPos($window, [LifecycleWindow]::Topmost, 0, 0, 0, 0, [LifecycleWindow]::KeepPositionAndSize)) {
+            throw "Could not place the desktop demo above the controlled recording backdrop."
+        }
+        Add-CompletionVideoEvent -Event "worker_paused"
+        Start-Sleep -Seconds 1
+    }
     if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 1100, 700, $true)) {
         throw "Could not resize the paused desktop demo to the landscape extent."
     }
@@ -672,6 +801,8 @@ try {
         -Window $window `
         -Pattern "preparation-paused lifecycle-responsive" `
         -PreviousTitle $pausedTitle
+    Add-CompletionVideoEvent -Event "landscape_resize_while_paused"
+    if ($VideoFile) { Start-Sleep -Seconds 1 }
     $pausedLandscapeArea = Get-ClientArea -Window $window
     if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 650, 900, $true)) {
         throw "Could not resize the paused desktop demo to the portrait extent."
@@ -681,6 +812,8 @@ try {
         -Window $window `
         -Pattern "preparation-paused lifecycle-responsive" `
         -PreviousTitle $landscapePausedTitle
+    Add-CompletionVideoEvent -Event "portrait_resize_while_paused"
+    if ($VideoFile) { Start-Sleep -Seconds 1 }
     $pausedPortraitArea = Get-ClientArea -Window $window
     if (($pausedLandscapeArea.Width / $pausedLandscapeArea.Height) -le 1 `
         -or ($pausedPortraitArea.Width / $pausedPortraitArea.Height) -ge 1) {
@@ -695,6 +828,8 @@ try {
         throw "The paused desktop demo did not enter the minimized state."
     }
     Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "preparation-paused suspended" | Out-Null
+    Add-CompletionVideoEvent -Event "minimized_while_paused"
+    if ($VideoFile) { Start-Sleep -Seconds 1 }
     [LifecycleWindow]::ShowWindowAsync($window, [LifecycleWindow]::ShowRestored) | Out-Null
     $restoreDeadline = [DateTime]::UtcNow.AddSeconds(10)
     while ([LifecycleWindow]::IsIconic($window) -and [DateTime]::UtcNow -lt $restoreDeadline) {
@@ -704,6 +839,8 @@ try {
         throw "The paused desktop demo did not restore from the minimized state."
     }
     Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "preparation-paused lifecycle-responsive" | Out-Null
+    Add-CompletionVideoEvent -Event "restored_while_paused"
+    if ($VideoFile) { Start-Sleep -Seconds 1 }
     Send-DesktopVerificationEvent `
         -Window $window `
         -Message ([LifecycleWindow]::ReleasePreparationMessage) `
@@ -715,6 +852,7 @@ try {
     }
     $captures = @()
     $captures += Capture-StablePresentation -Window $window -Name "launch"
+    Add-CompletionVideoEvent -Event "first_matching_revision_frame"
 
     if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 1100, 700, $true)) {
         throw "Could not resize the desktop demo to the landscape extent."
@@ -751,12 +889,17 @@ try {
             -Process $demoProcess `
             -Window $window `
             -Pattern "camera-presented $($cameraEvent.Name)" | Out-Null
+        Add-CompletionVideoEvent -Event "fixed_pose_$($cameraEvent.Name)"
+        if ($VideoFile) { Start-Sleep -Seconds 1 }
     }
+    Add-CompletionVideoEvent -Event "deterministic_camera_move_started"
     Send-DesktopVerificationEvent `
         -Window $window `
         -Message ([LifecycleWindow]::StartCameraMoveMessage) `
         -Name "deterministic camera move"
     Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "camera-move-complete" | Out-Null
+    Add-CompletionVideoEvent -Event "deterministic_camera_move_completed"
+    if ($VideoFile) { Start-Sleep -Seconds 1 }
 
     $completion = Complete-DesktopDemoProcess `
         -Process $demoProcess `
@@ -764,6 +907,14 @@ try {
         -Name "desktop demo lifecycle" `
         -StandardOutputFile "desktop-demo.stdout.log" `
         -StandardErrorFile "desktop-demo.stderr.log"
+    Add-CompletionVideoEvent -Event "clean_close"
+    if ($null -ne $completionVideoRecording) {
+        Start-Sleep -Seconds 1
+        $script:completionVideoStopwatch.Stop()
+        $script:completionVideoEvents | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 (Join-Path $evidencePath "completion-video-events.json")
+        Stop-CompletionVideoRecording -Recording $completionVideoRecording
+        $completionVideoRecording = $null
+    }
     $demoStandardOutput = $completion.StandardOutput
     $demoStandardError = $completion.StandardError
     foreach ($requiredLine in @("Vulkan device:", "Driver version:", "Vulkan API version:", "Vulkan validation: enabled")) {
@@ -877,6 +1028,16 @@ try {
         }
         RuntimeContextLog = "desktop-demo.stdout.log"
         ValidationLog = "desktop-demo.stderr.log"
+        CompletionVideo = if ($VideoFile) {
+            [ordered]@{
+                File = $VideoFile
+                EventTimeline = "completion-video-events.json"
+                CaptureScope = "1140x940 controlled black-backed desktop region at screen coordinates 80,80"
+                RecorderStandardOutput = "completion-video.stdout.log"
+                RecorderStandardError = "completion-video.stderr.log"
+                Uninterrupted = $true
+            }
+        } else { $null }
         Lifecycle = @(
             "background preparation paused",
             "landscape resize while paused",
@@ -920,6 +1081,14 @@ try {
 }
 finally {
     Pop-Location
+    if ($null -ne $completionVideoRecording) {
+        try {
+            Stop-CompletionVideoRecording -Recording $completionVideoRecording
+        }
+        catch {
+            Write-Warning "Could not finish completion video after lifecycle failure: $($_.Exception.Message)"
+        }
+    }
     if ($null -ne (Get-Variable demoProcess -ErrorAction SilentlyContinue) -and -not $demoProcess.HasExited) {
         Stop-LifecycleProcess -Process $demoProcess
     }
