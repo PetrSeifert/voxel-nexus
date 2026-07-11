@@ -51,7 +51,6 @@ use winit::window::{Window, WindowAttributes, WindowId};
 #[derive(Clone, Copy)]
 enum DesktopCameraSelection {
     Fixed(CanonicalCameraPose),
-    WindingDiagnostic,
     MoveStep {
         step: u32,
         total_steps: u32,
@@ -63,14 +62,6 @@ impl DesktopCameraSelection {
     fn pose(self) -> CameraPose {
         match self {
             Self::Fixed(identity) => identity.pose(),
-            Self::WindingDiagnostic => CameraPose::new(
-                [0.5, 0.5, 4.0],
-                [0.5, 0.5, 1.0],
-                [0.0, 1.0, 0.0],
-                60.0,
-                0.1,
-                10.0,
-            ),
             Self::MoveStep { pose, .. } => pose,
         }
     }
@@ -80,7 +71,6 @@ impl DesktopCameraSelection {
             Self::Fixed(CanonicalCameraPose::Overview) => "overview".to_owned(),
             Self::Fixed(CanonicalCameraPose::CavityMaterialCloseUp) => "cavity".to_owned(),
             Self::Fixed(CanonicalCameraPose::BoundaryCutaway) => "boundary".to_owned(),
-            Self::WindingDiagnostic => "winding-diagnostic".to_owned(),
             Self::MoveStep {
                 step, total_steps, ..
             } => format!("overview-to-cavity-step-{step}-of-{total_steps}"),
@@ -88,14 +78,42 @@ impl DesktopCameraSelection {
     }
 }
 
+#[derive(Clone, Copy)]
+enum DesktopSceneSelection {
+    Canonical(CanonicalSceneScale),
+    WindingDiagnostic,
+}
+
 #[derive(Clone)]
 struct DesktopRenderConfiguration {
-    scale: CanonicalSceneScale,
+    scene: DesktopSceneSelection,
     camera: DesktopCameraSelection,
-    winding_diagnostic: bool,
     hold_background_preparation: bool,
     inject_raster_upload_failure: bool,
     measurement: Option<MeasurementConfiguration>,
+}
+
+impl DesktopRenderConfiguration {
+    fn camera_pose(&self) -> CameraPose {
+        match self.scene {
+            DesktopSceneSelection::Canonical(_) => self.camera.pose(),
+            DesktopSceneSelection::WindingDiagnostic => CameraPose::new(
+                [0.5, 0.5, 4.0],
+                [0.5, 0.5, 1.0],
+                [0.0, 1.0, 0.0],
+                60.0,
+                0.1,
+                10.0,
+            ),
+        }
+    }
+
+    fn camera_identity(&self) -> String {
+        match self.scene {
+            DesktopSceneSelection::Canonical(_) => self.camera.report_identity(),
+            DesktopSceneSelection::WindingDiagnostic => "winding-diagnostic".to_owned(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -113,10 +131,9 @@ struct MeasurementConfiguration {
 fn parse_render_configuration(
     mut arguments: impl Iterator<Item = String>,
 ) -> Result<(DesktopRenderConfiguration, bool), String> {
-    let mut scale = CanonicalSceneScale::Large;
+    let mut scene = DesktopSceneSelection::Canonical(CanonicalSceneScale::Large);
     let mut camera = DesktopCameraSelection::Fixed(CanonicalCameraPose::Overview);
     let mut camera_was_selected = false;
-    let mut winding_diagnostic = false;
     let mut report_only = false;
     let mut hold_background_preparation = false;
     let mut inject_raster_upload_failure = false;
@@ -133,8 +150,7 @@ fn parse_render_configuration(
                         "the winding diagnostic cannot use a canonical camera selection".to_owned(),
                     );
                 }
-                winding_diagnostic = true;
-                camera = DesktopCameraSelection::WindingDiagnostic;
+                scene = DesktopSceneSelection::WindingDiagnostic;
                 camera_was_selected = true;
             }
             "--measurement-mode" => {
@@ -156,7 +172,12 @@ fn parse_render_configuration(
                     })?));
             }
             "--scene-scale" => {
-                scale = match arguments.next().as_deref() {
+                if matches!(scene, DesktopSceneSelection::WindingDiagnostic) {
+                    return Err(
+                        "the winding diagnostic cannot use a canonical scene scale".to_owned()
+                    );
+                }
+                scene = DesktopSceneSelection::Canonical(match arguments.next().as_deref() {
                     Some("64") => CanonicalSceneScale::Small,
                     Some("128") => CanonicalSceneScale::Medium,
                     Some("256") => CanonicalSceneScale::Large,
@@ -166,7 +187,7 @@ fn parse_render_configuration(
                         ));
                     }
                     None => return Err("missing canonical scene scale".to_owned()),
-                };
+                });
             }
             "--camera-pose" => {
                 if camera_was_selected {
@@ -226,9 +247,8 @@ fn parse_render_configuration(
     };
     Ok((
         DesktopRenderConfiguration {
-            scale,
+            scene,
             camera,
-            winding_diagnostic,
             hold_background_preparation,
             inject_raster_upload_failure,
             measurement,
@@ -267,10 +287,10 @@ fn report_winding_diagnostic_configuration(configuration: &DesktopRenderConfigur
     println!(
         "Diagnostic scene: identity=raster-front-face-winding dimensions=1x1x2 origin=0,0,0 voxel_size=1 materials=winding-diagnostic-far-blue,winding-diagnostic-near-warm occupied=2 exposed_faces=10"
     );
-    let camera = configuration.camera.pose();
+    let camera = configuration.camera_pose();
     println!(
         "Diagnostic camera: camera={} eye={} target={} up={} fov_degrees={} near={} far={}",
-        configuration.camera.report_identity(),
+        configuration.camera_identity(),
         format_vector(camera.eye()),
         format_vector(camera.target()),
         format_vector(camera.up()),
@@ -895,13 +915,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             height: drawable_size.height,
         };
         self.drawable_extent = initial_drawable_extent;
-        let (scene, volume_identity, occupied_voxels) =
-            if self.render_configuration.winding_diagnostic {
+        let (scene, volume_identity, occupied_voxels) = match self.render_configuration.scene {
+            DesktopSceneSelection::WindingDiagnostic => {
                 let (scene, volume_identity) = winding_diagnostic_scene();
                 report_winding_diagnostic_configuration(&self.render_configuration);
                 (scene, volume_identity, 2)
-            } else {
-                let canonical = match generate_canonical_scene(self.render_configuration.scale) {
+            }
+            DesktopSceneSelection::Canonical(scale) => {
+                let canonical = match generate_canonical_scene(scale) {
                     Ok(canonical) => canonical,
                     Err(error) => {
                         self.application_error = Some(format!(
@@ -915,13 +936,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 let occupied_voxels = canonical.metadata().occupied_count();
                 let volume_identity = canonical.metadata().volume_identity().clone();
                 (canonical.into_scene(), volume_identity, occupied_voxels)
-            };
+            }
+        };
         self.occupied_voxels = occupied_voxels;
         let view = match VoxelFrontend::new().publish(scene) {
             Ok(view) => view,
             Err(error) => {
                 self.application_error = Some(format!(
-                    "could not publish the canonical Voxel Scene: {error}"
+                    "could not publish the configured Voxel Scene: {error}"
                 ));
                 event_loop.exit();
                 return;
@@ -949,7 +971,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         }
         let (render_path, artifact_installer, camera_controller) =
             RasterRenderPath::awaiting_artifact_with_camera_control(
-                self.render_configuration.camera.pose(),
+                self.render_configuration.camera_pose(),
                 published_revision,
             );
         if self.render_configuration.inject_raster_upload_failure
@@ -1443,13 +1465,16 @@ fn run() -> Result<(), String> {
     }
     let (configuration, report_only) = parse_render_configuration(arguments.into_iter())?;
     if report_only {
-        if configuration.winding_diagnostic {
-            report_winding_diagnostic_configuration(&configuration);
-        } else {
-            let canonical = generate_canonical_scene(configuration.scale).map_err(|error| {
-                format!("could not generate the canonical Voxel Scene: {error}")
-            })?;
-            report_canonical_configuration(canonical.metadata(), &configuration);
+        match configuration.scene {
+            DesktopSceneSelection::WindingDiagnostic => {
+                report_winding_diagnostic_configuration(&configuration);
+            }
+            DesktopSceneSelection::Canonical(scale) => {
+                let canonical = generate_canonical_scene(scale).map_err(|error| {
+                    format!("could not generate the canonical Voxel Scene: {error}")
+                })?;
+                report_canonical_configuration(canonical.metadata(), &configuration);
+            }
         }
         return Ok(());
     }
@@ -1727,14 +1752,16 @@ fn main() -> ExitCode {
     {
         let result =
             parse_render_configuration(arguments.into_iter()).and_then(|(configuration, _)| {
-                if configuration.winding_diagnostic {
-                    report_winding_diagnostic_configuration(&configuration);
-                } else {
-                    let canonical =
-                        generate_canonical_scene(configuration.scale).map_err(|error| {
+                match configuration.scene {
+                    DesktopSceneSelection::WindingDiagnostic => {
+                        report_winding_diagnostic_configuration(&configuration);
+                    }
+                    DesktopSceneSelection::Canonical(scale) => {
+                        let canonical = generate_canonical_scene(scale).map_err(|error| {
                             format!("could not generate the canonical Voxel Scene: {error}")
                         })?;
-                    report_canonical_configuration(canonical.metadata(), &configuration);
+                        report_canonical_configuration(canonical.metadata(), &configuration);
+                    }
                 }
                 Ok(())
             });

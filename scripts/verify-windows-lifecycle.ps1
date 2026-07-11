@@ -633,12 +633,13 @@ function Complete-DesktopDemoProcess {
     }
 }
 
-function Capture-AdditionalCanonicalPresentation {
+function Capture-AdditionalPresentation {
     param(
         [string]$BinaryPath,
         [string]$Name,
         [string[]]$Arguments,
-        [string]$CameraSelection
+        [string]$CameraSelection,
+        [string]$Description
     )
 
     $previousCameraSelection = $script:currentCameraSelection
@@ -648,25 +649,18 @@ function Capture-AdditionalCanonicalPresentation {
         $captureProcess = Start-DesktopDemoProcess -BinaryPath $BinaryPath -Arguments $Arguments
         $window = Wait-ForWindow -Process $captureProcess
         if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
-            throw "Could not set the $Name canonical capture extent."
+            throw "Could not set the $Description extent."
         }
         $capture = Capture-StablePresentation -Window $window -Name $Name
         $completion = Complete-DesktopDemoProcess `
             -Process $captureProcess `
             -Window $window `
-            -Name "$Name canonical capture" `
+            -Name $Description `
             -StandardOutputFile "$Name.stdout.log" `
             -StandardErrorFile "$Name.stderr.log"
         return [PSCustomObject]@{
-            Name = $Name
-            CameraSelection = $CameraSelection
             Capture = $capture
-            StandardOutput = "$Name.stdout.log"
-            ValidationLog = "$Name.stderr.log"
-            ValidationWarnings = $completion.ValidationWarnings
-            ValidationErrors = $completion.ValidationErrors
-            Scene = Read-CanonicalSceneRecord -StandardOutput $completion.StandardOutput
-            Camera = Read-CanonicalCameraRecord -StandardOutput $completion.StandardOutput
+            Completion = $completion
         }
     }
     finally {
@@ -677,52 +671,60 @@ function Capture-AdditionalCanonicalPresentation {
     }
 }
 
+function Capture-AdditionalCanonicalPresentation {
+    param(
+        [string]$BinaryPath,
+        [string]$Name,
+        [string[]]$Arguments,
+        [string]$CameraSelection
+    )
+
+    $result = Capture-AdditionalPresentation `
+        -BinaryPath $BinaryPath `
+        -Name $Name `
+        -Arguments $Arguments `
+        -CameraSelection $CameraSelection `
+        -Description "$Name canonical capture"
+    return [PSCustomObject]@{
+        Name = $Name
+        CameraSelection = $CameraSelection
+        Capture = $result.Capture
+        StandardOutput = "$Name.stdout.log"
+        ValidationLog = "$Name.stderr.log"
+        ValidationWarnings = $result.Completion.ValidationWarnings
+        ValidationErrors = $result.Completion.ValidationErrors
+        Scene = Read-CanonicalSceneRecord -StandardOutput $result.Completion.StandardOutput
+        Camera = Read-CanonicalCameraRecord -StandardOutput $result.Completion.StandardOutput
+    }
+}
+
 function Capture-WindingDiagnosticPresentation {
     param([string]$BinaryPath)
 
-    $previousCameraSelection = $script:currentCameraSelection
-    $script:currentCameraSelection = "winding-diagnostic"
-    $captureProcess = $null
-    try {
-        $captureProcess = Start-DesktopDemoProcess `
-            -BinaryPath $BinaryPath `
-            -Arguments @("--winding-diagnostic")
-        $window = Wait-ForWindow -Process $captureProcess
-        if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
-            throw "Could not set the winding diagnostic capture extent."
-        }
-        $capture = Capture-StablePresentation -Window $window -Name "winding-diagnostic"
-        $completion = Complete-DesktopDemoProcess `
-            -Process $captureProcess `
-            -Window $window `
-            -Name "winding diagnostic capture" `
-            -StandardOutputFile "winding-diagnostic.stdout.log" `
-            -StandardErrorFile "winding-diagnostic.stderr.log"
-        foreach ($requiredLine in @(
-            "Diagnostic scene: identity=raster-front-face-winding dimensions=1x1x2",
-            "Diagnostic camera: camera=winding-diagnostic",
-            "Vulkan validation: enabled",
-            "First matching raster frame presented: revision=1"
-        )) {
-            if ($completion.StandardOutput -notmatch [Regex]::Escape($requiredLine)) {
-                throw "The winding diagnostic capture is missing '$requiredLine'."
-            }
-        }
-        return [PSCustomObject]@{
-            Name = "winding-diagnostic"
-            Meaning = "A warm near voxel and blue far voxel viewed head-on through the positive-height Vulkan viewport; the warm positive-Z outward face must occlude the blue negative-Z outward face."
-            Capture = $capture
-            StandardOutput = "winding-diagnostic.stdout.log"
-            ValidationLog = "winding-diagnostic.stderr.log"
-            ValidationWarnings = $completion.ValidationWarnings
-            ValidationErrors = $completion.ValidationErrors
+    $result = Capture-AdditionalPresentation `
+        -BinaryPath $BinaryPath `
+        -Name "winding-diagnostic" `
+        -Arguments @("--winding-diagnostic") `
+        -CameraSelection "winding-diagnostic" `
+        -Description "winding diagnostic capture"
+    foreach ($requiredLine in @(
+        "Diagnostic scene: identity=raster-front-face-winding dimensions=1x1x2",
+        "Diagnostic camera: camera=winding-diagnostic",
+        "Vulkan validation: enabled",
+        "First matching raster frame presented: revision=1"
+    )) {
+        if ($result.Completion.StandardOutput -notmatch [Regex]::Escape($requiredLine)) {
+            throw "The winding diagnostic capture is missing '$requiredLine'."
         }
     }
-    finally {
-        $script:currentCameraSelection = $previousCameraSelection
-        if ($null -ne $captureProcess -and -not $captureProcess.HasExited) {
-            Stop-LifecycleProcess -Process $captureProcess
-        }
+    return [PSCustomObject]@{
+        Name = "winding-diagnostic"
+        Meaning = "A warm near voxel and blue far voxel viewed head-on through the positive-height Vulkan viewport; the warm positive-Z outward face must occlude the blue negative-Z outward face."
+        Capture = $result.Capture
+        StandardOutput = "winding-diagnostic.stdout.log"
+        ValidationLog = "winding-diagnostic.stderr.log"
+        ValidationWarnings = $result.Completion.ValidationWarnings
+        ValidationErrors = $result.Completion.ValidationErrors
     }
 }
 
