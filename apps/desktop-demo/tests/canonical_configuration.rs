@@ -114,3 +114,33 @@ fn desktop_command_reports_the_front_face_winding_diagnostic()
     ));
     Ok(())
 }
+
+#[test]
+fn desktop_command_rejects_conflicting_scene_selections_in_any_order()
+-> Result<(), Box<dyn std::error::Error>> {
+    for arguments in [
+        [
+            "--report-canonical-configuration",
+            "--scene-scale",
+            "64",
+            "--winding-diagnostic",
+        ],
+        [
+            "--report-canonical-configuration",
+            "--winding-diagnostic",
+            "--scene-scale",
+            "64",
+        ],
+    ] {
+        let output = report(&arguments)?;
+        let standard_error = String::from_utf8(output.stderr)?;
+
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            standard_error
+                .contains("select either one canonical scene scale or the winding diagnostic")
+        );
+        assert!(!standard_error.contains("panicked"));
+    }
+    Ok(())
+}

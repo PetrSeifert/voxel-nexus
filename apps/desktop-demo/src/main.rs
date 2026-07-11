@@ -133,6 +133,7 @@ fn parse_render_configuration(
 ) -> Result<(DesktopRenderConfiguration, bool), String> {
     let mut scene = DesktopSceneSelection::Canonical(CanonicalSceneScale::Large);
     let mut camera = DesktopCameraSelection::Fixed(CanonicalCameraPose::Overview);
+    let mut scene_was_selected = false;
     let mut camera_was_selected = false;
     let mut report_only = false;
     let mut hold_background_preparation = false;
@@ -145,13 +146,19 @@ fn parse_render_configuration(
             "--hold-background-preparation" => hold_background_preparation = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
             "--winding-diagnostic" => {
+                if scene_was_selected {
+                    return Err(
+                        "select either one canonical scene scale or the winding diagnostic"
+                            .to_owned(),
+                    );
+                }
                 if camera_was_selected {
                     return Err(
                         "the winding diagnostic cannot use a canonical camera selection".to_owned(),
                     );
                 }
                 scene = DesktopSceneSelection::WindingDiagnostic;
-                camera_was_selected = true;
+                scene_was_selected = true;
             }
             "--measurement-mode" => {
                 measurement_mode = Some(match arguments.next().as_deref() {
@@ -172,9 +179,10 @@ fn parse_render_configuration(
                     })?));
             }
             "--scene-scale" => {
-                if matches!(scene, DesktopSceneSelection::WindingDiagnostic) {
+                if scene_was_selected {
                     return Err(
-                        "the winding diagnostic cannot use a canonical scene scale".to_owned()
+                        "select either one canonical scene scale or the winding diagnostic"
+                            .to_owned(),
                     );
                 }
                 scene = DesktopSceneSelection::Canonical(match arguments.next().as_deref() {
@@ -188,8 +196,14 @@ fn parse_render_configuration(
                     }
                     None => return Err("missing canonical scene scale".to_owned()),
                 });
+                scene_was_selected = true;
             }
             "--camera-pose" => {
+                if matches!(scene, DesktopSceneSelection::WindingDiagnostic) {
+                    return Err(
+                        "the winding diagnostic cannot use a canonical camera selection".to_owned(),
+                    );
+                }
                 if camera_was_selected {
                     return Err("select either one fixed camera pose or one move step".to_owned());
                 }
@@ -213,6 +227,11 @@ fn parse_render_configuration(
                 camera_was_selected = true;
             }
             "--camera-move-step" => {
+                if matches!(scene, DesktopSceneSelection::WindingDiagnostic) {
+                    return Err(
+                        "the winding diagnostic cannot use a canonical camera selection".to_owned(),
+                    );
+                }
                 if camera_was_selected {
                     return Err("select either one fixed camera pose or one move step".to_owned());
                 }
@@ -347,6 +366,21 @@ fn report_canonical_configuration(
         camera.near_plane(),
         camera.far_plane(),
     );
+}
+
+fn report_render_configuration(configuration: &DesktopRenderConfiguration) -> Result<(), String> {
+    match configuration.scene {
+        DesktopSceneSelection::WindingDiagnostic => {
+            report_winding_diagnostic_configuration(configuration);
+        }
+        DesktopSceneSelection::Canonical(scale) => {
+            let canonical = generate_canonical_scene(scale).map_err(|error| {
+                format!("could not generate the canonical Voxel Scene: {error}")
+            })?;
+            report_canonical_configuration(canonical.metadata(), configuration);
+        }
+    }
+    Ok(())
 }
 
 fn format_vector<const LENGTH: usize>(components: [f32; LENGTH]) -> String {
@@ -1465,17 +1499,7 @@ fn run() -> Result<(), String> {
     }
     let (configuration, report_only) = parse_render_configuration(arguments.into_iter())?;
     if report_only {
-        match configuration.scene {
-            DesktopSceneSelection::WindingDiagnostic => {
-                report_winding_diagnostic_configuration(&configuration);
-            }
-            DesktopSceneSelection::Canonical(scale) => {
-                let canonical = generate_canonical_scene(scale).map_err(|error| {
-                    format!("could not generate the canonical Voxel Scene: {error}")
-                })?;
-                report_canonical_configuration(canonical.metadata(), &configuration);
-            }
-        }
+        report_render_configuration(&configuration)?;
         return Ok(());
     }
     let event_proxy_slot = Arc::new(Mutex::new(None::<EventLoopProxy<DesktopEvent>>));
@@ -1750,21 +1774,8 @@ fn main() -> ExitCode {
         .iter()
         .any(|argument| argument == "--report-canonical-configuration")
     {
-        let result =
-            parse_render_configuration(arguments.into_iter()).and_then(|(configuration, _)| {
-                match configuration.scene {
-                    DesktopSceneSelection::WindingDiagnostic => {
-                        report_winding_diagnostic_configuration(&configuration);
-                    }
-                    DesktopSceneSelection::Canonical(scale) => {
-                        let canonical = generate_canonical_scene(scale).map_err(|error| {
-                            format!("could not generate the canonical Voxel Scene: {error}")
-                        })?;
-                        report_canonical_configuration(canonical.metadata(), &configuration);
-                    }
-                }
-                Ok(())
-            });
+        let result = parse_render_configuration(arguments.into_iter())
+            .and_then(|(configuration, _)| report_render_configuration(&configuration));
         return application_exit_code(result);
     }
     eprintln!("The Voxel Nexus desktop demo currently supports Windows only.");
