@@ -313,9 +313,11 @@ fn render_path_failure_diagnostic(
             .to_string()));
         }
         Some(phase) => Err(format!(
-            "unknown Render Path phase {phase:?}; expected release, configure, or record"
+            "unknown Render Path phase {phase:?}; expected release, configure, record, or upload"
         )),
-        None => Err("missing Render Path phase; expected release, configure, or record".to_owned()),
+        None => Err(
+            "missing Render Path phase; expected release, configure, record, or upload".to_owned(),
+        ),
     };
     Some(phase.and_then(|phase| {
         run_render_path_phase::<()>(phase, || Err(Box::new(InjectedRenderPathFailure)))
