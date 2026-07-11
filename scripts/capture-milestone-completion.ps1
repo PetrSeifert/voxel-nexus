@@ -315,6 +315,39 @@ Write-JsonFile -Path (Join-Path $evidencePath "geometry-resource-counts.json") -
 })
 
 $videoPath = Join-Path $evidencePath "lifecycle/milestone-proof.mkv"
+$videoEvents = @(Get-Content -Raw -LiteralPath (Join-Path $evidencePath "lifecycle/completion-video-events.json") | ConvertFrom-Json)
+$minimizedEvent = @($videoEvents | Where-Object Event -eq "minimized_while_paused")
+$restoredEvent = @($videoEvents | Where-Object Event -eq "restored_while_paused")
+$cleanCloseEvent = @($videoEvents | Where-Object Event -eq "clean_close")
+if ($minimizedEvent.Count -ne 1 -or $restoredEvent.Count -ne 1 -or $cleanCloseEvent.Count -ne 1) {
+    throw "The completion video timeline cannot define the privacy mask intervals."
+}
+$minimizedMaskStart = [Math]::Max(0, [double]$minimizedEvent[0].ElapsedSeconds - 0.2)
+$restoredMaskEnd = [double]$restoredEvent[0].ElapsedSeconds + 0.5
+$cleanCloseMaskStart = [double]$cleanCloseEvent[0].ElapsedSeconds
+$formatInvariant = [Globalization.CultureInfo]::InvariantCulture
+$privacyFilter = "crop=634:642:28:20,drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill:enable='between(t\,$($minimizedMaskStart.ToString("0.000", $formatInvariant))\,$($restoredMaskEnd.ToString("0.000", $formatInvariant)))+gte(t\,$($cleanCloseMaskStart.ToString("0.000", $formatInvariant)))'"
+$privacyFilteredVideoPath = Join-Path $evidencePath "lifecycle/milestone-proof-privacy.mkv"
+$privacyFilterResult = Invoke-CapturedProcess `
+    -FilePath "ffmpeg" `
+    -Arguments @("-v", "error", "-i", $videoPath, "-vf", $privacyFilter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-y", $privacyFilteredVideoPath) `
+    -StandardOutputPath (Join-Path $evidencePath "video-privacy-filter.stdout.log") `
+    -StandardErrorPath (Join-Path $evidencePath "video-privacy-filter.stderr.log")
+if ($privacyFilterResult.ExitCode -ne 0) {
+    throw "Could not remove unrelated desktop pixels from the completion video."
+}
+[System.IO.File]::Move($privacyFilteredVideoPath, $videoPath, $true)
+Write-JsonFile -Path (Join-Path $evidencePath "video-privacy-filter.json") -Value ([ordered]@{
+    Input = "lifecycle/milestone-proof.mkv"
+    Output = "lifecycle/milestone-proof.mkv"
+    ContinuousTransform = $true
+    Crop = [ordered]@{ X = 28; Y = 20; Width = 634; Height = 642 }
+    BlackIntervals = @(
+        [ordered]@{ Meaning = "window minimized"; StartSeconds = $minimizedMaskStart; EndSeconds = $restoredMaskEnd },
+        [ordered]@{ Meaning = "window cleanly closed"; StartSeconds = $cleanCloseMaskStart; EndSeconds = "end of clip" }
+    )
+    Filter = $privacyFilter
+})
 $videoProbe = Invoke-CapturedProcess `
     -FilePath "ffprobe" `
     -Arguments @("-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt,width,height,avg_frame_rate:format=duration", "-of", "json", $videoPath) `
@@ -329,8 +362,6 @@ if ($probe.streams.Count -ne 1) {
 }
 $videoStream = $probe.streams[0]
 $videoDuration = [double]$probe.format.duration
-$videoEvents = @(Get-Content -Raw -LiteralPath (Join-Path $evidencePath "lifecycle/completion-video-events.json") | ConvertFrom-Json)
-$cleanCloseEvent = @($videoEvents | Where-Object Event -eq "clean_close")
 if ($cleanCloseEvent.Count -ne 1 -or $videoDuration -le [double]$cleanCloseEvent[0].ElapsedSeconds) {
     throw "The completion video duration does not cover the clean-close event."
 }
@@ -434,7 +465,7 @@ $manifest = [ordered]@{
     )
     video = [ordered]@{
         path = "lifecycle/milestone-proof.mkv"
-        capture_scope = $lifecycleManifest.CompletionVideo.CaptureScope
+        capture_scope = "Continuous privacy crop of the fixed demo-window intersection; minimized and post-close intervals are blacked from the recorded event timeline."
         duration_seconds = $videoDuration
         codec = $videoStream.codec_name
         pixel_format = $videoStream.pix_fmt

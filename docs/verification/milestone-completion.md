@@ -10,7 +10,7 @@ pwsh -NoProfile -File scripts/capture-milestone-completion.ps1 -EvidenceDirector
 
 The collector first records the timing evidence while the checkout is still clean. It then captures generated-artifact build, formatting, strict Clippy, workspace tests, Voxel Frontend read tests, semantic surface diagnostics, deterministic failures, prerequisite regressions, and the validation-enabled Windows lifecycle proof.
 
-The lifecycle proof records one uninterrupted H.264 clip inside a controlled black-backed screen region. Its event timeline covers paused background preparation, lifecycle events, the first matching-revision frame, all fixed poses, the deterministic camera move, and clean close. The collector verifies the clip with `ffprobe`, decodes it fully with `ffmpeg`, and extracts representative frames for inspection.
+The lifecycle proof records one uninterrupted H.264 clip inside a controlled screen region. The collector continuously crops that source to the intersection covered by the demo window at every non-minimized extent and blacks the minimized and post-close intervals from the recorded event timeline, so unrelated desktop pixels are not retained. Its event timeline covers paused background preparation, lifecycle events, the first matching-revision frame, all fixed poses, the deterministic camera move, and clean close. The collector verifies the privacy-filtered clip with `ffprobe`, decodes it fully with `ffmpeg`, and extracts representative frames for inspection.
 
 Verify the retained manifest and every inventoried SHA-256 hash with:
 
