@@ -1,6 +1,6 @@
 use render_backend::{
-    BackendError, RenderPath, RenderPathDeviceContext, RenderPathFrameContext, RenderPathPhase,
-    RenderPathResult, RenderPathTarget,
+    RenderPath, RenderPathDeviceContext, RenderPathFrameContext, RenderPathPhase, RenderPathResult,
+    RenderPathTarget, run_render_path_phase,
 };
 use std::error::Error;
 use std::fmt;
@@ -50,7 +50,9 @@ fn every_render_path_phase_preserves_phase_and_source_context() {
         (RenderPathPhase::Configure, "configure"),
         (RenderPathPhase::Record, "record"),
     ] {
-        let error = BackendError::render_path_failure(phase, ProofPathError("proof failure"));
+        let error =
+            run_render_path_phase::<()>(phase, || Err(Box::new(ProofPathError("proof failure"))))
+                .expect_err("the injected Render Path phase should fail");
 
         assert_eq!(
             error.to_string(),

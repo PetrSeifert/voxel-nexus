@@ -2,6 +2,7 @@ use ash::{Entry, Instance, vk};
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::fmt;
 use std::io::Cursor;
+use std::marker::PhantomData;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
@@ -252,22 +253,19 @@ pub enum BackendError {
 }
 
 impl BackendError {
-    pub fn render_path_failure(
-        phase: RenderPathPhase,
-        source: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
-        Self::RenderPath {
-            phase,
-            source: Box::new(source),
-        }
-    }
-
     fn boxed_render_path_failure(
         phase: RenderPathPhase,
         source: Box<dyn std::error::Error + Send + Sync>,
     ) -> Self {
         Self::RenderPath { phase, source }
     }
+}
+
+pub fn run_render_path_phase<T>(
+    phase: RenderPathPhase,
+    operation: impl FnOnce() -> RenderPathResult<T>,
+) -> Result<T, BackendError> {
+    operation().map_err(|source| BackendError::boxed_render_path_failure(phase, source))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -293,102 +291,250 @@ pub type RenderPathResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync
 pub struct PresentationConfigurationId(u64);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RenderPathImage {
+struct PresentationImage {
     image: vk::Image,
     view: vk::ImageView,
 }
 
-impl RenderPathImage {
-    pub fn image(self) -> vk::Image {
-        self.image
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RenderPathAttachmentIdentity(usize);
 
-    pub fn view(self) -> vk::ImageView {
-        self.view
+pub struct RenderPathAttachment<'target> {
+    identity: RenderPathAttachmentIdentity,
+    _image: vk::Image,
+    view: vk::ImageView,
+    lifetime: PhantomData<&'target PresentationImage>,
+}
+
+impl RenderPathAttachment<'_> {
+    pub fn identity(&self) -> RenderPathAttachmentIdentity {
+        self.identity
     }
 }
 
-#[derive(Clone, Copy)]
 pub struct RenderPathTarget<'target> {
     configuration_id: PresentationConfigurationId,
     format: vk::Format,
     extent: vk::Extent2D,
-    images: &'target [RenderPathImage],
+    images: &'target [PresentationImage],
 }
 
 impl<'target> RenderPathTarget<'target> {
-    pub fn configuration_id(self) -> PresentationConfigurationId {
+    pub fn configuration_id(&self) -> PresentationConfigurationId {
         self.configuration_id
     }
 
-    pub fn format(self) -> vk::Format {
+    pub fn format(&self) -> vk::Format {
         self.format
     }
 
-    pub fn extent(self) -> vk::Extent2D {
+    pub fn extent(&self) -> vk::Extent2D {
         self.extent
     }
 
-    pub fn images(self) -> &'target [RenderPathImage] {
+    pub fn attachments(&self) -> impl Iterator<Item = RenderPathAttachment<'_>> {
         self.images
+            .iter()
+            .enumerate()
+            .map(|(index, image)| RenderPathAttachment {
+                identity: RenderPathAttachmentIdentity(index),
+                _image: image.image,
+                view: image.view,
+                lifetime: PhantomData,
+            })
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RenderPathFrameTarget {
+pub struct RenderPathFrameTarget<'frame> {
     configuration_id: PresentationConfigurationId,
-    image: RenderPathImage,
+    attachment: RenderPathAttachment<'frame>,
     format: vk::Format,
     extent: vk::Extent2D,
 }
 
-impl RenderPathFrameTarget {
-    pub fn configuration_id(self) -> PresentationConfigurationId {
+impl RenderPathFrameTarget<'_> {
+    pub fn configuration_id(&self) -> PresentationConfigurationId {
         self.configuration_id
     }
 
-    pub fn image(self) -> RenderPathImage {
-        self.image
+    pub fn attachment(&self) -> &RenderPathAttachment<'_> {
+        &self.attachment
     }
 
-    pub fn format(self) -> vk::Format {
+    pub fn format(&self) -> vk::Format {
         self.format
     }
 
-    pub fn extent(self) -> vk::Extent2D {
+    pub fn extent(&self) -> vk::Extent2D {
         self.extent
     }
 }
 
-#[derive(Clone, Copy)]
 pub struct RenderPathDeviceContext<'device> {
     device: &'device ash::Device,
 }
 
-impl<'device> RenderPathDeviceContext<'device> {
-    pub fn device(self) -> &'device ash::Device {
-        self.device
+impl RenderPathDeviceContext<'_> {
+    /// # Safety
+    ///
+    /// Every handle and pointer referenced by `create_info` must be valid for this device.
+    pub unsafe fn create_render_pass(
+        &self,
+        create_info: &vk::RenderPassCreateInfo<'_>,
+    ) -> Result<vk::RenderPass, vk::Result> {
+        unsafe { self.device.create_render_pass(create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// The shader code referenced by `create_info` must satisfy Vulkan's validity rules.
+    pub unsafe fn create_shader_module(
+        &self,
+        create_info: &vk::ShaderModuleCreateInfo<'_>,
+    ) -> Result<vk::ShaderModule, vk::Result> {
+        unsafe { self.device.create_shader_module(create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// Every descriptor-set layout and push-constant range must satisfy Vulkan's validity rules.
+    pub unsafe fn create_pipeline_layout(
+        &self,
+        create_info: &vk::PipelineLayoutCreateInfo<'_>,
+    ) -> Result<vk::PipelineLayout, vk::Result> {
+        unsafe { self.device.create_pipeline_layout(create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// Every handle and pointer in `create_infos` must remain valid for the calls.
+    pub unsafe fn create_graphics_pipelines(
+        &self,
+        pipeline_cache: vk::PipelineCache,
+        create_infos: &[vk::GraphicsPipelineCreateInfo<'_>],
+    ) -> Result<Vec<vk::Pipeline>, (Vec<vk::Pipeline>, vk::Result)> {
+        unsafe {
+            self.device
+                .create_graphics_pipelines(pipeline_cache, create_infos, None)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// `render_pass` must belong to this device and be compatible with `attachment`.
+    pub unsafe fn create_framebuffer(
+        &self,
+        render_pass: vk::RenderPass,
+        attachment: &RenderPathAttachment<'_>,
+        extent: vk::Extent2D,
+    ) -> Result<vk::Framebuffer, vk::Result> {
+        let attachments = [attachment.view];
+        let create_info = vk::FramebufferCreateInfo::default()
+            .render_pass(render_pass)
+            .attachments(&attachments)
+            .width(extent.width)
+            .height(extent.height)
+            .layers(1);
+        unsafe { self.device.create_framebuffer(&create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// `framebuffer` must belong to this device and no submitted work may still use it.
+    pub unsafe fn destroy_framebuffer(&self, framebuffer: vk::Framebuffer) {
+        unsafe { self.device.destroy_framebuffer(framebuffer, None) };
+    }
+
+    /// # Safety
+    ///
+    /// `pipeline` must belong to this device and no submitted work may still use it.
+    pub unsafe fn destroy_pipeline(&self, pipeline: vk::Pipeline) {
+        unsafe { self.device.destroy_pipeline(pipeline, None) };
+    }
+
+    /// # Safety
+    ///
+    /// `pipeline_layout` must belong to this device and no live object may depend on it.
+    pub unsafe fn destroy_pipeline_layout(&self, pipeline_layout: vk::PipelineLayout) {
+        unsafe { self.device.destroy_pipeline_layout(pipeline_layout, None) };
+    }
+
+    /// # Safety
+    ///
+    /// `render_pass` must belong to this device and no live object may depend on it.
+    pub unsafe fn destroy_render_pass(&self, render_pass: vk::RenderPass) {
+        unsafe { self.device.destroy_render_pass(render_pass, None) };
+    }
+
+    /// # Safety
+    ///
+    /// `shader_module` must belong to this device and not already have been destroyed.
+    pub unsafe fn destroy_shader_module(&self, shader_module: vk::ShaderModule) {
+        unsafe { self.device.destroy_shader_module(shader_module, None) };
     }
 }
 
-#[derive(Clone, Copy)]
 pub struct RenderPathFrameContext<'frame> {
     device: &'frame ash::Device,
     command_buffer: vk::CommandBuffer,
-    target: RenderPathFrameTarget,
+    target: RenderPathFrameTarget<'frame>,
 }
 
-impl<'frame> RenderPathFrameContext<'frame> {
-    pub fn device(self) -> &'frame ash::Device {
-        self.device
+impl RenderPathFrameContext<'_> {
+    pub fn target(&self) -> &RenderPathFrameTarget<'_> {
+        &self.target
     }
 
-    pub fn command_buffer(self) -> vk::CommandBuffer {
-        self.command_buffer
+    /// # Safety
+    ///
+    /// The render pass and framebuffer must be compatible and valid for the current target.
+    pub unsafe fn begin_render_pass(
+        &self,
+        begin_info: &vk::RenderPassBeginInfo<'_>,
+        contents: vk::SubpassContents,
+    ) {
+        unsafe {
+            self.device
+                .cmd_begin_render_pass(self.command_buffer, begin_info, contents)
+        };
     }
 
-    pub fn target(self) -> RenderPathFrameTarget {
-        self.target
+    /// # Safety
+    ///
+    /// `pipeline` must be valid, compatible with the active render pass, and use `bind_point`.
+    pub unsafe fn bind_pipeline(&self, bind_point: vk::PipelineBindPoint, pipeline: vk::Pipeline) {
+        unsafe {
+            self.device
+                .cmd_bind_pipeline(self.command_buffer, bind_point, pipeline)
+        };
+    }
+
+    /// # Safety
+    ///
+    /// Bound state must satisfy Vulkan's requirements for this draw.
+    pub unsafe fn draw(
+        &self,
+        vertex_count: u32,
+        instance_count: u32,
+        first_vertex: u32,
+        first_instance: u32,
+    ) {
+        unsafe {
+            self.device.cmd_draw(
+                self.command_buffer,
+                vertex_count,
+                instance_count,
+                first_vertex,
+                first_instance,
+            )
+        };
+    }
+
+    /// # Safety
+    ///
+    /// A render pass must be active in this frame context.
+    pub unsafe fn end_render_pass(&self) {
+        unsafe { self.device.cmd_end_render_pass(self.command_buffer) };
     }
 }
 
@@ -576,16 +722,14 @@ impl RenderBackend {
             return Ok(());
         };
         self.path_is_configured = true;
-        self.path
-            .configure(
+        run_render_path_phase(RenderPathPhase::Configure, || {
+            self.path.configure(
                 RenderPathDeviceContext {
                     device: &self.device,
                 },
                 rendering.render_path_target(),
             )
-            .map_err(|source| {
-                BackendError::boxed_render_path_failure(RenderPathPhase::Configure, source)
-            })?;
+        })?;
         Ok(())
     }
 
@@ -593,13 +737,11 @@ impl RenderBackend {
         if !self.path_is_configured {
             return Ok(());
         }
-        self.path
-            .release(RenderPathDeviceContext {
+        run_render_path_phase(RenderPathPhase::Release, || {
+            self.path.release(RenderPathDeviceContext {
                 device: &self.device,
             })
-            .map_err(|source| {
-                BackendError::boxed_render_path_failure(RenderPathPhase::Release, source)
-            })?;
+        })?;
         self.path_is_configured = false;
         Ok(())
     }
@@ -725,7 +867,7 @@ pub struct TriangleRenderPath {
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
     framebuffers: Vec<vk::Framebuffer>,
-    configured_image_views: Vec<vk::ImageView>,
+    configured_attachments: Vec<RenderPathAttachmentIdentity>,
     configuration_id: Option<PresentationConfigurationId>,
 }
 
@@ -751,7 +893,7 @@ enum TriangleRenderPathError {
 
 impl RenderPath for TriangleRenderPath {
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
-        self.release_resources(device.device());
+        self.release_resources(&device);
         Ok(())
     }
 
@@ -760,10 +902,9 @@ impl RenderPath for TriangleRenderPath {
         device: RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
-        let device = device.device();
-        let result = self.configure_resources(device, target);
+        let result = self.configure_resources(&device, target);
         if result.is_err() {
-            self.release_resources(device);
+            self.release_resources(&device);
         }
         result.map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)
     }
@@ -774,9 +915,9 @@ impl RenderPath for TriangleRenderPath {
             return Err(Box::new(TriangleRenderPathError::StaleFrameTarget));
         }
         let framebuffer_index = self
-            .configured_image_views
+            .configured_attachments
             .iter()
-            .position(|view| *view == target.image().view())
+            .position(|identity| *identity == target.attachment().identity())
             .ok_or(TriangleRenderPathError::MissingFramebuffer)?;
         let framebuffer = self
             .framebuffers
@@ -797,18 +938,10 @@ impl RenderPath for TriangleRenderPath {
             })
             .clear_values(&clear_values);
         unsafe {
-            frame.device().cmd_begin_render_pass(
-                frame.command_buffer(),
-                &render_pass_info,
-                vk::SubpassContents::INLINE,
-            );
-            frame.device().cmd_bind_pipeline(
-                frame.command_buffer(),
-                vk::PipelineBindPoint::GRAPHICS,
-                self.pipeline,
-            );
-            frame.device().cmd_draw(frame.command_buffer(), 3, 1, 0, 0);
-            frame.device().cmd_end_render_pass(frame.command_buffer());
+            frame.begin_render_pass(&render_pass_info, vk::SubpassContents::INLINE);
+            frame.bind_pipeline(vk::PipelineBindPoint::GRAPHICS, self.pipeline);
+            frame.draw(3, 1, 0, 0);
+            frame.end_render_pass();
         }
         Ok(())
     }
@@ -817,23 +950,18 @@ impl RenderPath for TriangleRenderPath {
 impl TriangleRenderPath {
     fn configure_resources(
         &mut self,
-        device: &ash::Device,
+        device: &RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> Result<(), TriangleRenderPathError> {
         self.create_render_pass(device, target.format())?;
         self.create_graphics_pipeline(device, target.extent())?;
-        for image in target.images() {
-            let attachments = [image.view()];
-            let create_info = vk::FramebufferCreateInfo::default()
-                .render_pass(self.render_pass)
-                .attachments(&attachments)
-                .width(target.extent().width)
-                .height(target.extent().height)
-                .layers(1);
-            let framebuffer = unsafe { device.create_framebuffer(&create_info, None) }
-                .map_err(TriangleRenderPathError::CreateFramebuffer)?;
+        for attachment in target.attachments() {
+            let framebuffer = unsafe {
+                device.create_framebuffer(self.render_pass, &attachment, target.extent())
+            }
+            .map_err(TriangleRenderPathError::CreateFramebuffer)?;
             self.framebuffers.push(framebuffer);
-            self.configured_image_views.push(image.view());
+            self.configured_attachments.push(attachment.identity());
         }
         self.configuration_id = Some(target.configuration_id());
         Ok(())
@@ -841,7 +969,7 @@ impl TriangleRenderPath {
 
     fn create_render_pass(
         &mut self,
-        device: &ash::Device,
+        device: &RenderPathDeviceContext<'_>,
         format: vk::Format,
     ) -> Result<(), TriangleRenderPathError> {
         let attachment = vk::AttachmentDescription::default()
@@ -871,14 +999,14 @@ impl TriangleRenderPath {
             .attachments(&attachments)
             .subpasses(&subpasses)
             .dependencies(&dependencies);
-        self.render_pass = unsafe { device.create_render_pass(&create_info, None) }
+        self.render_pass = unsafe { device.create_render_pass(&create_info) }
             .map_err(TriangleRenderPathError::CreateRenderPass)?;
         Ok(())
     }
 
     fn create_graphics_pipeline(
         &mut self,
-        device: &ash::Device,
+        device: &RenderPathDeviceContext<'_>,
         extent: vk::Extent2D,
     ) -> Result<(), TriangleRenderPathError> {
         let vertex_code = ash::util::read_spv(&mut Cursor::new(include_bytes!(concat!(
@@ -893,22 +1021,22 @@ impl TriangleRenderPath {
         let fragment_module = match triangle_shader_module(device, &fragment_code) {
             Ok(module) => module,
             Err(error) => {
-                unsafe { device.destroy_shader_module(vertex_module, None) };
+                unsafe { device.destroy_shader_module(vertex_module) };
                 return Err(error);
             }
         };
         let result =
             self.create_pipeline_with_modules(device, extent, vertex_module, fragment_module);
         unsafe {
-            device.destroy_shader_module(fragment_module, None);
-            device.destroy_shader_module(vertex_module, None);
+            device.destroy_shader_module(fragment_module);
+            device.destroy_shader_module(vertex_module);
         }
         result
     }
 
     fn create_pipeline_with_modules(
         &mut self,
-        device: &ash::Device,
+        device: &RenderPathDeviceContext<'_>,
         extent: vk::Extent2D,
         vertex_module: vk::ShaderModule,
         fragment_module: vk::ShaderModule,
@@ -951,10 +1079,9 @@ impl TriangleRenderPath {
             .color_write_mask(vk::ColorComponentFlags::RGBA)];
         let color_blend =
             vk::PipelineColorBlendStateCreateInfo::default().attachments(&color_blend_attachments);
-        self.pipeline_layout = unsafe {
-            device.create_pipeline_layout(&vk::PipelineLayoutCreateInfo::default(), None)
-        }
-        .map_err(TriangleRenderPathError::CreatePipelineLayout)?;
+        self.pipeline_layout =
+            unsafe { device.create_pipeline_layout(&vk::PipelineLayoutCreateInfo::default()) }
+                .map_err(TriangleRenderPathError::CreatePipelineLayout)?;
         let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&shader_stages)
             .vertex_input_state(&vertex_input)
@@ -967,7 +1094,7 @@ impl TriangleRenderPath {
             .render_pass(self.render_pass)
             .subpass(0);
         match unsafe {
-            device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info], None)
+            device.create_graphics_pipelines(vk::PipelineCache::null(), &[pipeline_info])
         } {
             Ok(mut pipelines) => {
                 self.pipeline =
@@ -980,42 +1107,42 @@ impl TriangleRenderPath {
             }
             Err((pipelines, error)) => {
                 for pipeline in pipelines {
-                    unsafe { device.destroy_pipeline(pipeline, None) };
+                    unsafe { device.destroy_pipeline(pipeline) };
                 }
                 Err(TriangleRenderPathError::CreateGraphicsPipeline(error))
             }
         }
     }
 
-    fn release_resources(&mut self, device: &ash::Device) {
+    fn release_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
         unsafe {
             for framebuffer in self.framebuffers.drain(..) {
-                device.destroy_framebuffer(framebuffer, None);
+                device.destroy_framebuffer(framebuffer);
             }
             if self.pipeline != vk::Pipeline::null() {
-                device.destroy_pipeline(self.pipeline, None);
+                device.destroy_pipeline(self.pipeline);
                 self.pipeline = vk::Pipeline::null();
             }
             if self.pipeline_layout != vk::PipelineLayout::null() {
-                device.destroy_pipeline_layout(self.pipeline_layout, None);
+                device.destroy_pipeline_layout(self.pipeline_layout);
                 self.pipeline_layout = vk::PipelineLayout::null();
             }
             if self.render_pass != vk::RenderPass::null() {
-                device.destroy_render_pass(self.render_pass, None);
+                device.destroy_render_pass(self.render_pass);
                 self.render_pass = vk::RenderPass::null();
             }
         }
-        self.configured_image_views.clear();
+        self.configured_attachments.clear();
         self.configuration_id = None;
     }
 }
 
 fn triangle_shader_module(
-    device: &ash::Device,
+    device: &RenderPathDeviceContext<'_>,
     code: &[u32],
 ) -> Result<vk::ShaderModule, TriangleRenderPathError> {
     let create_info = vk::ShaderModuleCreateInfo::default().code(code);
-    unsafe { device.create_shader_module(&create_info, None) }
+    unsafe { device.create_shader_module(&create_info) }
         .map_err(TriangleRenderPathError::CreateShaderModule)
 }
 
@@ -1023,7 +1150,7 @@ struct PresentationResources {
     device: ash::Device,
     swapchain_loader: ash::khr::swapchain::Device,
     swapchain: vk::SwapchainKHR,
-    images: Vec<RenderPathImage>,
+    images: Vec<PresentationImage>,
     image_views: Vec<vk::ImageView>,
     command_pool: vk::CommandPool,
     command_buffer: vk::CommandBuffer,
@@ -1137,7 +1264,7 @@ impl PresentationResources {
                 .subresource_range(subresource_range);
             let image_view = unsafe { self.device.create_image_view(&create_info, None) }
                 .map_err(BackendError::CreateImageView)?;
-            self.images.push(RenderPathImage {
+            self.images.push(PresentationImage {
                 image: *image,
                 view: image_view,
             });
@@ -1278,18 +1405,22 @@ impl PresentationResources {
                 .begin_command_buffer(self.command_buffer, &begin_info)
                 .map_err(BackendError::RecordCommands)?;
         }
-        path.record(RenderPathFrameContext {
-            device: &self.device,
-            command_buffer: self.command_buffer,
-            target: RenderPathFrameTarget {
-                configuration_id: self.configuration_id,
-                image,
-                format: self.format,
-                extent: self.extent,
-            },
-        })
-        .map_err(|source| {
-            BackendError::boxed_render_path_failure(RenderPathPhase::Record, source)
+        run_render_path_phase(RenderPathPhase::Record, || {
+            path.record(RenderPathFrameContext {
+                device: &self.device,
+                command_buffer: self.command_buffer,
+                target: RenderPathFrameTarget {
+                    configuration_id: self.configuration_id,
+                    attachment: RenderPathAttachment {
+                        identity: RenderPathAttachmentIdentity(target_index),
+                        _image: image.image,
+                        view: image.view,
+                        lifetime: PhantomData,
+                    },
+                    format: self.format,
+                    extent: self.extent,
+                },
+            })
         })?;
         unsafe {
             self.device

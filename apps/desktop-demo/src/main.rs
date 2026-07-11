@@ -1,7 +1,9 @@
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
-use render_backend::{BackendError, DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase};
+use render_backend::{
+    DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
+};
 #[cfg(target_os = "windows")]
 use render_backend::{FrameOutcome, RenderBackend};
 use std::process::ExitCode;
@@ -239,7 +241,8 @@ fn render_path_failure_diagnostic(
         None => Err("missing Render Path phase; expected release, configure, or record".to_owned()),
     };
     Some(phase.and_then(|phase| {
-        Err(BackendError::render_path_failure(phase, InjectedRenderPathFailure).to_string())
+        run_render_path_phase::<()>(phase, || Err(Box::new(InjectedRenderPathFailure)))
+            .map_err(|error| error.to_string())
     }))
 }
 
@@ -297,7 +300,11 @@ fn verify_rejected_candidate(candidate: DeviceCandidate) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn main() -> ExitCode {
-    match run() {
+    application_exit_code(run())
+}
+
+fn application_exit_code(result: Result<(), String>) -> ExitCode {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("Voxel Nexus could not start: {error}");
@@ -309,22 +316,10 @@ fn main() -> ExitCode {
 #[cfg(not(target_os = "windows"))]
 fn main() -> ExitCode {
     if let Some(result) = render_path_failure_diagnostic(std::env::args().skip(1)) {
-        return match result {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("Voxel Nexus could not start: {error}");
-                ExitCode::FAILURE
-            }
-        };
+        return application_exit_code(result);
     }
     if let Some(result) = unsupported_prerequisite_diagnostic(std::env::args().skip(1)) {
-        return match result {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("Voxel Nexus could not start: {error}");
-                ExitCode::FAILURE
-            }
-        };
+        return application_exit_code(result);
     }
     eprintln!("The Voxel Nexus desktop demo currently supports Windows only.");
     ExitCode::SUCCESS
