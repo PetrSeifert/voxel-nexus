@@ -413,6 +413,66 @@ function Read-CanonicalCameraRecord {
     }
 }
 
+function Start-DesktopDemoProcess {
+    param(
+        [string]$BinaryPath,
+        [string[]]$Arguments
+    )
+
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $BinaryPath
+    $startInfo.WorkingDirectory = $repositoryRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    if (-not $process.Start()) {
+        throw "Could not start the desktop demo."
+    }
+    $process
+}
+
+function Complete-DesktopDemoProcess {
+    param(
+        [System.Diagnostics.Process]$Process,
+        [IntPtr]$Window,
+        [string]$Name,
+        [string]$StandardOutputFile,
+        [string]$StandardErrorFile
+    )
+
+    if (-not [LifecycleWindow]::PostMessage($Window, [LifecycleWindow]::CloseMessage, [IntPtr]::Zero, [IntPtr]::Zero)) {
+        throw "Could not request a normal $Name close."
+    }
+    if (-not $Process.WaitForExit(10000)) {
+        Stop-LifecycleProcess -Process $Process
+        throw "The $Name process did not exit within 10 seconds of a normal close."
+    }
+    $standardOutput = $Process.StandardOutput.ReadToEnd()
+    $standardError = $Process.StandardError.ReadToEnd()
+    [System.IO.File]::WriteAllText((Join-Path $evidencePath $StandardOutputFile), $standardOutput)
+    [System.IO.File]::WriteAllText((Join-Path $evidencePath $StandardErrorFile), $standardError)
+    if ($Process.ExitCode -ne 0) {
+        throw "The $Name process exited with code $($Process.ExitCode)."
+    }
+    $validationWarnings = ([Regex]::Matches($standardError, "(?m)^Vulkan validation WARNING")).Count
+    $validationErrors = ([Regex]::Matches($standardError, "(?m)^Vulkan validation ERROR")).Count
+    if ($validationWarnings -ne 0 -or $validationErrors -ne 0) {
+        throw "The $Name process produced $validationWarnings validation warning(s) and $validationErrors validation error(s)."
+    }
+    [PSCustomObject]@{
+        ExitCode = $Process.ExitCode
+        StandardOutput = $standardOutput
+        StandardError = $standardError
+        ValidationWarnings = $validationWarnings
+        ValidationErrors = $validationErrors
+    }
+}
+
 function Capture-AdditionalCanonicalPresentation {
     param(
         [string]$BinaryPath,
@@ -425,53 +485,28 @@ function Capture-AdditionalCanonicalPresentation {
     $script:currentCameraSelection = $CameraSelection
     $captureProcess = $null
     try {
-        $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-        $startInfo.FileName = $BinaryPath
-        $startInfo.WorkingDirectory = $repositoryRoot
-        $startInfo.UseShellExecute = $false
-        $startInfo.RedirectStandardOutput = $true
-        $startInfo.RedirectStandardError = $true
-        foreach ($argument in $Arguments) {
-            $startInfo.ArgumentList.Add($argument)
-        }
-        $captureProcess = [System.Diagnostics.Process]::new()
-        $captureProcess.StartInfo = $startInfo
-        if (-not $captureProcess.Start()) {
-            throw "Could not start the $Name canonical capture process."
-        }
+        $captureProcess = Start-DesktopDemoProcess -BinaryPath $BinaryPath -Arguments $Arguments
         $window = Wait-ForWindow -Process $captureProcess
         if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
             throw "Could not set the $Name canonical capture extent."
         }
         $capture = Capture-StablePresentation -Window $window -Name $Name
-        if (-not [LifecycleWindow]::PostMessage($window, [LifecycleWindow]::CloseMessage, [IntPtr]::Zero, [IntPtr]::Zero)) {
-            throw "Could not request a normal $Name canonical capture close."
-        }
-        if (-not $captureProcess.WaitForExit(10000)) {
-            throw "The $Name canonical capture did not exit within 10 seconds."
-        }
-        $standardOutput = $captureProcess.StandardOutput.ReadToEnd()
-        $standardError = $captureProcess.StandardError.ReadToEnd()
-        [System.IO.File]::WriteAllText((Join-Path $evidencePath "$Name.stdout.log"), $standardOutput)
-        [System.IO.File]::WriteAllText((Join-Path $evidencePath "$Name.stderr.log"), $standardError)
-        if ($captureProcess.ExitCode -ne 0) {
-            throw "The $Name canonical capture exited with code $($captureProcess.ExitCode)."
-        }
-        $validationWarnings = ([Regex]::Matches($standardError, "(?m)^Vulkan validation WARNING")).Count
-        $validationErrors = ([Regex]::Matches($standardError, "(?m)^Vulkan validation ERROR")).Count
-        if ($validationWarnings -ne 0 -or $validationErrors -ne 0) {
-            throw "The $Name canonical capture produced $validationWarnings validation warning(s) and $validationErrors validation error(s)."
-        }
+        $completion = Complete-DesktopDemoProcess `
+            -Process $captureProcess `
+            -Window $window `
+            -Name "$Name canonical capture" `
+            -StandardOutputFile "$Name.stdout.log" `
+            -StandardErrorFile "$Name.stderr.log"
         return [PSCustomObject]@{
             Name = $Name
             CameraSelection = $CameraSelection
             Capture = $capture
             StandardOutput = "$Name.stdout.log"
             ValidationLog = "$Name.stderr.log"
-            ValidationWarnings = $validationWarnings
-            ValidationErrors = $validationErrors
-            Scene = Read-CanonicalSceneRecord -StandardOutput $standardOutput
-            Camera = Read-CanonicalCameraRecord -StandardOutput $standardOutput
+            ValidationWarnings = $completion.ValidationWarnings
+            ValidationErrors = $completion.ValidationErrors
+            Scene = Read-CanonicalSceneRecord -StandardOutput $completion.StandardOutput
+            Camera = Read-CanonicalCameraRecord -StandardOutput $completion.StandardOutput
         }
     }
     finally {
@@ -535,21 +570,9 @@ try {
         }
     }
 
-    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-    $startInfo.FileName = $binaryPath
-    $startInfo.WorkingDirectory = $repositoryRoot
-    $startInfo.ArgumentList.Add("--scene-scale")
-    $startInfo.ArgumentList.Add("256")
-    $startInfo.ArgumentList.Add("--camera-pose")
-    $startInfo.ArgumentList.Add($CameraPose)
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    $demoProcess = [System.Diagnostics.Process]::new()
-    $demoProcess.StartInfo = $startInfo
-    if (-not $demoProcess.Start()) {
-        throw "Could not start the desktop demo."
-    }
+    $demoProcess = Start-DesktopDemoProcess `
+        -BinaryPath $binaryPath `
+        -Arguments @("--scene-scale", "256", "--camera-pose", $CameraPose)
 
     $window = Wait-ForWindow -Process $demoProcess
     if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
@@ -583,30 +606,21 @@ try {
     }
     $captures += Capture-StablePresentation -Window $window -Name "restored"
 
-    if (-not [LifecycleWindow]::PostMessage($window, [LifecycleWindow]::CloseMessage, [IntPtr]::Zero, [IntPtr]::Zero)) {
-        throw "Could not request a normal desktop-demo window close."
-    }
-    if (-not $demoProcess.WaitForExit(10000)) {
-        Stop-LifecycleProcess -Process $demoProcess
-        throw "The desktop demo did not exit within 10 seconds of a normal close."
-    }
-    $demoStandardOutput = $demoProcess.StandardOutput.ReadToEnd()
-    $demoStandardError = $demoProcess.StandardError.ReadToEnd()
-    [System.IO.File]::WriteAllText((Join-Path $evidencePath "desktop-demo.stdout.log"), $demoStandardOutput)
-    [System.IO.File]::WriteAllText((Join-Path $evidencePath "desktop-demo.stderr.log"), $demoStandardError)
-    if ($demoProcess.ExitCode -ne 0) {
-        throw "The desktop demo exited with code $($demoProcess.ExitCode)."
-    }
+    $completion = Complete-DesktopDemoProcess `
+        -Process $demoProcess `
+        -Window $window `
+        -Name "desktop demo lifecycle" `
+        -StandardOutputFile "desktop-demo.stdout.log" `
+        -StandardErrorFile "desktop-demo.stderr.log"
+    $demoStandardOutput = $completion.StandardOutput
+    $demoStandardError = $completion.StandardError
     foreach ($requiredLine in @("Vulkan device:", "Driver version:", "Vulkan API version:", "Vulkan validation: enabled")) {
         if ($demoStandardOutput -notmatch [Regex]::Escape($requiredLine)) {
             throw "The desktop-demo runtime context is missing '$requiredLine'."
         }
     }
-    $validationWarnings = ([Regex]::Matches($demoStandardError, "(?m)^Vulkan validation WARNING")).Count
-    $validationErrors = ([Regex]::Matches($demoStandardError, "(?m)^Vulkan validation ERROR")).Count
-    if ($validationWarnings -ne 0 -or $validationErrors -ne 0) {
-        throw "The lifecycle run produced $validationWarnings validation warning(s) and $validationErrors validation error(s)."
-    }
+    $validationWarnings = $completion.ValidationWarnings
+    $validationErrors = $completion.ValidationErrors
     $deviceMatch = [Regex]::Match($demoStandardOutput, "(?m)^Vulkan device: (.+)$")
     $driverMatch = [Regex]::Match($demoStandardOutput, "(?m)^Driver version: (.+)$")
     $apiMatch = [Regex]::Match($demoStandardOutput, "(?m)^Vulkan API version: (.+)$")

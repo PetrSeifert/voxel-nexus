@@ -67,6 +67,24 @@ pub struct CameraPose {
 }
 
 impl CameraPose {
+    pub const fn new(
+        eye: [f32; 3],
+        target: [f32; 3],
+        up: [f32; 3],
+        field_of_view_degrees: f32,
+        near_plane: f32,
+        far_plane: f32,
+    ) -> Self {
+        Self {
+            eye,
+            target,
+            up,
+            field_of_view_degrees,
+            near_plane,
+            far_plane,
+        }
+    }
+
     pub fn eye(self) -> [f32; 3] {
         self.eye
     }
@@ -111,44 +129,6 @@ impl CameraPose {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CanonicalCameraPose {
-    Overview,
-    CavityMaterialCloseUp,
-    BoundaryCutaway,
-}
-
-impl CanonicalCameraPose {
-    pub fn pose(self) -> CameraPose {
-        match self {
-            Self::Overview => CameraPose {
-                eye: [20.0, 14.0, 22.0],
-                target: [0.0, 0.0, 0.0],
-                up: [0.0, 1.0, 0.0],
-                field_of_view_degrees: 50.0,
-                near_plane: 0.1,
-                far_plane: 100.0,
-            },
-            Self::CavityMaterialCloseUp => CameraPose {
-                eye: [0.0, 1.0, 17.0],
-                target: [-0.75, -0.5, 0.0],
-                up: [0.0, 1.0, 0.0],
-                field_of_view_degrees: 45.0,
-                near_plane: 0.1,
-                far_plane: 100.0,
-            },
-            Self::BoundaryCutaway => CameraPose {
-                eye: [-14.0, 2.0, 8.0],
-                target: [-7.5, -1.0, 0.0],
-                up: [0.0, 1.0, 0.0],
-                field_of_view_degrees: 45.0,
-                near_plane: 0.1,
-                far_plane: 100.0,
-            },
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeterministicCameraMove {
     start: CameraPose,
@@ -157,6 +137,21 @@ pub struct DeterministicCameraMove {
 }
 
 impl DeterministicCameraMove {
+    pub fn new(
+        start: CameraPose,
+        end: CameraPose,
+        total_steps: u32,
+    ) -> Result<Self, CameraConfigurationError> {
+        if total_steps == 0 {
+            return Err(CameraConfigurationError::ZeroMoveSteps);
+        }
+        Ok(Self {
+            start,
+            end,
+            total_steps,
+        })
+    }
+
     pub fn total_steps(self) -> u32 {
         self.total_steps
     }
@@ -184,18 +179,12 @@ impl DeterministicCameraMove {
     }
 }
 
-pub fn overview_to_cavity_camera_move() -> DeterministicCameraMove {
-    DeterministicCameraMove {
-        start: CanonicalCameraPose::Overview.pose(),
-        end: CanonicalCameraPose::CavityMaterialCloseUp.pose(),
-        total_steps: 120,
-    }
-}
-
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum CameraConfigurationError {
     #[error("camera projection requires a non-zero drawable extent")]
     ZeroDrawableExtent,
+    #[error("a deterministic camera move requires at least one step")]
+    ZeroMoveSteps,
     #[error("camera move step {step} exceeds the final step {total_steps}")]
     MoveStepOutOfRange { step: u32, total_steps: u32 },
 }
@@ -347,7 +336,14 @@ impl Default for RasterRenderPath {
     fn default() -> Self {
         Self {
             artifact: None,
-            camera_pose: CanonicalCameraPose::Overview.pose(),
+            camera_pose: CameraPose::new(
+                [5.0, 4.0, 6.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                55.0,
+                0.1,
+                100.0,
+            ),
             vertex_buffer: vk::Buffer::null(),
             vertex_memory: vk::DeviceMemory::null(),
             index_buffer: vk::Buffer::null(),

@@ -1,11 +1,13 @@
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
-use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
-use raster_render_path::{
-    CameraPose, CanonicalCameraPose, RasterArtifactInstallationError,
-    RasterArtifactInstallationPhase, RasterRenderPath, derive_raster_artifact,
+use canonical_scene::{
+    CanonicalCameraPose, CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene,
     overview_to_cavity_camera_move,
+};
+use raster_render_path::{
+    CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase, RasterRenderPath,
+    derive_raster_artifact,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -28,10 +30,34 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 #[cfg(target_os = "windows")]
 use winit::window::{Window, WindowAttributes, WindowId};
 
-#[derive(Clone)]
-struct CanonicalCameraSelection {
-    label: String,
-    pose: CameraPose,
+#[derive(Clone, Copy)]
+enum CanonicalCameraSelection {
+    Fixed(CanonicalCameraPose),
+    MoveStep {
+        step: u32,
+        total_steps: u32,
+        pose: CameraPose,
+    },
+}
+
+impl CanonicalCameraSelection {
+    fn pose(self) -> CameraPose {
+        match self {
+            Self::Fixed(identity) => identity.pose(),
+            Self::MoveStep { pose, .. } => pose,
+        }
+    }
+
+    fn report_identity(self) -> String {
+        match self {
+            Self::Fixed(CanonicalCameraPose::Overview) => "overview".to_owned(),
+            Self::Fixed(CanonicalCameraPose::CavityMaterialCloseUp) => "cavity".to_owned(),
+            Self::Fixed(CanonicalCameraPose::BoundaryCutaway) => "boundary".to_owned(),
+            Self::MoveStep {
+                step, total_steps, ..
+            } => format!("overview-to-cavity-step-{step}-of-{total_steps}"),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -44,10 +70,7 @@ fn parse_canonical_configuration(
     mut arguments: impl Iterator<Item = String>,
 ) -> Result<(CanonicalRenderConfiguration, bool), String> {
     let mut scale = CanonicalSceneScale::Large;
-    let mut camera = CanonicalCameraSelection {
-        label: "overview".to_owned(),
-        pose: CanonicalCameraPose::Overview.pose(),
-    };
+    let mut camera = CanonicalCameraSelection::Fixed(CanonicalCameraPose::Overview);
     let mut camera_was_selected = false;
     let mut report_only = false;
     while let Some(argument) = arguments.next() {
@@ -71,18 +94,15 @@ fn parse_canonical_configuration(
                     return Err("select either one fixed camera pose or one move step".to_owned());
                 }
                 camera = match arguments.next().as_deref() {
-                    Some("overview") => CanonicalCameraSelection {
-                        label: "overview".to_owned(),
-                        pose: CanonicalCameraPose::Overview.pose(),
-                    },
-                    Some("cavity") => CanonicalCameraSelection {
-                        label: "cavity".to_owned(),
-                        pose: CanonicalCameraPose::CavityMaterialCloseUp.pose(),
-                    },
-                    Some("boundary") => CanonicalCameraSelection {
-                        label: "boundary".to_owned(),
-                        pose: CanonicalCameraPose::BoundaryCutaway.pose(),
-                    },
+                    Some("overview") => {
+                        CanonicalCameraSelection::Fixed(CanonicalCameraPose::Overview)
+                    }
+                    Some("cavity") => {
+                        CanonicalCameraSelection::Fixed(CanonicalCameraPose::CavityMaterialCloseUp)
+                    }
+                    Some("boundary") => {
+                        CanonicalCameraSelection::Fixed(CanonicalCameraPose::BoundaryCutaway)
+                    }
                     Some(value) => {
                         return Err(format!(
                             "unknown canonical camera pose {value:?}; expected overview, cavity, or boundary"
@@ -101,15 +121,14 @@ fn parse_canonical_configuration(
                     .ok_or_else(|| "missing camera move step".to_owned())?
                     .parse::<u32>()
                     .map_err(|error| format!("invalid camera move step: {error}"))?;
-                let movement = overview_to_cavity_camera_move();
+                let movement =
+                    overview_to_cavity_camera_move().map_err(|error| error.to_string())?;
                 let pose = movement
                     .pose_at_step(step)
                     .map_err(|error| error.to_string())?;
-                camera = CanonicalCameraSelection {
-                    label: format!(
-                        "overview-to-cavity-step-{step}-of-{}",
-                        movement.total_steps()
-                    ),
+                camera = CanonicalCameraSelection::MoveStep {
+                    step,
+                    total_steps: movement.total_steps(),
                     pose,
                 };
                 camera_was_selected = true;
@@ -156,10 +175,10 @@ fn report_canonical_configuration(
         metadata.exposed_face_count(),
         metadata.exposed_face_limit(),
     );
-    let camera = configuration.camera.pose;
+    let camera = configuration.camera.pose();
     println!(
         "Canonical camera: camera={} eye={} target={} up={} fov_degrees={} near={} far={}",
-        configuration.camera.label,
+        configuration.camera.report_identity(),
         format_vector(camera.eye()),
         format_vector(camera.target()),
         format_vector(camera.up()),
@@ -387,7 +406,7 @@ fn canonical_raster_render_path(
         .map_err(|error| format!("could not publish the canonical Voxel Scene: {error}"))?;
     let artifact = derive_raster_artifact(&view, &volume_identity)
         .map_err(|error| format!("could not derive the canonical raster artifact: {error}"))?;
-    let mut render_path = RasterRenderPath::with_camera_pose(configuration.camera.pose);
+    let mut render_path = RasterRenderPath::with_camera_pose(configuration.camera.pose());
     render_path.install_artifact(artifact);
     Ok(render_path)
 }

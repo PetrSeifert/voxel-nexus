@@ -1,4 +1,5 @@
-use raster_render_path::{CanonicalCameraPose, RasterRenderPath, overview_to_cavity_camera_move};
+use canonical_scene::{CanonicalCameraPose, overview_to_cavity_camera_move};
+use raster_render_path::RasterRenderPath;
 
 #[test]
 fn canonical_camera_poses_fix_every_scene_coordinate_parameter()
@@ -42,7 +43,7 @@ fn canonical_camera_poses_fix_every_scene_coordinate_parameter()
 
 #[test]
 fn overview_to_cavity_move_has_fixed_step_outputs() -> Result<(), Box<dyn std::error::Error>> {
-    let movement = overview_to_cavity_camera_move();
+    let movement = overview_to_cavity_camera_move()?;
     assert_eq!(movement.total_steps(), 120);
     assert_eq!(
         movement.pose_at_step(0)?,
