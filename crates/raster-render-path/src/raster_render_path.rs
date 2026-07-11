@@ -495,6 +495,10 @@ impl RasterRenderPath {
         Self::default()
     }
 
+    pub const fn front_face() -> vk::FrontFace {
+        vk::FrontFace::COUNTER_CLOCKWISE
+    }
+
     pub fn with_camera_pose(camera_pose: CameraPose) -> Self {
         Self {
             camera_control: RasterCameraController {
@@ -1737,7 +1741,7 @@ impl RasterRenderPath {
         let rasterization = vk::PipelineRasterizationStateCreateInfo::default()
             .polygon_mode(vk::PolygonMode::FILL)
             .cull_mode(vk::CullModeFlags::BACK)
-            .front_face(vk::FrontFace::CLOCKWISE)
+            .front_face(Self::front_face())
             .line_width(1.0);
         let multisample = vk::PipelineMultisampleStateCreateInfo::default()
             .rasterization_samples(vk::SampleCountFlags::TYPE_1);
