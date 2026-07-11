@@ -1,0 +1,26 @@
+[
+  {
+    "Name": "canonical-generation",
+    "Command": "cargo test --locked --release --package canonical-scene --test generation",
+    "ExitCode": 0,
+    "Passed": true,
+    "StandardOutput": "canonical-generation.stdout.log",
+    "StandardError": "canonical-generation.stderr.log"
+  },
+  {
+    "Name": "semantic-face-oracles",
+    "Command": "cargo test --locked --release --package raster-render-path --test derivation",
+    "ExitCode": 0,
+    "Passed": true,
+    "StandardOutput": "semantic-face-oracles.stdout.log",
+    "StandardError": "semantic-face-oracles.stderr.log"
+  },
+  {
+    "Name": "measurement-contract",
+    "Command": "cargo test --locked --release --package measurement-evidence --test public_contract",
+    "ExitCode": 0,
+    "Passed": true,
+    "StandardOutput": "measurement-contract.stdout.log",
+    "StandardError": "measurement-contract.stderr.log"
+  }
+]

@@ -1,0 +1,1517 @@
+{
+  "SchemaVersion": 1,
+  "Scope": "Descriptive runtime evidence for this recorded Windows development machine only.",
+  "RecordedAtUtc": "2026-07-11T18:37:46.0321542Z",
+  "RepositoryRevision": "908e1c9b0c4570d19e7ab9fd8e4a415f515069df",
+  "BuildProfile": "release",
+  "BuildCommand": "cargo build --locked --release --package desktop-demo --package measurement-evidence",
+  "Machine": {
+    "OperatingSystem": "Microsoft Windows 11 Pro",
+    "OperatingSystemVersion": "10.0.26200",
+    "Rust": "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
+    "Cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)",
+    "VulkanSdk": "C:\\VulkanSDK\\1.4.309.0"
+  },
+  "VulkanRuntime": {
+    "Device": "NVIDIA GeForce RTX 4070",
+    "DriverVersion": "2497200128 (0x94d84000)",
+    "ApiVersion": "1.4.329",
+    "DrawableExtent": "1920x1080",
+    "Validation": "disabled",
+    "PresentMode": "IMMEDIATE",
+    "TimestampValidBits": "64",
+    "TimestampPeriodNanoseconds": "1"
+  },
+  "Correctness": {
+    "PerformanceThresholdsApplied": false,
+    "DiagnosticsFile": "diagnostics.json",
+    "Gates": [
+      {
+        "Name": "canonical-generation",
+        "Command": "cargo test --locked --release --package canonical-scene --test generation",
+        "ExitCode": 0,
+        "Passed": true,
+        "StandardOutput": "canonical-generation.stdout.log",
+        "StandardError": "canonical-generation.stderr.log"
+      },
+      {
+        "Name": "semantic-face-oracles",
+        "Command": "cargo test --locked --release --package raster-render-path --test derivation",
+        "ExitCode": 0,
+        "Passed": true,
+        "StandardOutput": "semantic-face-oracles.stdout.log",
+        "StandardError": "semantic-face-oracles.stderr.log"
+      },
+      {
+        "Name": "measurement-contract",
+        "Command": "cargo test --locked --release --package measurement-evidence --test public_contract",
+        "ExitCode": 0,
+        "Passed": true,
+        "StandardOutput": "measurement-contract.stdout.log",
+        "StandardError": "measurement-contract.stderr.log"
+      }
+    ]
+  },
+  "Scales": [
+    {
+      "Scale": 64,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          64,
+          32,
+          64
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.25,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedVoxels": 52608,
+        "ExposedQuads": 13616,
+        "ExposedQuadLimit": 14000
+      },
+      "Camera": {
+        "Selection": "overview",
+        "Eye": [
+          20.0,
+          14.0,
+          22.0
+        ],
+        "Target": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 50.0,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      },
+      "Resources": {
+        "occupied_voxels": 52608,
+        "exposed_quads": 13616,
+        "vertices": 54464,
+        "indices": 81696,
+        "draw_calls": 1,
+        "cpu_artifact_bytes": 2505344,
+        "gpu_buffer_bytes": 2505344
+      },
+      "FirstCorrectFrame": {
+        "FreshReleaseRuns": 10,
+        "Samples": [
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 478.0435,
+            "UploadInstallMilliseconds": 2.3688999999999965,
+            "PresentationMilliseconds": 0.9180999999999813,
+            "TotalMilliseconds": 481.3305,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-01.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 484.5562,
+            "UploadInstallMilliseconds": 2.119100000000003,
+            "PresentationMilliseconds": 0.7180999999999926,
+            "TotalMilliseconds": 487.3934,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-02.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 453.97589999999997,
+            "UploadInstallMilliseconds": 1.8523000000000707,
+            "PresentationMilliseconds": 0.7381999999999493,
+            "TotalMilliseconds": 456.5664,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-03.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 484.0636,
+            "UploadInstallMilliseconds": 2.2140999999999735,
+            "PresentationMilliseconds": 0.6867000000000303,
+            "TotalMilliseconds": 486.9644,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-04.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 439.36310000000003,
+            "UploadInstallMilliseconds": 2.107499999999959,
+            "PresentationMilliseconds": 0.6707000000000107,
+            "TotalMilliseconds": 442.1413,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-05.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 438.5514,
+            "UploadInstallMilliseconds": 1.9165000000000418,
+            "PresentationMilliseconds": 0.50649999999996,
+            "TotalMilliseconds": 440.9744,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-06.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 493.4708,
+            "UploadInstallMilliseconds": 2.4110999999999763,
+            "PresentationMilliseconds": 0.6329000000000065,
+            "TotalMilliseconds": 496.5148,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-07.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 456.7953,
+            "UploadInstallMilliseconds": 1.908299999999997,
+            "PresentationMilliseconds": 1.230600000000038,
+            "TotalMilliseconds": 459.93420000000003,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-08.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 496.86019999999996,
+            "UploadInstallMilliseconds": 2.095300000000009,
+            "PresentationMilliseconds": 0.6742000000000417,
+            "TotalMilliseconds": 499.6297,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-09.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 512.3851999999999,
+            "UploadInstallMilliseconds": 4.539300000000026,
+            "PresentationMilliseconds": 0.8888000000000602,
+            "TotalMilliseconds": 517.8133,
+            "Resources": {
+              "occupied_voxels": 52608,
+              "exposed_quads": 13616,
+              "vertices": 54464,
+              "indices": 81696,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 2505344,
+              "gpu_buffer_bytes": 2505344
+            },
+            "RawFile": "first-correct-frame-64-10.jsonl"
+          }
+        ],
+        "Derivation": {
+          "count": 10,
+          "median": 481.05355,
+          "p95": 512.3851999999999,
+          "maximum": 512.3851999999999
+        },
+        "UploadInstall": {
+          "count": 10,
+          "median": 2.113299999999981,
+          "p95": 4.539300000000026,
+          "maximum": 4.539300000000026
+        },
+        "Presentation": {
+          "count": 10,
+          "median": 0.7024000000000115,
+          "p95": 1.230600000000038,
+          "maximum": 1.230600000000038
+        },
+        "Total": {
+          "count": 10,
+          "median": 484.14745,
+          "p95": 517.8133,
+          "maximum": 517.8133
+        }
+      },
+      "SteadyState": {
+        "DrawableExtent": [
+          1920,
+          1080
+        ],
+        "WarmupSeconds": 5,
+        "CollectionSeconds": 30,
+        "ValidationEnabled": false,
+        "PresentationThrottlingEnabled": false,
+        "RawFile": "steady-state-64.jsonl",
+        "CpuFrame": {
+          "count": 104284,
+          "median": 0.2058,
+          "p95": 0.4012,
+          "maximum": 16.5216
+        },
+        "GpuFrame": {
+          "count": 104284,
+          "median": 0.153888,
+          "p95": 0.154592,
+          "maximum": 0.18496
+        }
+      }
+    },
+    {
+      "Scale": 128,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          128,
+          64,
+          128
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.125,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedVoxels": 420864,
+        "ExposedQuads": 54464,
+        "ExposedQuadLimit": 56000
+      },
+      "Camera": {
+        "Selection": "overview",
+        "Eye": [
+          20.0,
+          14.0,
+          22.0
+        ],
+        "Target": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 50.0,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      },
+      "Resources": {
+        "occupied_voxels": 420864,
+        "exposed_quads": 54464,
+        "vertices": 217856,
+        "indices": 326784,
+        "draw_calls": 1,
+        "cpu_artifact_bytes": 10021376,
+        "gpu_buffer_bytes": 10021376
+      },
+      "FirstCorrectFrame": {
+        "FreshReleaseRuns": 10,
+        "Samples": [
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 489.55159999999995,
+            "UploadInstallMilliseconds": 2.754500000000064,
+            "PresentationMilliseconds": 1.0194999999999368,
+            "TotalMilliseconds": 493.32559999999995,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-01.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 445.9637,
+            "UploadInstallMilliseconds": 1.9128999999999792,
+            "PresentationMilliseconds": 0.7273999999999887,
+            "TotalMilliseconds": 448.604,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-02.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 484.3986,
+            "UploadInstallMilliseconds": 2.170000000000016,
+            "PresentationMilliseconds": 0.6142999999999574,
+            "TotalMilliseconds": 487.18289999999996,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-03.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 499.83480000000003,
+            "UploadInstallMilliseconds": 3.037300000000016,
+            "PresentationMilliseconds": 0.6357999999999606,
+            "TotalMilliseconds": 503.5079,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-04.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 528.8190999999999,
+            "UploadInstallMilliseconds": 3.3478999999999814,
+            "PresentationMilliseconds": 0.6949000000000751,
+            "TotalMilliseconds": 532.8619,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-05.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 473.6283,
+            "UploadInstallMilliseconds": 2.1515999999999735,
+            "PresentationMilliseconds": 0.601099999999974,
+            "TotalMilliseconds": 476.381,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-06.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 481.3759,
+            "UploadInstallMilliseconds": 2.908399999999972,
+            "PresentationMilliseconds": 0.6885000000000332,
+            "TotalMilliseconds": 484.9728,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-07.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 535.8598,
+            "UploadInstallMilliseconds": 2.9556000000001177,
+            "PresentationMilliseconds": 0.9315999999998894,
+            "TotalMilliseconds": 539.747,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-08.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 571.6170000000001,
+            "UploadInstallMilliseconds": 2.6400999999998476,
+            "PresentationMilliseconds": 0.9723999999999933,
+            "TotalMilliseconds": 575.2294999999999,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-09.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 471.93600000000004,
+            "UploadInstallMilliseconds": 2.438799999999958,
+            "PresentationMilliseconds": 0.7975000000000136,
+            "TotalMilliseconds": 475.1723,
+            "Resources": {
+              "occupied_voxels": 420864,
+              "exposed_quads": 54464,
+              "vertices": 217856,
+              "indices": 326784,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 10021376,
+              "gpu_buffer_bytes": 10021376
+            },
+            "RawFile": "first-correct-frame-128-10.jsonl"
+          }
+        ],
+        "Derivation": {
+          "count": 10,
+          "median": 486.97509999999994,
+          "p95": 571.6170000000001,
+          "maximum": 571.6170000000001
+        },
+        "UploadInstall": {
+          "count": 10,
+          "median": 2.697299999999956,
+          "p95": 3.3478999999999814,
+          "maximum": 3.3478999999999814
+        },
+        "Presentation": {
+          "count": 10,
+          "median": 0.7111500000000319,
+          "p95": 1.0194999999999368,
+          "maximum": 1.0194999999999368
+        },
+        "Total": {
+          "count": 10,
+          "median": 490.25424999999996,
+          "p95": 575.2294999999999,
+          "maximum": 575.2294999999999
+        }
+      },
+      "SteadyState": {
+        "DrawableExtent": [
+          1920,
+          1080
+        ],
+        "WarmupSeconds": 5,
+        "CollectionSeconds": 30,
+        "ValidationEnabled": false,
+        "PresentationThrottlingEnabled": false,
+        "RawFile": "steady-state-128.jsonl",
+        "CpuFrame": {
+          "count": 37058,
+          "median": 0.6542,
+          "p95": 1.1189,
+          "maximum": 30.1272
+        },
+        "GpuFrame": {
+          "count": 37058,
+          "median": 0.590112,
+          "p95": 0.987808,
+          "maximum": 4.911776
+        }
+      }
+    },
+    {
+      "Scale": 256,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          256,
+          128,
+          256
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.0625,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedVoxels": 3366912,
+        "ExposedQuads": 217856,
+        "ExposedQuadLimit": 224000
+      },
+      "Camera": {
+        "Selection": "overview",
+        "Eye": [
+          20.0,
+          14.0,
+          22.0
+        ],
+        "Target": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 50.0,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      },
+      "Resources": {
+        "occupied_voxels": 3366912,
+        "exposed_quads": 217856,
+        "vertices": 871424,
+        "indices": 1307136,
+        "draw_calls": 1,
+        "cpu_artifact_bytes": 40085504,
+        "gpu_buffer_bytes": 40085504
+      },
+      "FirstCorrectFrame": {
+        "FreshReleaseRuns": 10,
+        "Samples": [
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 789.6942,
+            "UploadInstallMilliseconds": 7.865400000000022,
+            "PresentationMilliseconds": 0.7766000000000304,
+            "TotalMilliseconds": 798.3362000000001,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-01.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 795.2691,
+            "UploadInstallMilliseconds": 4.651700000000005,
+            "PresentationMilliseconds": 0.7483000000000857,
+            "TotalMilliseconds": 800.6691000000001,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-02.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 666.7802,
+            "UploadInstallMilliseconds": 3.9651000000000067,
+            "PresentationMilliseconds": 0.7804999999999609,
+            "TotalMilliseconds": 671.5258,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-03.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 745.5367,
+            "UploadInstallMilliseconds": 4.865099999999984,
+            "PresentationMilliseconds": 0.5983999999999696,
+            "TotalMilliseconds": 751.0002,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-04.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 855.9818,
+            "UploadInstallMilliseconds": 5.042800000000057,
+            "PresentationMilliseconds": 1.4681999999999107,
+            "TotalMilliseconds": 862.4928,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-05.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 758.6990000000001,
+            "UploadInstallMilliseconds": 4.303399999999897,
+            "PresentationMilliseconds": 0.6856000000000222,
+            "TotalMilliseconds": 763.688,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-06.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 734.2565,
+            "UploadInstallMilliseconds": 3.794599999999946,
+            "PresentationMilliseconds": 0.5817000000000689,
+            "TotalMilliseconds": 738.6328,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-07.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 768.9086000000001,
+            "UploadInstallMilliseconds": 4.117599999999925,
+            "PresentationMilliseconds": 0.8577999999999975,
+            "TotalMilliseconds": 773.884,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-08.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 752.1214,
+            "UploadInstallMilliseconds": 4.812599999999975,
+            "PresentationMilliseconds": 0.7613000000000056,
+            "TotalMilliseconds": 757.6953,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-09.jsonl"
+          },
+          {
+            "SourceRevision": "1",
+            "DerivationMilliseconds": 681.8476999999999,
+            "UploadInstallMilliseconds": 3.9580000000000837,
+            "PresentationMilliseconds": 0.5736000000000558,
+            "TotalMilliseconds": 686.3793000000001,
+            "Resources": {
+              "occupied_voxels": 3366912,
+              "exposed_quads": 217856,
+              "vertices": 871424,
+              "indices": 1307136,
+              "draw_calls": 1,
+              "cpu_artifact_bytes": 40085504,
+              "gpu_buffer_bytes": 40085504
+            },
+            "RawFile": "first-correct-frame-256-10.jsonl"
+          }
+        ],
+        "Derivation": {
+          "count": 10,
+          "median": 755.4102,
+          "p95": 855.9818,
+          "maximum": 855.9818
+        },
+        "UploadInstall": {
+          "count": 10,
+          "median": 4.477549999999951,
+          "p95": 7.865400000000022,
+          "maximum": 7.865400000000022
+        },
+        "Presentation": {
+          "count": 10,
+          "median": 0.7548000000000457,
+          "p95": 1.468199999999911,
+          "maximum": 1.468199999999911
+        },
+        "Total": {
+          "count": 10,
+          "median": 760.69165,
+          "p95": 862.4928,
+          "maximum": 862.4928
+        }
+      },
+      "SteadyState": {
+        "DrawableExtent": [
+          1920,
+          1080
+        ],
+        "WarmupSeconds": 5,
+        "CollectionSeconds": 30,
+        "ValidationEnabled": false,
+        "PresentationThrottlingEnabled": false,
+        "RawFile": "steady-state-256.jsonl",
+        "CpuFrame": {
+          "count": 10430,
+          "median": 2.7411,
+          "p95": 3.4543999999999997,
+          "maximum": 12.2416
+        },
+        "GpuFrame": {
+          "count": 10430,
+          "median": 2.650624,
+          "p95": 3.346368,
+          "maximum": 8.613856
+        }
+      }
+    }
+  ],
+  "RawFiles": [
+    {
+      "File": "aggregation-output.json",
+      "Sha256": "49274612d6b6930396ef49470ba097393b8a9dffa858e4afac33668c9d8ce38d",
+      "Bytes": 2516
+    },
+    {
+      "File": "aggregation.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "aggregation.stdout.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "build.stderr.log",
+      "Sha256": "920be80e3d230b0f3aed667b3e89a200741fe80066f1e48d0fa8301e34e0408c",
+      "Bytes": 142
+    },
+    {
+      "File": "build.stdout.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "canonical-generation.stderr.log",
+      "Sha256": "7402136db1299b5e276c896670cc2ba310841ba729767b9a76cd5376c848331d",
+      "Bytes": 149
+    },
+    {
+      "File": "canonical-generation.stdout.log",
+      "Sha256": "b2599fa0c664c7825b5a224e205b66783595f497dc04a4e0389f051193f5d8b0",
+      "Bytes": 362
+    },
+    {
+      "File": "comparison.svg",
+      "Sha256": "10c3bbc341fe2303aff85fa8fb346ef6fdad53ad89f8f17fddc1d2060c3f1751",
+      "Bytes": 2692
+    },
+    {
+      "File": "diagnostics.json",
+      "Sha256": "1b2f6b0150efad5235412c66caa2f1190f88bbe176cee4dab51a383f961f5f5e",
+      "Bytes": 909
+    },
+    {
+      "File": "first-correct-frame-128-01.jsonl",
+      "Sha256": "710b3381fa058de37334b3975d2027383152814ef012685cd217bba94b24551b",
+      "Bytes": 497
+    },
+    {
+      "File": "first-correct-frame-128-01.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-01.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-02.jsonl",
+      "Sha256": "30bc33672a5399fef40abe1a801c8ddeb78f1ef1184b3b2fdbb046cd6e68a53f",
+      "Bytes": 476
+    },
+    {
+      "File": "first-correct-frame-128-02.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-02.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-03.jsonl",
+      "Sha256": "9e339263a5388e9cf7d16be437638d6212f4f149a9cabccd2307616649f1f39c",
+      "Bytes": 487
+    },
+    {
+      "File": "first-correct-frame-128-03.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-03.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-04.jsonl",
+      "Sha256": "4423312a760ca953b900ed0047aad907574f1ac81f349d2fa2146433b7890c8e",
+      "Bytes": 497
+    },
+    {
+      "File": "first-correct-frame-128-04.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-04.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-05.jsonl",
+      "Sha256": "d33f5281c6bc4e510780c1fced7a371efe345d7629e41abd12cd96e94e50c849",
+      "Bytes": 495
+    },
+    {
+      "File": "first-correct-frame-128-05.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-05.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-06.jsonl",
+      "Sha256": "6a44651f75f466dae833e30613e6d87b0e3f5b7a9f1a445edbdb6b32663b3230",
+      "Bytes": 476
+    },
+    {
+      "File": "first-correct-frame-128-06.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-06.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-07.jsonl",
+      "Sha256": "3238c4fa403bf52bda085b9721c47fc79ffbcc0214f47443e612d70eb5379470",
+      "Bytes": 477
+    },
+    {
+      "File": "first-correct-frame-128-07.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-07.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-08.jsonl",
+      "Sha256": "e859e97251a25f5c9a00cf3f9b3ae0072bd4216002a7350b42323f80d12f258a",
+      "Bytes": 485
+    },
+    {
+      "File": "first-correct-frame-128-08.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-08.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-09.jsonl",
+      "Sha256": "c139bc4cde32ff7429322dfa5afcfdba453216f975ba549f2f4c0e68b8f9fb56",
+      "Bytes": 504
+    },
+    {
+      "File": "first-correct-frame-128-09.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-09.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-128-10.jsonl",
+      "Sha256": "d174c9c264466aa2512f5a8f6b5e1ffccfa9a3a3c520c27aca03685a38b4848a",
+      "Bytes": 487
+    },
+    {
+      "File": "first-correct-frame-128-10.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-128-10.stdout.log",
+      "Sha256": "b9dff510084cf3f1eb6c55cdcb325d5964a125b09a0f4d4cf1faa5538a4e022d",
+      "Bytes": 781
+    },
+    {
+      "File": "first-correct-frame-256-01.jsonl",
+      "Sha256": "82adb53e4a250c177ef323bd8cac25dff9e9946436b1d15ab462eeb9d822a926",
+      "Bytes": 489
+    },
+    {
+      "File": "first-correct-frame-256-01.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-01.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-02.jsonl",
+      "Sha256": "83f3cba4951324fce848f7c1fbe232fdcc7fd5dc59a29e54499743e86d2bb749",
+      "Bytes": 489
+    },
+    {
+      "File": "first-correct-frame-256-02.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-02.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-03.jsonl",
+      "Sha256": "ba270896141b538e3b7bb451db48f67c3dddd5124703d009be9df07eada0d1df",
+      "Bytes": 480
+    },
+    {
+      "File": "first-correct-frame-256-03.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-03.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-04.jsonl",
+      "Sha256": "7fcc6ca48f6b8b6d43109fab1889d5ca1a5b8d8551ccadfec4a54a8520d91b53",
+      "Bytes": 480
+    },
+    {
+      "File": "first-correct-frame-256-04.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-04.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-05.jsonl",
+      "Sha256": "69dd448c2a20a33d32e88b32451acc18fdb41a33c5a7157c0d3331ccefa45ad2",
+      "Bytes": 489
+    },
+    {
+      "File": "first-correct-frame-256-05.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-05.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-06.jsonl",
+      "Sha256": "72dc77f0dc9488d812b0ee216461ebf54242d77ffe6f7e107f9b9dbeded2f03b",
+      "Bytes": 488
+    },
+    {
+      "File": "first-correct-frame-256-06.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-06.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-07.jsonl",
+      "Sha256": "6b12f5da032d55c9731d6091f4a20873dbdb346bd06bd4966aaa86a7bc846245",
+      "Bytes": 489
+    },
+    {
+      "File": "first-correct-frame-256-07.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-07.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-08.jsonl",
+      "Sha256": "b7e7af50d8147671af1153ac534db9d93b249de76b7bc1a37fb694a74aa9ecec",
+      "Bytes": 488
+    },
+    {
+      "File": "first-correct-frame-256-08.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-08.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-09.jsonl",
+      "Sha256": "0bc044780e088f4405708608942077fb169ba8a793ebf222a1a426d276dcf82d",
+      "Bytes": 479
+    },
+    {
+      "File": "first-correct-frame-256-09.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-09.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-256-10.jsonl",
+      "Sha256": "5fee69207bf1ca57a0f5a4519e5bfe4c10b119ea079b94f365c5dc968cde563c",
+      "Bytes": 498
+    },
+    {
+      "File": "first-correct-frame-256-10.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-256-10.stdout.log",
+      "Sha256": "1c4575f9afa6dba0f4ce7813800914f2b749fcbf317959a8ce22d98de8f686dc",
+      "Bytes": 786
+    },
+    {
+      "File": "first-correct-frame-64-01.jsonl",
+      "Sha256": "9c2b028c4279c065a4924a10f2b27f16899b2bb6d3aec75d075547bf8d94a8c1",
+      "Bytes": 472
+    },
+    {
+      "File": "first-correct-frame-64-01.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-01.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-02.jsonl",
+      "Sha256": "9577b705e952f78e9a3a015ceab4390710e3a17e195f33495de57ce046952662",
+      "Bytes": 472
+    },
+    {
+      "File": "first-correct-frame-64-02.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-02.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-03.jsonl",
+      "Sha256": "9b97da98c76c3b734be7b003bd57a090e78b1253aca97e43dc99bc099b0d9b8c",
+      "Bytes": 492
+    },
+    {
+      "File": "first-correct-frame-64-03.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-03.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-04.jsonl",
+      "Sha256": "c0b66a413b08c6053a64bd14c4774d5d9c3c2d20ea262e2b346b28e84528cd42",
+      "Bytes": 472
+    },
+    {
+      "File": "first-correct-frame-64-04.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-04.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-05.jsonl",
+      "Sha256": "c5bbf5e47408c75f95f140cd0ccc432d0498dad5c735d1b6ad07d1875596eb4d",
+      "Bytes": 482
+    },
+    {
+      "File": "first-correct-frame-64-05.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-05.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-06.jsonl",
+      "Sha256": "3574afb6777fb7fc29478a3a6e4c418238c1113baa804b3447682938c4fa9554",
+      "Bytes": 482
+    },
+    {
+      "File": "first-correct-frame-64-06.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-06.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-07.jsonl",
+      "Sha256": "52c877d482f17a80ca900d40eac25997833cfe8fcbc950b705454affaa43bafc",
+      "Bytes": 472
+    },
+    {
+      "File": "first-correct-frame-64-07.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-07.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-08.jsonl",
+      "Sha256": "92ba2b9f427e9e876b939fe8ecd9f7be649a3d4c0abb7def968468a92e1c92c2",
+      "Bytes": 482
+    },
+    {
+      "File": "first-correct-frame-64-08.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-08.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-09.jsonl",
+      "Sha256": "beff977bda9586056d9fb58569aab2ea279a769519b5df7ea88331142f3c5dd3",
+      "Bytes": 482
+    },
+    {
+      "File": "first-correct-frame-64-09.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-09.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "first-correct-frame-64-10.jsonl",
+      "Sha256": "9440a6dc0bf78cc8d8e43ec9281cf56b5489b65424fdcf69c48355856410347e",
+      "Bytes": 481
+    },
+    {
+      "File": "first-correct-frame-64-10.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "first-correct-frame-64-10.stdout.log",
+      "Sha256": "5d9fa3bc00ea965967f6a0451ef79de519a59c0c2282dd3d7bd42271edcd54c6",
+      "Bytes": 777
+    },
+    {
+      "File": "measurement-contract.stderr.log",
+      "Sha256": "02fe3d9ff66a9576a22cd68dae02134f76fbf4cb8e1d8059ed1946dcabf3bdc0",
+      "Bytes": 159
+    },
+    {
+      "File": "measurement-contract.stdout.log",
+      "Sha256": "43b4574595d5b088e9c1853f204002f30dad4e7be7ab6b1500f771f16782dbb6",
+      "Bytes": 425
+    },
+    {
+      "File": "semantic-face-oracles.stderr.log",
+      "Sha256": "49937b608c913e5bf54cd7fb04af06903feca4fadb7cbcbfdee5a1a0e5163aab",
+      "Bytes": 149
+    },
+    {
+      "File": "semantic-face-oracles.stdout.log",
+      "Sha256": "1765d1aa3d488d07fd82cb1f9ba7bad33c8b1343fbe678da9d93bbec3212654e",
+      "Bytes": 704
+    },
+    {
+      "File": "steady-state-128.jsonl",
+      "Sha256": "47d1533f2dfabad9cdfdf8545415b7bce28cac5111875f592d1b4ab0bd129bba",
+      "Bytes": 3356867
+    },
+    {
+      "File": "steady-state-128.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "steady-state-128.stdout.log",
+      "Sha256": "96f4aa2c00a0d876586c8f0f07a57db1af543e15af6a7d5bd3b17c3eb453d9ae",
+      "Bytes": 789
+    },
+    {
+      "File": "steady-state-256.jsonl",
+      "Sha256": "87eb7f0a1966ef345f324ca40deeb92f30a2db08006cb4dccec8d84cd11fb5f9",
+      "Bytes": 938425
+    },
+    {
+      "File": "steady-state-256.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "steady-state-256.stdout.log",
+      "Sha256": "7008211d1f373762451410f121b4cacd0e5368841e9a17e3c56eb6ac5dd29151",
+      "Bytes": 794
+    },
+    {
+      "File": "steady-state-64.jsonl",
+      "Sha256": "0c2ad18667d18669a46dd700858fab47d444e6d56dde1a6ad75f90ce5c47c85c",
+      "Bytes": 9489916
+    },
+    {
+      "File": "steady-state-64.stderr.log",
+      "Sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "Bytes": 0
+    },
+    {
+      "File": "steady-state-64.stdout.log",
+      "Sha256": "c732f369bfd130259445c8648078ad756a7d5c61ace2fc1a0c0653596ff5e65b",
+      "Bytes": 785
+    }
+  ],
+  "ComparisonChart": "comparison.svg"
+}
