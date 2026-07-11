@@ -103,29 +103,37 @@ fn completion_contract_accepts_all_required_categories_and_windows_scope()
 }
 
 #[test]
-fn completion_contract_rejects_portable_runtime_claims() {
+fn completion_contract_rejects_portable_runtime_claims() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.scope = "Runtime proof applies to Windows systems.".to_owned();
 
-    let error = verify_manifest_contract(&manifest).expect_err("portable claim must be rejected");
+    let error = match verify_manifest_contract(&manifest) {
+        Ok(_) => return Err("portable claim was accepted".into()),
+        Err(error) => error,
+    };
 
     assert!(
         error
             .to_string()
             .contains("recorded Windows development machine")
     );
+    Ok(())
 }
 
 #[test]
-fn completion_contract_rejects_missing_raw_streams() {
+fn completion_contract_rejects_missing_raw_streams() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest
         .artifacts
         .retain(|artifact| artifact.category != ArtifactCategory::FirstCorrectFrameStream);
 
-    let error = verify_manifest_contract(&manifest).expect_err("raw streams must be required");
+    let error = match verify_manifest_contract(&manifest) {
+        Ok(_) => return Err("missing raw streams were accepted".into()),
+        Err(error) => error,
+    };
 
     assert!(error.to_string().contains("FirstCorrectFrameStream"));
+    Ok(())
 }
 
 #[test]
@@ -145,7 +153,10 @@ fn hash_inventory_rejects_changed_artifacts() -> Result<(), Box<dyn std::error::
         bytes: 0,
     };
 
-    let error = verify_hash_inventory(&root, &[artifact]).expect_err("changed file must fail");
+    let error = match verify_hash_inventory(&root, &[artifact]) {
+        Ok(()) => return Err("changed artifact was accepted".into()),
+        Err(error) => error,
+    };
 
     assert!(error.to_string().contains("proof.log"));
     fs::remove_dir_all(root)?;

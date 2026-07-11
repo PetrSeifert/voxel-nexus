@@ -230,13 +230,14 @@ foreach ($pose in @("overview", "cavity", "boundary")) {
     if ($inspection.Count -ne 1 -or $inspection[0].Capture.Captures.Count -ne 2) {
         throw "The lifecycle manifest does not retain one paired $pose inspection."
     }
+    $poseCapture = $inspection[0].Capture
     Write-JsonFile -Path (Join-Path $evidencePath "comparisons/$pose.json") -Value ([ordered]@{
         Pose = $pose
-        Captures = $inspection[0].Capture.Captures
-        CaptureSha256 = $inspection[0].Capture.CaptureSha256
-        MaterialDifferenceFraction = $inspection[0].Capture.MaterialDifferenceFraction
+        Captures = $poseCapture.Captures
+        CaptureSha256 = $poseCapture.CaptureSha256
+        MaterialDifferenceFraction = $poseCapture.MaterialDifferenceFraction
         MaximumMaterialDifferenceFraction = 0.001
-        Passed = $inspection[0].Capture.MaterialDifferenceFraction -le 0.001
+        Passed = $poseCapture.MaterialDifferenceFraction -le 0.001
     })
 }
 
@@ -298,6 +299,7 @@ $probe = $videoProbe.OutputText | ConvertFrom-Json
 if ($probe.streams.Count -ne 1) {
     throw "The completion video does not contain exactly one video stream."
 }
+$videoStream = $probe.streams[0]
 $videoDuration = [double]$probe.format.duration
 $videoEvents = @(Get-Content -Raw -LiteralPath (Join-Path $evidencePath "lifecycle/completion-video-events.json") | ConvertFrom-Json)
 $cleanCloseEvent = @($videoEvents | Where-Object Event -eq "clean_close")
@@ -397,7 +399,7 @@ $manifest = [ordered]@{
         [ordered]@{ category = "unit_and_integration"; command = "cargo test --locked --workspace" },
         [ordered]@{ category = "voxel_frontend_read"; command = "cargo test --locked --package voxel-frontend" },
         [ordered]@{ category = "diagnostic_surface"; command = "cargo test --locked --package raster-render-path --test derivation" },
-        [ordered]@{ category = "lifecycle"; command = "pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -CaptureCanonicalInspectionSet -VideoFile milestone-proof.mkv" },
+        [ordered]@{ category = "lifecycle"; command = "pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory docs/evidence/milestone-completion/lifecycle-reproduction -CaptureCanonicalInspectionSet -VideoFile milestone-proof.mkv" },
         [ordered]@{ category = "deterministic_failure"; command = "cargo test --locked --package desktop-demo --test render_path_failures" },
         [ordered]@{ category = "prerequisite_regression"; command = "cargo test --locked --package desktop-demo --test unsupported_prerequisites" },
         [ordered]@{ category = "bundle_verification"; command = "cargo run --locked --package completion-evidence --bin verify-completion-evidence -- <bundle-directory>" }
@@ -406,11 +408,11 @@ $manifest = [ordered]@{
         path = "lifecycle/milestone-proof.mkv"
         capture_scope = $lifecycleManifest.CompletionVideo.CaptureScope
         duration_seconds = $videoDuration
-        codec = $probe.streams[0].codec_name
-        pixel_format = $probe.streams[0].pix_fmt
-        width = $probe.streams[0].width
-        height = $probe.streams[0].height
-        average_frame_rate = $probe.streams[0].avg_frame_rate
+        codec = $videoStream.codec_name
+        pixel_format = $videoStream.pix_fmt
+        width = $videoStream.width
+        height = $videoStream.height
+        average_frame_rate = $videoStream.avg_frame_rate
         validation_warnings = $lifecycleManifest.ValidationWarnings
         validation_errors = $lifecycleManifest.ValidationErrors
         uninterrupted = $lifecycleManifest.CompletionVideo.Uninterrupted
