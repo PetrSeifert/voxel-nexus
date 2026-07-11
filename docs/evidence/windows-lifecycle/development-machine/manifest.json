@@ -1,11 +1,11 @@
 {
   "SchemaVersion": 1,
   "Scope": "Runtime execution proven only on this Windows development machine.",
-  "RecordedAtUtc": "2026-07-10T22:28:16.5823690Z",
-  "RepositoryRevision": "88fae9d8f73a17314f401cabd88f1fc1747936bd",
+  "RecordedAtUtc": "2026-07-11T16:29:04.0553372Z",
+  "RepositoryRevision": "d731627dbb2d56e162275f5aaefda0ff2250ff77",
   "BuildProfile": "dev (unoptimized + debuginfo)",
   "BuildCommand": "cargo build --locked --package desktop-demo",
-  "ShaderArtifacts": "Generated from triangle.vert and triangle.frag by render-backend/build.rs during the Cargo build.",
+  "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
   "ValidationContext": "VK_LAYER_KHRONOS_validation required and enabled by the application.",
   "ValidationWarnings": 0,
   "ValidationErrors": 0,
@@ -39,12 +39,14 @@
       "Width": 884,
       "Height": 611,
       "AspectRatio": 1.447,
-      "TriangleSamplePixels": 30826,
-      "BackgroundSamplePixels": 104426,
+      "WarmMaterialSamplePixels": 2283,
+      "GreenMaterialSamplePixels": 3348,
+      "BlueMaterialSamplePixels": 3682,
+      "BackgroundSamplePixels": 125939,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "69edce1debe5edf63f4814d85321fd76ecc96d426a728f8e63f250783728641b",
-        "d22c571d3d3b74d4b5935a0fe219f82363a45344123d3d5decf1be13d994e2bc"
+        "47727e7e88d87c4b5b697a8371855c6329156c87e216d2a257101d4e0b4abae6",
+        "47727e7e88d87c4b5b697a8371855c6329156c87e216d2a257101d4e0b4abae6"
       ],
       "Captures": [
         "launch-a.png",
@@ -56,12 +58,14 @@
       "Width": 1084,
       "Height": 661,
       "AspectRatio": 1.64,
-      "TriangleSamplePixels": 40885,
-      "BackgroundSamplePixels": 138517,
+      "WarmMaterialSamplePixels": 2668,
+      "GreenMaterialSamplePixels": 3923,
+      "BlueMaterialSamplePixels": 4314,
+      "BackgroundSamplePixels": 168496,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "be72b0bdb9d7883088225219937900cfb632621fceb7fb3da0bd19c7252684e5",
-        "e4b426fe71275a129b70ce058f5be1c6b6265495e960a42945a31cf4cd6889f2"
+        "36c08fa9464e3dbe5d9a7694e6384bbf07578a51b0bb57ecd0cf9d504e5dcd2a",
+        "36c08fa9464e3dbe5d9a7694e6384bbf07578a51b0bb57ecd0cf9d504e5dcd2a"
       ],
       "Captures": [
         "landscape-a.png",
@@ -73,12 +77,14 @@
       "Width": 634,
       "Height": 861,
       "AspectRatio": 0.736,
-      "TriangleSamplePixels": 31124,
-      "BackgroundSamplePixels": 105503,
+      "WarmMaterialSamplePixels": 4536,
+      "GreenMaterialSamplePixels": 6645,
+      "BlueMaterialSamplePixels": 7320,
+      "BackgroundSamplePixels": 118126,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "e05747352291ab4f6a10786e9583dde08c9a8373af989218754d7c117310ef7b",
-        "f2029a4241f017772030186c04907f67db36c5ea3f5d43ee931ef38780e35fa5"
+        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e",
+        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e"
       ],
       "Captures": [
         "portrait-a.png",
@@ -90,12 +96,14 @@
       "Width": 634,
       "Height": 861,
       "AspectRatio": 0.736,
-      "TriangleSamplePixels": 31124,
-      "BackgroundSamplePixels": 105503,
+      "WarmMaterialSamplePixels": 4536,
+      "GreenMaterialSamplePixels": 6645,
+      "BlueMaterialSamplePixels": 7320,
+      "BackgroundSamplePixels": 118126,
       "MaterialDifferenceFraction": 0.0,
       "CaptureSha256": [
-        "16fbc94a1d0d413f9700f7dca232102a523195145e3b8c7e2b86734a9b2beba6",
-        "1f7cea3734a255bd8cebed3620da0f7776967264e01c42a2c72fc901c34ed113"
+        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e",
+        "b2b1fd6d869a09bd8915dd25ea62697885404e26dd9b476676d0240f17605c7e"
       ],
       "Captures": [
         "restored-a.png",
@@ -113,6 +121,28 @@
       "Case": "presentation",
       "ExitCode": 1,
       "StandardError": "unsupported-presentation.stderr.log"
+    }
+  ],
+  "RenderPathFailures": [
+    {
+      "Phase": "release",
+      "ExitCode": 1,
+      "StandardError": "render-path-release.stderr.log"
+    },
+    {
+      "Phase": "configure",
+      "ExitCode": 1,
+      "StandardError": "render-path-configure.stderr.log"
+    },
+    {
+      "Phase": "record",
+      "ExitCode": 1,
+      "StandardError": "render-path-record.stderr.log"
+    },
+    {
+      "Phase": "upload",
+      "ExitCode": 1,
+      "StandardError": "render-path-upload.stderr.log"
     }
   ]
 }

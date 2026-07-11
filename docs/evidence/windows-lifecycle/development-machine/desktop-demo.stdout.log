@@ -2,3 +2,4 @@ Vulkan device: NVIDIA GeForce RTX 4070
 Driver version: 2497200128 (0x94d84000)
 Vulkan API version: 1.4.329
 Vulkan validation: enabled
+Raster artifact revision: 41
