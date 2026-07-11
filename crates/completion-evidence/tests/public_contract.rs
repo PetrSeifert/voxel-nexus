@@ -152,6 +152,20 @@ fn completion_contract_rejects_duplicate_video_events() -> Result<(), Box<dyn st
 }
 
 #[test]
+fn completion_contract_rejects_unknown_video_events() -> Result<(), Box<dyn std::error::Error>> {
+    let mut manifest = valid_manifest();
+    manifest.video.events.push("unexpected_event".to_owned());
+
+    let error = match verify_manifest_contract(&manifest) {
+        Ok(_) => return Err("unknown video event was accepted".into()),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("unexpected_event"));
+    Ok(())
+}
+
+#[test]
 fn hash_inventory_rejects_changed_artifacts() -> Result<(), Box<dyn std::error::Error>> {
     let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
     let root = std::env::temp_dir().join(format!(

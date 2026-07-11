@@ -147,6 +147,8 @@ pub enum EvidenceError {
     InvalidVideo { reason: String },
     #[error("completion video event {event} has {actual} occurrences; expected exactly 1")]
     InvalidVideoEventCount { event: String, actual: usize },
+    #[error("completion video contains unknown event {event}")]
+    UnknownVideoEvent { event: String },
     #[error("artifact path is unsafe or empty: {path:?}")]
     UnsafeArtifactPath { path: String },
     #[error("artifact path occurs more than once: {path}")]
@@ -274,6 +276,13 @@ pub fn verify_manifest_contract(
                 "video must be nonempty, decodable, uninterrupted, scoped, and validation-clean"
                     .to_owned(),
         });
+    }
+    for event in &manifest.video.events {
+        if !REQUIRED_VIDEO_EVENTS.contains(&event.as_str()) {
+            return Err(EvidenceError::UnknownVideoEvent {
+                event: event.clone(),
+            });
+        }
     }
     for event in REQUIRED_VIDEO_EVENTS {
         let actual = manifest
