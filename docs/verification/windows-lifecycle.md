@@ -73,4 +73,4 @@ Every command must exit with code 1 promptly, without a panic. Their stderr logs
 
 ## Checked-in development-machine evidence
 
-The repository evidence under `docs/evidence/windows-lifecycle/` was produced by this runner from a clean checkout of the revision named in its manifest. Treat it as a record of that machine and run, not as a claim about other machines or operating systems.
+The repository evidence under `docs/evidence/background-preparation/` records the held-worker lifecycle, matching-revision installation, uninterrupted camera sequence, deterministic derivation and upload failures, and prerequisite regressions from the reviewed issue #27 revision. The earlier evidence under `docs/evidence/windows-lifecycle/` records the pre-voxel lifecycle proof. Each bundle was produced by this runner from the revision named in its manifest. Treat them as records of that machine and run, not as claims about other machines or operating systems.

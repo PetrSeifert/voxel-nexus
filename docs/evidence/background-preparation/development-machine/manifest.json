@@ -1,0 +1,591 @@
+{
+  "SchemaVersion": 3,
+  "Scope": "Runtime execution proven only on this Windows development machine.",
+  "RecordedAtUtc": "2026-07-11T17:44:05.2452086Z",
+  "RepositoryRevision": "74f4a01842fa60e0f969848f1c515257aebe785a",
+  "BuildProfile": "dev (unoptimized + debuginfo)",
+  "BuildCommand": "cargo build --locked --package desktop-demo",
+  "ShaderArtifacts": "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build.",
+  "ValidationContext": "VK_LAYER_KHRONOS_validation required and enabled by the application.",
+  "ValidationWarnings": 0,
+  "ValidationErrors": 0,
+  "ProcessExitCode": 0,
+  "Machine": {
+    "OperatingSystem": "Microsoft Windows 11 Pro",
+    "OperatingSystemVersion": "10.0.26200",
+    "Rust": "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
+    "Cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)",
+    "VulkanSdk": "C:\\VulkanSDK\\1.4.309.0"
+  },
+  "VulkanRuntime": {
+    "Device": "NVIDIA GeForce RTX 4070",
+    "DriverVersion": "2497200128 (0x94d84000)",
+    "ApiVersion": "1.4.329"
+  },
+  "RuntimeContextLog": "desktop-demo.stdout.log",
+  "ValidationLog": "desktop-demo.stderr.log",
+  "Lifecycle": [
+    "background preparation paused",
+    "landscape resize while paused",
+    "portrait resize while paused",
+    "zero-size suspension while paused",
+    "minimize while paused",
+    "restore and presentation recreation while paused",
+    "background preparation released",
+    "one matching-revision artifact installed",
+    "first matching-revision frame presented",
+    "overview, cavity, and boundary poses presented",
+    "120-step deterministic camera move completed",
+    "normal close",
+    "clean process exit"
+  ],
+  "PausedLifecycleExtents": {
+    "Landscape": [
+      1084,
+      661
+    ],
+    "Portrait": [
+      634,
+      861
+    ]
+  },
+  "Presentations": [
+    {
+      "State": "launch",
+      "Width": 884,
+      "Height": 611,
+      "AspectRatio": 1.447,
+      "WarmMaterialSamplePixels": 6496,
+      "GreenMaterialSamplePixels": 4914,
+      "BlueMaterialSamplePixels": 5552,
+      "BackgroundSamplePixels": 118290,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38",
+        "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38"
+      ],
+      "Captures": [
+        "launch-a.png",
+        "launch-b.png"
+      ]
+    },
+    {
+      "State": "landscape",
+      "Width": 1084,
+      "Height": 661,
+      "AspectRatio": 1.64,
+      "WarmMaterialSamplePixels": 7604,
+      "GreenMaterialSamplePixels": 5746,
+      "BlueMaterialSamplePixels": 6502,
+      "BackgroundSamplePixels": 159549,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "6ec8267c414072aac6c247acf33b5f40d3759d9b1e6ec645798cee26ec7b7f22",
+        "6ec8267c414072aac6c247acf33b5f40d3759d9b1e6ec645798cee26ec7b7f22"
+      ],
+      "Captures": [
+        "landscape-a.png",
+        "landscape-b.png"
+      ]
+    },
+    {
+      "State": "portrait",
+      "Width": 634,
+      "Height": 861,
+      "AspectRatio": 0.736,
+      "WarmMaterialSamplePixels": 12907,
+      "GreenMaterialSamplePixels": 9750,
+      "BlueMaterialSamplePixels": 11031,
+      "BackgroundSamplePixels": 102939,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2",
+        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2"
+      ],
+      "Captures": [
+        "portrait-a.png",
+        "portrait-b.png"
+      ]
+    },
+    {
+      "State": "restored",
+      "Width": 634,
+      "Height": 861,
+      "AspectRatio": 0.736,
+      "WarmMaterialSamplePixels": 12907,
+      "GreenMaterialSamplePixels": 9750,
+      "BlueMaterialSamplePixels": 11031,
+      "BackgroundSamplePixels": 102939,
+      "MaterialDifferenceFraction": 0.0,
+      "CaptureSha256": [
+        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2",
+        "f75133fa13c270edcae710d2f84b0d5265be54a56d99e9862950d485a4cfc6f2"
+      ],
+      "Captures": [
+        "restored-a.png",
+        "restored-b.png"
+      ]
+    }
+  ],
+  "CanonicalScene": {
+    "GeneratorIdentity": "voxel-nexus-canonical-dense",
+    "GeneratorVersion": 1,
+    "Seed": 6219286665078134867,
+    "Dimensions": [
+      256,
+      128,
+      256
+    ],
+    "Origin": [
+      -8.0,
+      -4.0,
+      -8.0
+    ],
+    "VoxelSize": 0.0625,
+    "MaterialCatalogue": [
+      "canonical-warm",
+      "canonical-green",
+      "canonical-blue"
+    ],
+    "MaterialLinearBaseColors": [
+      [
+        0.95,
+        0.22,
+        0.1,
+        1.0
+      ],
+      [
+        0.12,
+        0.75,
+        0.28,
+        1.0
+      ],
+      [
+        0.1,
+        0.32,
+        0.95,
+        1.0
+      ]
+    ],
+    "OccupiedCount": 3366912,
+    "ExposedFaceCount": 217856,
+    "ExposedFaceLimit": 224000
+  },
+  "CanonicalInspections": [
+    {
+      "Name": "overview",
+      "CameraSelection": "overview",
+      "Capture": {
+        "State": "launch",
+        "Width": 884,
+        "Height": 611,
+        "AspectRatio": 1.447,
+        "WarmMaterialSamplePixels": 6496,
+        "GreenMaterialSamplePixels": 4914,
+        "BlueMaterialSamplePixels": 5552,
+        "BackgroundSamplePixels": 118290,
+        "MaterialDifferenceFraction": 0.0,
+        "CaptureSha256": [
+          "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38",
+          "dd54cf09e67d7409b90d23dbcd03de402d743389ae940086f27693b251514d38"
+        ],
+        "Captures": [
+          "launch-a.png",
+          "launch-b.png"
+        ]
+      },
+      "StandardOutput": "desktop-demo.stdout.log",
+      "ValidationLog": "desktop-demo.stderr.log",
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          256,
+          128,
+          256
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.0625,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedCount": 3366912,
+        "ExposedFaceCount": 217856,
+        "ExposedFaceLimit": 224000
+      },
+      "Camera": {
+        "Selection": "overview",
+        "Eye": [
+          20.0,
+          14.0,
+          22.0
+        ],
+        "Target": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 50.0,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      }
+    },
+    {
+      "Name": "cavity",
+      "CameraSelection": "cavity",
+      "Capture": {
+        "State": "cavity",
+        "Width": 884,
+        "Height": 611,
+        "AspectRatio": 1.447,
+        "WarmMaterialSamplePixels": 41387,
+        "GreenMaterialSamplePixels": 13361,
+        "BlueMaterialSamplePixels": 29375,
+        "BackgroundSamplePixels": 51129,
+        "MaterialDifferenceFraction": 0.0,
+        "CaptureSha256": [
+          "5042f4631458aad974b1884f61cea23d31a6b418de4420dbd0ee3633f10a1397",
+          "5042f4631458aad974b1884f61cea23d31a6b418de4420dbd0ee3633f10a1397"
+        ],
+        "Captures": [
+          "cavity-a.png",
+          "cavity-b.png"
+        ]
+      },
+      "StandardOutput": "cavity.stdout.log",
+      "ValidationLog": "cavity.stderr.log",
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          256,
+          128,
+          256
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.0625,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedCount": 3366912,
+        "ExposedFaceCount": 217856,
+        "ExposedFaceLimit": 224000
+      },
+      "Camera": {
+        "Selection": "cavity",
+        "Eye": [
+          0.0,
+          1.0,
+          17.0
+        ],
+        "Target": [
+          -0.75,
+          -0.5,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 45.0,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      }
+    },
+    {
+      "Name": "boundary",
+      "CameraSelection": "boundary",
+      "Capture": {
+        "State": "boundary",
+        "Width": 884,
+        "Height": 611,
+        "AspectRatio": 1.447,
+        "WarmMaterialSamplePixels": 59974,
+        "GreenMaterialSamplePixels": 7963,
+        "BlueMaterialSamplePixels": 7750,
+        "BackgroundSamplePixels": 59565,
+        "MaterialDifferenceFraction": 0.0,
+        "CaptureSha256": [
+          "5b1f81c25c865acdebedbcfd74a21e64e70d77917825927caaf6b1aa974ef023",
+          "5b1f81c25c865acdebedbcfd74a21e64e70d77917825927caaf6b1aa974ef023"
+        ],
+        "Captures": [
+          "boundary-a.png",
+          "boundary-b.png"
+        ]
+      },
+      "StandardOutput": "boundary.stdout.log",
+      "ValidationLog": "boundary.stderr.log",
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          256,
+          128,
+          256
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.0625,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedCount": 3366912,
+        "ExposedFaceCount": 217856,
+        "ExposedFaceLimit": 224000
+      },
+      "Camera": {
+        "Selection": "boundary",
+        "Eye": [
+          -14.0,
+          2.0,
+          8.0
+        ],
+        "Target": [
+          -7.5,
+          -1.0,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 45.0,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      }
+    },
+    {
+      "Name": "move-midpoint",
+      "CameraSelection": "move",
+      "Capture": {
+        "State": "move-midpoint",
+        "Width": 884,
+        "Height": 611,
+        "AspectRatio": 1.447,
+        "WarmMaterialSamplePixels": 15920,
+        "GreenMaterialSamplePixels": 10876,
+        "BlueMaterialSamplePixels": 12089,
+        "BackgroundSamplePixels": 96367,
+        "MaterialDifferenceFraction": 0.0,
+        "CaptureSha256": [
+          "679eaf53974cb979c78542595513f59b1e77252a90b9d5e69c8bca1bbd5d56e6",
+          "679eaf53974cb979c78542595513f59b1e77252a90b9d5e69c8bca1bbd5d56e6"
+        ],
+        "Captures": [
+          "move-midpoint-a.png",
+          "move-midpoint-b.png"
+        ]
+      },
+      "StandardOutput": "move-midpoint.stdout.log",
+      "ValidationLog": "move-midpoint.stderr.log",
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "Scene": {
+        "GeneratorIdentity": "voxel-nexus-canonical-dense",
+        "GeneratorVersion": 1,
+        "Seed": 6219286665078134867,
+        "Dimensions": [
+          256,
+          128,
+          256
+        ],
+        "Origin": [
+          -8.0,
+          -4.0,
+          -8.0
+        ],
+        "VoxelSize": 0.0625,
+        "MaterialCatalogue": [
+          "canonical-warm",
+          "canonical-green",
+          "canonical-blue"
+        ],
+        "MaterialLinearBaseColors": [
+          [
+            0.95,
+            0.22,
+            0.1,
+            1.0
+          ],
+          [
+            0.12,
+            0.75,
+            0.28,
+            1.0
+          ],
+          [
+            0.1,
+            0.32,
+            0.95,
+            1.0
+          ]
+        ],
+        "OccupiedCount": 3366912,
+        "ExposedFaceCount": 217856,
+        "ExposedFaceLimit": 224000
+      },
+      "Camera": {
+        "Selection": "overview-to-cavity-step-60-of-120",
+        "Eye": [
+          10.0,
+          7.5,
+          19.5
+        ],
+        "Target": [
+          -0.375,
+          -0.25,
+          0.0
+        ],
+        "Up": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "FieldOfViewDegrees": 47.5,
+        "NearPlane": 0.1,
+        "FarPlane": 100.0
+      }
+    }
+  ],
+  "UnsupportedPrerequisites": [
+    {
+      "Case": "vulkan-1.2",
+      "ExitCode": 1,
+      "StandardError": "unsupported-vulkan-1.2.stderr.log"
+    },
+    {
+      "Case": "presentation",
+      "ExitCode": 1,
+      "StandardError": "unsupported-presentation.stderr.log"
+    }
+  ],
+  "BackgroundPreparationFailure": {
+    "Phase": "derivation",
+    "SourceRevision": 1,
+    "ExitCode": 1,
+    "StandardError": "background-derivation.stderr.log"
+  },
+  "UploadInstallationFailure": {
+    "Phase": "upload",
+    "SourceRevision": 1,
+    "InstalledRevisionAfterFailure": null,
+    "ExitCode": 1,
+    "StandardError": "raster-install-upload.stderr.log"
+  },
+  "RenderPathFailures": [
+    {
+      "Phase": "release",
+      "ExitCode": 1,
+      "StandardError": "render-path-release.stderr.log"
+    },
+    {
+      "Phase": "configure",
+      "ExitCode": 1,
+      "StandardError": "render-path-configure.stderr.log"
+    },
+    {
+      "Phase": "record",
+      "ExitCode": 1,
+      "StandardError": "render-path-record.stderr.log"
+    },
+    {
+      "Phase": "upload",
+      "ExitCode": 1,
+      "StandardError": "render-path-upload.stderr.log"
+    }
+  ]
+}
