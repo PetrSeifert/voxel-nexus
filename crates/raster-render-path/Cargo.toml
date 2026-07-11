@@ -9,4 +9,3 @@ path = "src/raster_render_path.rs"
 [dependencies]
 thiserror = "2.0.18"
 voxel-frontend = { path = "../voxel-frontend" }
-
