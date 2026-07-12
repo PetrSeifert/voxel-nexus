@@ -41,6 +41,10 @@ impl VoxelSceneRevision {
     pub fn checked_successor(self) -> Option<Self> {
         self.0.checked_add(1).map(Self)
     }
+
+    pub fn is_newer_than(self, other: Self) -> bool {
+        self.0 > other.0
+    }
 }
 
 impl fmt::Display for VoxelSceneRevision {
