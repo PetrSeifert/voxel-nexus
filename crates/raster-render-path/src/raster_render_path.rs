@@ -3831,17 +3831,17 @@ impl RenderPath for RasterRenderPath {
             restart_error = hidden_release.restart_error;
         }
         self.release_resources(&device);
-        if let Some(controller) = &self.lifecycle_control {
-            controller
-                .state
-                .lock()
-                .map_err(|_| RasterLifecycleControlError)?
-                .post_upload_revision = None;
-        }
-        if let Some(error) = restart_error {
-            return Err(Box::new(error));
-        }
-        Ok(())
+        let control_error = self
+            .lifecycle_control
+            .as_ref()
+            .and_then(|controller| match controller.state.lock() {
+                Ok(mut state) => {
+                    state.post_upload_revision = None;
+                    None
+                }
+                Err(_) => Some(RasterLifecycleControlError),
+            });
+        finish_lifecycle_operation("release", restart_error, control_error)
     }
 
     fn configure(
@@ -3889,27 +3889,26 @@ impl RenderPath for RasterRenderPath {
             worker_error = shutdown.worker_error;
         }
         self.release_resources(&device);
-        if let Some(controller) = &self.lifecycle_control {
-            let mut state = controller
-                .state
-                .lock()
-                .map_err(|_| RasterLifecycleControlError)?;
-            state.pending_outcomes.clear();
-            state.post_upload_revision = None;
-            state.shutdown_owned_resource_count = Some(
-                self.region_resources.len()
-                    + self
-                        .convergence
-                        .as_ref()
-                        .and_then(|convergence| convergence.hidden_candidate.as_ref())
-                        .map(|candidate| candidate.successor_gpu_resources.len())
-                        .unwrap_or(0),
-            );
-        }
-        if let Some(error) = worker_error {
-            return Err(Box::new(error));
-        }
-        Ok(())
+        let owned_resource_count = self.region_resources.len()
+            + self
+                .convergence
+                .as_ref()
+                .and_then(|convergence| convergence.hidden_candidate.as_ref())
+                .map(|candidate| candidate.successor_gpu_resources.len())
+                .unwrap_or(0);
+        let control_error = self
+            .lifecycle_control
+            .as_ref()
+            .and_then(|controller| match controller.state.lock() {
+                Ok(mut state) => {
+                    state.pending_outcomes.clear();
+                    state.post_upload_revision = None;
+                    state.shutdown_owned_resource_count = Some(owned_resource_count);
+                    None
+                }
+                Err(_) => Some(RasterLifecycleControlError),
+            });
+        finish_lifecycle_operation("shutdown", worker_error, control_error)
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
@@ -3926,6 +3925,25 @@ impl RenderPath for RasterRenderPath {
             )) as Box<dyn std::error::Error + Send + Sync>
         })
     }
+}
+
+fn finish_lifecycle_operation(
+    operation: &str,
+    operational_error: Option<RasterConvergenceError>,
+    control_error: Option<RasterLifecycleControlError>,
+) -> RenderPathResult<()> {
+    if let Some(error) = operational_error {
+        if let Some(control_error) = control_error {
+            eprintln!(
+                "additional raster lifecycle control error during {operation}: {control_error}"
+            );
+        }
+        return Err(Box::new(error));
+    }
+    if let Some(error) = control_error {
+        return Err(Box::new(error));
+    }
+    Ok(())
 }
 
 impl RasterRenderPath {
@@ -4814,6 +4832,17 @@ mod convergence_tests {
         assert!(convergence.pending.is_some());
         assert!(convergence.hidden_candidate.is_none());
         Ok(())
+    }
+
+    #[test]
+    fn lifecycle_cleanup_preserves_the_operational_error_when_control_reporting_also_fails() {
+        let error = finish_lifecycle_operation(
+            "shutdown",
+            Some(RasterConvergenceError::ResourceBookkeepingAllocation),
+            Some(RasterLifecycleControlError),
+        )
+        .expect_err("the operational lifecycle error should reach the caller");
+        assert!(error.to_string().contains("resource bookkeeping"));
     }
 
     #[test]
