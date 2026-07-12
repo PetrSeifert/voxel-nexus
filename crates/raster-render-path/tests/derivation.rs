@@ -116,7 +116,7 @@ fn one_voxel_produces_six_scene_space_material_colored_faces()
     assert_eq!(artifact.source_revision(), VoxelSceneRevision::new(41));
     assert_eq!(
         artifact.volume_identity(),
-        &VoxelVolumeId::new("diagnostic")
+        Some(&VoxelVolumeId::new("diagnostic"))
     );
     assert_eq!(artifact.vertices().len(), 24);
     assert_eq!(artifact.indices().len(), 36);

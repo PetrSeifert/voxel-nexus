@@ -207,6 +207,7 @@ fn regional_derivation_covers_every_volume_in_the_complete_scene_view()
 
     let artifact = derive_raster_regions(&complete_view, extent)?;
 
+    assert_eq!(artifact.volume_identity(), None);
     assert_eq!(artifact.regions().len(), 2);
     assert_eq!(artifact.semantic_faces().len(), 12);
     assert_eq!(
@@ -217,5 +218,25 @@ fn regional_derivation_covers_every_volume_in_the_complete_scene_view()
             .collect::<HashSet<_>>(),
         HashSet::from([VoxelVolumeId::new("terrain"), VoxelVolumeId::new("detail")])
     );
+    Ok(())
+}
+
+#[test]
+fn empty_complete_scene_derives_an_empty_revision_tagged_collection()
+-> Result<(), Box<dyn std::error::Error>> {
+    let complete_view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("empty-scene"),
+        VoxelSceneRevision::new(32),
+        Vec::new(),
+        Vec::new(),
+    ))?;
+
+    let artifact = derive_raster_regions(&complete_view, VoxelExtent::new(2, 2, 2))?;
+
+    assert_eq!(artifact.source_revision(), VoxelSceneRevision::new(32));
+    assert_eq!(artifact.volume_identity(), None);
+    assert!(artifact.regions().is_empty());
+    assert!(artifact.vertices().is_empty());
+    assert!(artifact.indices().is_empty());
     Ok(())
 }

@@ -259,7 +259,7 @@ impl RasterVertex {
 #[derive(Clone, Debug)]
 pub struct RasterArtifact {
     source_revision: VoxelSceneRevision,
-    volume_identity: VoxelVolumeId,
+    volume_identity: Option<VoxelVolumeId>,
     vertices: Vec<RasterVertex>,
     indices: Vec<u32>,
     semantic_faces: Vec<SemanticFace>,
@@ -641,8 +641,8 @@ impl RasterArtifact {
         self.source_revision
     }
 
-    pub fn volume_identity(&self) -> &VoxelVolumeId {
-        &self.volume_identity
+    pub fn volume_identity(&self) -> Option<&VoxelVolumeId> {
+        self.volume_identity.as_ref()
     }
 
     pub fn vertices(&self) -> &[RasterVertex] {
@@ -923,13 +923,6 @@ pub fn derive_raster_regions(
             RasterArtifactBuildCause::EmptyRasterRegionExtent,
         ));
     }
-    let first_volume = view.volumes().first().ok_or_else(|| {
-        build_error(
-            source_revision,
-            RasterArtifactBuildPhase::Metadata,
-            RasterArtifactBuildCause::UnknownVolume(VoxelVolumeId::new("complete scene")),
-        )
-    })?;
     let mut regions = Vec::new();
     for metadata in view.volumes() {
         let [volume_width, volume_height, volume_depth] = metadata.extent().dimensions();
@@ -975,7 +968,7 @@ pub fn derive_raster_regions(
                 .ok_or_else(|| metadata_dimensions_error(source_revision))?;
         }
     }
-    assemble_raster_artifact(source_revision, first_volume.identity(), regions)
+    assemble_raster_artifact(source_revision, regions)
 }
 
 fn derive_raster_region(
@@ -1126,7 +1119,6 @@ fn derive_raster_region(
 
 fn assemble_raster_artifact(
     source_revision: VoxelSceneRevision,
-    first_volume_identity: &VoxelVolumeId,
     regions: Vec<RasterRegionResult>,
 ) -> Result<RasterArtifact, RasterArtifactBuildError> {
     let mut vertices = Vec::new();
@@ -1155,7 +1147,7 @@ fn assemble_raster_artifact(
         .ok_or_else(|| geometry_overflow(source_revision))?;
     Ok(RasterArtifact {
         source_revision,
-        volume_identity: first_volume_identity.clone(),
+        volume_identity: None,
         vertices,
         indices,
         semantic_faces,
@@ -1510,7 +1502,7 @@ fn build_geometry(
     };
     Ok(RasterArtifact {
         source_revision,
-        volume_identity: volume_identity.clone(),
+        volume_identity: Some(volume_identity.clone()),
         vertices,
         indices,
         semantic_faces,
