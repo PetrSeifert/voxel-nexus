@@ -1488,15 +1488,22 @@ pub fn derive_raster_regions(
     view: &VoxelSceneView,
     region_extent: VoxelExtent,
 ) -> Result<RasterArtifact, RasterArtifactBuildError> {
-    let source_revision = view.revision();
     let mut regions = Vec::new();
     visit_raster_region_cores(view, region_extent, |metadata, core| {
         regions.push(derive_raster_region(view, metadata, core)?);
         Ok(true)
     })?;
+    assemble_derived_raster_regions(view, region_extent, regions)
+}
+
+fn assemble_derived_raster_regions(
+    view: &VoxelSceneView,
+    region_extent: VoxelExtent,
+    regions: Vec<RasterRegionResult>,
+) -> Result<RasterArtifact, RasterArtifactBuildError> {
     assemble_raster_artifact(
         view.scene_id().clone(),
-        source_revision,
+        view.revision(),
         region_extent,
         regions,
     )
@@ -1507,7 +1514,6 @@ fn derive_raster_regions_until_cancelled(
     region_extent: VoxelExtent,
     cancellation: &AtomicBool,
 ) -> Result<Option<RasterArtifact>, RasterArtifactBuildError> {
-    let source_revision = view.revision();
     let mut regions = Vec::new();
     let completed = visit_raster_region_cores(view, region_extent, |metadata, core| {
         if cancellation.load(Ordering::Acquire) {
@@ -1519,13 +1525,7 @@ fn derive_raster_regions_until_cancelled(
     if !completed {
         return Ok(None);
     }
-    assemble_raster_artifact(
-        view.scene_id().clone(),
-        source_revision,
-        region_extent,
-        regions,
-    )
-    .map(Some)
+    assemble_derived_raster_regions(view, region_extent, regions).map(Some)
 }
 
 fn visit_raster_region_cores(
@@ -2110,6 +2110,11 @@ struct RasterCandidateRetirement {
 struct RasterConvergenceShutdown {
     retirement: RasterCandidateRetirement,
     worker_error: Option<RasterConvergenceError>,
+}
+
+struct RasterHiddenRelease {
+    retirement: RasterCandidateRetirement,
+    restart_error: Option<RasterConvergenceError>,
 }
 
 impl RasterCandidateRetirement {
@@ -2810,19 +2815,37 @@ impl RasterConvergence {
         );
     }
 
-    fn take_hidden_resources_for_release(
+    fn take_hidden_resources_for_release(&mut self) -> RasterHiddenRelease {
+        self.take_hidden_resources_for_release_with_restart(|convergence| {
+            convergence.start_pending_preparation()
+        })
+    }
+
+    fn take_hidden_resources_for_release_with_restart(
         &mut self,
-    ) -> Result<Vec<RasterRegionGpuResources>, RasterConvergenceError> {
+        restart: impl FnOnce(&mut Self) -> Result<(), RasterConvergenceError>,
+    ) -> RasterHiddenRelease {
         let Some(candidate) = self.hidden_candidate.take() else {
-            return Ok(Vec::new());
+            return RasterHiddenRelease {
+                retirement: RasterCandidateRetirement {
+                    resources: Vec::new(),
+                },
+                restart_error: None,
+            };
         };
         let candidate_is_current = candidate.generation == self.required_generation
             && candidate.target.view.revision() == self.required_revision;
+        let mut restart_error = None;
         if candidate_is_current && self.active.is_none() && self.pending.is_none() {
             self.pending = Some(candidate.target);
-            self.start_pending_preparation()?;
+            restart_error = restart(self).err();
         }
-        Ok(candidate.successor_gpu_resources)
+        RasterHiddenRelease {
+            retirement: RasterCandidateRetirement {
+                resources: candidate.successor_gpu_resources,
+            },
+            restart_error,
+        }
     }
 
     fn shutdown(&mut self) -> RasterConvergenceShutdown {
@@ -3797,10 +3820,15 @@ impl RasterResourceError {
 
 impl RenderPath for RasterRenderPath {
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        let mut restart_error = None;
         if let Some(convergence) = &mut self.convergence {
-            for resources in convergence.take_hidden_resources_for_release()? {
-                release_raster_region_resources(&device, resources);
-            }
+            let hidden_release = convergence.take_hidden_resources_for_release();
+            unsafe {
+                hidden_release
+                    .retirement
+                    .release_after_gpu_completion(&device)
+            };
+            restart_error = hidden_release.restart_error;
         }
         self.release_resources(&device);
         if let Some(controller) = &self.lifecycle_control {
@@ -3809,6 +3837,9 @@ impl RenderPath for RasterRenderPath {
                 .lock()
                 .map_err(|_| RasterLifecycleControlError)?
                 .post_upload_revision = None;
+        }
+        if let Some(error) = restart_error {
+            return Err(Box::new(error));
         }
         Ok(())
     }
@@ -4746,11 +4777,42 @@ mod convergence_tests {
             Ok(fake_resources(region.identity().clone(), 80))
         })?;
 
-        let resources = convergence.take_hidden_resources_for_release()?;
-        assert_eq!(resources.len(), 1);
+        let release = convergence.take_hidden_resources_for_release();
+        assert_eq!(release.retirement.resource_count(), 1);
+        assert!(release.restart_error.is_none());
         assert!(convergence.hidden_candidate.is_none());
         assert!(convergence.active.is_some());
         assert!(convergence.pending.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn presentation_release_returns_hidden_retirement_when_restart_fails()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(220, 1)?;
+        let mut render_path = render_path(&frontend)?;
+        render_path.region_resources = render_path
+            .installed_regions()
+            .iter()
+            .map(|installation| fake_resources(installation.identity().clone(), 90))
+            .collect();
+        let mut convergence = RasterConvergence::from_visible(&render_path)?;
+        convergence.accept(changed(&frontend, 0)?)?;
+        wait_until_ready_without_draining(&mut convergence)?;
+        convergence.upload_ready_with_test_resources(&render_path, &mut |region| {
+            Ok(fake_resources(region.identity().clone(), 100))
+        })?;
+
+        let release = convergence.take_hidden_resources_for_release_with_restart(|_| {
+            Err(RasterConvergenceError::ResourceBookkeepingAllocation)
+        });
+        assert_eq!(release.retirement.resource_count(), 1);
+        assert!(matches!(
+            release.restart_error,
+            Some(RasterConvergenceError::ResourceBookkeepingAllocation)
+        ));
+        assert!(convergence.pending.is_some());
+        assert!(convergence.hidden_candidate.is_none());
         Ok(())
     }
 

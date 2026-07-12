@@ -642,7 +642,8 @@ function Invoke-InFlightCloseProof {
         [string]$StatePattern,
         [int]$StateTimeoutSeconds,
         [bool]$ExerciseLifecycle,
-        [bool]$RequireZeroResources
+        [bool]$RequireZeroResources,
+        [string]$RequiredOutputPattern = ""
     )
 
     $process = Start-DesktopDemoProcess -BinaryPath $BinaryPath -Arguments $Arguments
@@ -723,7 +724,7 @@ function Invoke-InFlightCloseProof {
     if ($RequireZeroResources -and $completion.StandardOutput -notmatch [Regex]::Escape("Render Path-owned raster resources after shutdown: 0")) {
         throw "The $Name process did not report zero Render Path-owned raster resources."
     }
-    if ($Name -eq "hidden-candidate-close" -and $completion.StandardOutput -notmatch [Regex]::Escape("Closing with post-upload hidden raster candidate: revision=2")) {
+    if ($RequiredOutputPattern -and $completion.StandardOutput -notmatch [Regex]::Escape($RequiredOutputPattern)) {
         throw "The $Name process did not close with the uploaded candidate still hidden."
     }
     [PSCustomObject]@{
@@ -940,7 +941,8 @@ try {
         -StatePattern "post-upload-held revision 2" `
         -StateTimeoutSeconds 30 `
         -ExerciseLifecycle $true `
-        -RequireZeroResources $true
+        -RequireZeroResources $true `
+        -RequiredOutputPattern "Closing with post-upload hidden raster candidate: revision=2"
 
     $demoProcess = Start-DesktopDemoProcess `
         -BinaryPath $binaryPath `
