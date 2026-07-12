@@ -37,6 +37,10 @@ impl VoxelSceneRevision {
     pub fn new(revision: u64) -> Self {
         Self(revision)
     }
+
+    pub fn checked_successor(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
 }
 
 impl fmt::Display for VoxelSceneRevision {

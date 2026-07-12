@@ -3,7 +3,7 @@ use render_backend::{
     PresentationConfigurationId, RenderPath, RenderPathAttachmentIdentity, RenderPathDeviceContext,
     RenderPathFrameContext, RenderPathResult, RenderPathTarget,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::io::Cursor;
 use std::mem::size_of;
@@ -12,8 +12,9 @@ use std::thread::{self, JoinHandle};
 
 use thiserror::Error;
 use voxel_frontend::{
-    VoxelCoordinate, VoxelExtent, VoxelFrontendError, VoxelMaterialId, VoxelRegion,
-    VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+    VoxelChangeSet, VoxelCoordinate, VoxelExtent, VoxelFrontendError, VoxelMaterialId, VoxelRegion,
+    VoxelSceneId, VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId,
+    VoxelVolumeMetadata,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -258,6 +259,7 @@ impl RasterVertex {
 
 #[derive(Clone, Debug)]
 pub struct RasterArtifact {
+    scene_identity: VoxelSceneId,
     source_revision: VoxelSceneRevision,
     volume_identity: Option<VoxelVolumeId>,
     vertices: Vec<RasterVertex>,
@@ -334,6 +336,23 @@ pub enum RasterRegionResourceOwnership {
 pub struct RasterRegionInstallation {
     identity: RasterRegionIdentity,
     resource_ownership: RasterRegionResourceOwnership,
+    installation_generation: u64,
+    gpu_resource_identity: Option<RasterRegionGpuResourceIdentity>,
+    activity: RasterRegionActivity,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RasterRegionGpuResourceIdentity {
+    region_identity: RasterRegionIdentity,
+    installation_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RasterRegionActivity {
+    scheduling_events: u64,
+    derivation_events: u64,
+    upload_events: u64,
+    replacement_events: u64,
 }
 
 impl RasterRegionInstallation {
@@ -344,6 +363,82 @@ impl RasterRegionInstallation {
     pub fn resource_ownership(&self) -> RasterRegionResourceOwnership {
         self.resource_ownership
     }
+
+    pub fn installation_generation(&self) -> u64 {
+        self.installation_generation
+    }
+
+    pub fn gpu_resource_identity(&self) -> Option<&RasterRegionGpuResourceIdentity> {
+        self.gpu_resource_identity.as_ref()
+    }
+
+    pub fn activity(&self) -> RasterRegionActivity {
+        self.activity
+    }
+}
+
+impl RasterRegionActivity {
+    pub fn scheduling_events(self) -> u64 {
+        self.scheduling_events
+    }
+
+    pub fn derivation_events(self) -> u64 {
+        self.derivation_events
+    }
+
+    pub fn upload_events(self) -> u64 {
+        self.upload_events
+    }
+
+    pub fn replacement_events(self) -> u64 {
+        self.replacement_events
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RasterAdjacentChangeMismatch {
+    SceneIdentity {
+        installed: Option<VoxelSceneId>,
+        change_set: VoxelSceneId,
+        successor_view: VoxelSceneId,
+    },
+    SuccessorRevision {
+        change_set: VoxelSceneRevision,
+        successor_view: VoxelSceneRevision,
+    },
+    PredecessorRevision {
+        installed: Option<VoxelSceneRevision>,
+        change_set: VoxelSceneRevision,
+    },
+    Adjacency {
+        installed: Option<VoxelSceneRevision>,
+        successor: VoxelSceneRevision,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RasterAdjacentChangeOutcome {
+    Applied {
+        scene_identity: VoxelSceneId,
+        predecessor_revision: VoxelSceneRevision,
+        successor_revision: VoxelSceneRevision,
+        affected_regions: Vec<RasterRegionIdentity>,
+    },
+    Inapplicable {
+        mismatches: Vec<RasterAdjacentChangeMismatch>,
+    },
+}
+
+#[derive(Debug, Error)]
+pub enum RasterAdjacentChangeError {
+    #[error(transparent)]
+    Derivation(#[from] RasterArtifactBuildError),
+    #[error("Raster Region installation generation overflow for {identity:?}")]
+    InstallationGenerationOverflow { identity: RasterRegionIdentity },
+    #[error("no complete raster artifact is installed")]
+    MissingInstallation,
+    #[error("the successor artifact is missing installed Raster Region {identity:?}")]
+    MissingSuccessorRegion { identity: RasterRegionIdentity },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -623,7 +718,31 @@ impl RasterRenderPath {
     pub fn install_artifact(&mut self, artifact: RasterArtifact) {
         self.expected_source_revision = Some(artifact.source_revision());
         self.installed_source_revision = Some(artifact.source_revision());
-        self.installed_regions = artifact.installation_records();
+        self.installed_regions = artifact
+            .regions()
+            .iter()
+            .map(|region| {
+                let gpu_resource_identity = if region.is_empty() {
+                    None
+                } else {
+                    Some(RasterRegionGpuResourceIdentity {
+                        region_identity: region.identity().clone(),
+                        installation_generation: 1,
+                    })
+                };
+                RasterRegionInstallation {
+                    identity: region.identity().clone(),
+                    resource_ownership: if region.is_empty() {
+                        RasterRegionResourceOwnership::None
+                    } else {
+                        RasterRegionResourceOwnership::VertexAndIndex
+                    },
+                    installation_generation: 1,
+                    gpu_resource_identity,
+                    activity: RasterRegionActivity::default(),
+                }
+            })
+            .collect();
         self.artifact = Some(artifact);
     }
 
@@ -634,9 +753,166 @@ impl RasterRenderPath {
     pub fn installed_regions(&self) -> &[RasterRegionInstallation] {
         &self.installed_regions
     }
+
+    pub fn installed_artifact(&self) -> Option<&RasterArtifact> {
+        self.artifact.as_ref()
+    }
+
+    pub fn apply_adjacent_change(
+        &mut self,
+        successor_view: &VoxelSceneView,
+        change_set: &VoxelChangeSet,
+        region_extent: VoxelExtent,
+    ) -> Result<RasterAdjacentChangeOutcome, RasterAdjacentChangeError> {
+        let mut mismatches = Vec::new();
+        let installed_scene_identity = self
+            .artifact
+            .as_ref()
+            .map(|artifact| &artifact.scene_identity);
+        if installed_scene_identity != Some(change_set.scene_identity())
+            || installed_scene_identity != Some(successor_view.scene_id())
+        {
+            mismatches.push(RasterAdjacentChangeMismatch::SceneIdentity {
+                installed: installed_scene_identity.cloned(),
+                change_set: change_set.scene_identity().clone(),
+                successor_view: successor_view.scene_id().clone(),
+            });
+        }
+        if change_set.successor_revision() != successor_view.revision() {
+            mismatches.push(RasterAdjacentChangeMismatch::SuccessorRevision {
+                change_set: change_set.successor_revision(),
+                successor_view: successor_view.revision(),
+            });
+        }
+        if self.installed_source_revision != Some(change_set.predecessor_revision()) {
+            mismatches.push(RasterAdjacentChangeMismatch::PredecessorRevision {
+                installed: self.installed_source_revision,
+                change_set: change_set.predecessor_revision(),
+            });
+        }
+        if self
+            .installed_source_revision
+            .and_then(VoxelSceneRevision::checked_successor)
+            != Some(change_set.successor_revision())
+        {
+            mismatches.push(RasterAdjacentChangeMismatch::Adjacency {
+                installed: self.installed_source_revision,
+                successor: change_set.successor_revision(),
+            });
+        }
+        if !mismatches.is_empty() {
+            return Ok(RasterAdjacentChangeOutcome::Inapplicable { mismatches });
+        }
+
+        let affected_region_identities =
+            affected_raster_region_identities(successor_view, change_set, region_extent)?;
+        let mut replacement_regions = HashMap::new();
+        let installed_artifact = self
+            .artifact
+            .as_ref()
+            .ok_or(RasterAdjacentChangeError::MissingInstallation)?;
+        for region in installed_artifact
+            .regions()
+            .iter()
+            .filter(|region| affected_region_identities.contains(region.identity()))
+        {
+            let metadata = successor_view
+                .volumes()
+                .iter()
+                .find(|metadata| metadata.identity() == region.identity().volume_identity())
+                .ok_or_else(|| {
+                    build_error(
+                        successor_view.revision(),
+                        RasterArtifactBuildPhase::Metadata,
+                        RasterArtifactBuildCause::UnknownVolume(
+                            region.identity().volume_identity().clone(),
+                        ),
+                    )
+                })?;
+            replacement_regions.insert(
+                region.identity().clone(),
+                derive_raster_region(successor_view, metadata, region.core())?,
+            );
+        }
+
+        let mut successor_regions = installed_artifact.regions().to_vec();
+        for region in &mut successor_regions {
+            if let Some(replacement) = replacement_regions.remove(region.identity()) {
+                *region = replacement;
+            }
+        }
+        let successor_artifact = assemble_raster_artifact(
+            successor_view.scene_id().clone(),
+            successor_view.revision(),
+            successor_regions,
+        )?;
+
+        let mut successor_installations = self.installed_regions.clone();
+        for installation in &mut successor_installations {
+            if !affected_region_identities.contains(installation.identity()) {
+                installation.activity = RasterRegionActivity::default();
+                continue;
+            }
+            let successor_region = successor_artifact
+                .regions()
+                .iter()
+                .find(|region| region.identity() == installation.identity())
+                .ok_or_else(|| RasterAdjacentChangeError::MissingSuccessorRegion {
+                    identity: installation.identity().clone(),
+                })?;
+            installation.installation_generation = installation
+                .installation_generation
+                .checked_add(1)
+                .ok_or_else(
+                    || RasterAdjacentChangeError::InstallationGenerationOverflow {
+                        identity: installation.identity().clone(),
+                    },
+                )?;
+            installation.resource_ownership = if successor_region.is_empty() {
+                RasterRegionResourceOwnership::None
+            } else {
+                RasterRegionResourceOwnership::VertexAndIndex
+            };
+            installation.gpu_resource_identity = if successor_region.is_empty() {
+                None
+            } else {
+                Some(RasterRegionGpuResourceIdentity {
+                    region_identity: installation.identity().clone(),
+                    installation_generation: installation.installation_generation,
+                })
+            };
+            installation.activity = RasterRegionActivity {
+                scheduling_events: 1,
+                derivation_events: 1,
+                upload_events: 1,
+                replacement_events: 1,
+            };
+        }
+
+        let affected_regions = successor_artifact
+            .regions()
+            .iter()
+            .filter(|region| affected_region_identities.contains(region.identity()))
+            .map(|region| region.identity().clone())
+            .collect();
+        self.expected_source_revision = Some(successor_view.revision());
+        self.installed_source_revision = Some(successor_view.revision());
+        self.installed_regions = successor_installations;
+        self.artifact = Some(successor_artifact);
+        Ok(RasterAdjacentChangeOutcome::Applied {
+            scene_identity: successor_view.scene_id().clone(),
+            predecessor_revision: change_set.predecessor_revision(),
+            successor_revision: successor_view.revision(),
+            affected_regions,
+        })
+    }
 }
 
 impl RasterArtifact {
+    pub fn scene_identity(&self) -> &VoxelSceneId {
+        &self.scene_identity
+    }
+
     pub fn source_revision(&self) -> VoxelSceneRevision {
         self.source_revision
     }
@@ -677,20 +953,6 @@ impl RasterArtifact {
 
     pub fn regions(&self) -> &[RasterRegionResult] {
         &self.regions
-    }
-
-    fn installation_records(&self) -> Vec<RasterRegionInstallation> {
-        self.regions
-            .iter()
-            .map(|region| RasterRegionInstallation {
-                identity: region.identity.clone(),
-                resource_ownership: if region.is_empty() {
-                    RasterRegionResourceOwnership::None
-                } else {
-                    RasterRegionResourceOwnership::VertexAndIndex
-                },
-            })
-            .collect()
     }
 }
 
@@ -907,7 +1169,13 @@ pub fn derive_raster_artifact(
         }
     }
 
-    build_geometry(source_revision, volume_identity, metadata, pending_faces)
+    build_geometry(
+        view.scene_id(),
+        source_revision,
+        volume_identity,
+        metadata,
+        pending_faces,
+    )
 }
 
 pub fn derive_raster_regions(
@@ -968,7 +1236,128 @@ pub fn derive_raster_regions(
                 .ok_or_else(|| metadata_dimensions_error(source_revision))?;
         }
     }
-    assemble_raster_artifact(source_revision, regions)
+    assemble_raster_artifact(view.scene_id().clone(), source_revision, regions)
+}
+
+fn affected_raster_region_identities(
+    view: &VoxelSceneView,
+    change_set: &VoxelChangeSet,
+    region_extent: VoxelExtent,
+) -> Result<HashSet<RasterRegionIdentity>, RasterArtifactBuildError> {
+    let source_revision = view.revision();
+    let [region_width, region_height, region_depth] = region_extent.dimensions();
+    if region_width == 0 || region_height == 0 || region_depth == 0 {
+        return Err(build_error(
+            source_revision,
+            RasterArtifactBuildPhase::Metadata,
+            RasterArtifactBuildCause::EmptyRasterRegionExtent,
+        ));
+    }
+    let region_dimensions = [region_width, region_height, region_depth];
+    let mut affected = HashSet::new();
+    for changed_region in change_set.changed_regions() {
+        let metadata = view
+            .volumes()
+            .iter()
+            .find(|metadata| metadata.identity() == changed_region.volume_identity())
+            .ok_or_else(|| {
+                build_error(
+                    source_revision,
+                    RasterArtifactBuildPhase::Metadata,
+                    RasterArtifactBuildCause::UnknownVolume(
+                        changed_region.volume_identity().clone(),
+                    ),
+                )
+            })?;
+        let [origin_x, origin_y, origin_z] = changed_region.region().origin().components();
+        let [width, height, depth] = changed_region.region().extent().dimensions();
+        for z_offset in 0..depth {
+            for y_offset in 0..height {
+                for x_offset in 0..width {
+                    let coordinate = VoxelCoordinate::new(
+                        origin_x
+                            .checked_add(
+                                i32::try_from(x_offset)
+                                    .map_err(|_| metadata_dimensions_error(source_revision))?,
+                            )
+                            .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+                        origin_y
+                            .checked_add(
+                                i32::try_from(y_offset)
+                                    .map_err(|_| metadata_dimensions_error(source_revision))?,
+                            )
+                            .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+                        origin_z
+                            .checked_add(
+                                i32::try_from(z_offset)
+                                    .map_err(|_| metadata_dimensions_error(source_revision))?,
+                            )
+                            .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+                    );
+                    for offset in [
+                        [0, 0, 0],
+                        [-1, 0, 0],
+                        [1, 0, 0],
+                        [0, -1, 0],
+                        [0, 1, 0],
+                        [0, 0, -1],
+                        [0, 0, 1],
+                    ] {
+                        let [x, y, z] = coordinate.components();
+                        let Some(x) = x.checked_add(offset[0]) else {
+                            continue;
+                        };
+                        let Some(y) = y.checked_add(offset[1]) else {
+                            continue;
+                        };
+                        let Some(z) = z.checked_add(offset[2]) else {
+                            continue;
+                        };
+                        let neighbor = [x, y, z];
+                        let [volume_width, volume_height, volume_depth] =
+                            metadata.extent().dimensions();
+                        let volume_dimensions = [volume_width, volume_height, volume_depth];
+                        if neighbor
+                            .iter()
+                            .zip(volume_dimensions)
+                            .any(|(component, dimension)| {
+                                *component < 0
+                                    || u32::try_from(*component)
+                                        .map_or(true, |component| component >= dimension)
+                            })
+                        {
+                            continue;
+                        }
+                        let core_components = neighbor
+                            .into_iter()
+                            .zip(region_dimensions)
+                            .map(|(component, dimension)| {
+                                u32::try_from(component)
+                                    .ok()
+                                    .and_then(|component| {
+                                        component
+                                            .checked_div(dimension)
+                                            .and_then(|index| index.checked_mul(dimension))
+                                    })
+                                    .and_then(|origin| i32::try_from(origin).ok())
+                            })
+                            .collect::<Option<Vec<_>>>();
+                        let Some(core_components) = core_components else {
+                            return Err(metadata_dimensions_error(source_revision));
+                        };
+                        let [core_x, core_y, core_z] = core_components.as_slice() else {
+                            return Err(metadata_dimensions_error(source_revision));
+                        };
+                        affected.insert(RasterRegionIdentity {
+                            volume_identity: changed_region.volume_identity().clone(),
+                            core_origin: VoxelCoordinate::new(*core_x, *core_y, *core_z),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    Ok(affected)
 }
 
 fn derive_raster_region(
@@ -1097,6 +1486,7 @@ fn derive_raster_region(
         }
     }
     let artifact = build_geometry(
+        view.scene_id(),
         source_revision,
         metadata.identity(),
         metadata,
@@ -1118,6 +1508,7 @@ fn derive_raster_region(
 }
 
 fn assemble_raster_artifact(
+    scene_identity: VoxelSceneId,
     source_revision: VoxelSceneRevision,
     regions: Vec<RasterRegionResult>,
 ) -> Result<RasterArtifact, RasterArtifactBuildError> {
@@ -1146,6 +1537,7 @@ fn assemble_raster_artifact(
         .checked_mul(size_of::<u32>())
         .ok_or_else(|| geometry_overflow(source_revision))?;
     Ok(RasterArtifact {
+        scene_identity,
         source_revision,
         volume_identity: None,
         vertices,
@@ -1410,6 +1802,7 @@ impl RasterArtifactPreparation {
 }
 
 fn build_geometry(
+    scene_identity: &VoxelSceneId,
     source_revision: VoxelSceneRevision,
     volume_identity: &VoxelVolumeId,
     metadata: &VoxelVolumeMetadata,
@@ -1501,6 +1894,7 @@ fn build_geometry(
         semantic_faces: semantic_faces.clone(),
     };
     Ok(RasterArtifact {
+        scene_identity: scene_identity.clone(),
         source_revision,
         volume_identity: Some(volume_identity.clone()),
         vertices,
@@ -1882,6 +2276,18 @@ impl RasterRenderPath {
                 } else {
                     RasterRegionResourceOwnership::None
                 },
+                installation_generation: 1,
+                gpu_resource_identity: if self.region_resources.iter().any(|resources| {
+                    resources.identity == *region.identity() && resources.index_count > 0
+                }) {
+                    Some(RasterRegionGpuResourceIdentity {
+                        region_identity: region.identity().clone(),
+                        installation_generation: 1,
+                    })
+                } else {
+                    None
+                },
+                activity: RasterRegionActivity::default(),
             })
             .collect();
         if let Some(installer) = &self.installation {
