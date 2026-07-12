@@ -8,8 +8,8 @@ use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionI
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
-    RasterCameraController, RasterPreparationBarrier, RasterPreparationBarrierRelease,
-    RasterRenderPath,
+    RasterCameraController, RasterLifecycleController, RasterPreparationBarrier,
+    RasterPreparationBarrierRelease, RasterRenderPath,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -29,9 +29,9 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
 use voxel_frontend::{
-    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
-    VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelSceneRevision,
-    VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelEditCommand,
+    VoxelExtent, VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId,
+    VoxelSceneRevision, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
 };
 #[cfg(target_os = "windows")]
 use windows_adapter::{WindowsPresentationAdapter, set_measurement_extent};
@@ -89,6 +89,7 @@ struct DesktopRenderConfiguration {
     scene: DesktopSceneSelection,
     camera: DesktopCameraSelection,
     hold_background_preparation: bool,
+    hold_post_upload_candidate: bool,
     inject_raster_upload_failure: bool,
     measurement: Option<MeasurementConfiguration>,
 }
@@ -137,6 +138,7 @@ fn parse_render_configuration(
     let mut camera_was_selected = false;
     let mut report_only = false;
     let mut hold_background_preparation = false;
+    let mut hold_post_upload_candidate = false;
     let mut inject_raster_upload_failure = false;
     let mut measurement_mode = None;
     let mut measurement_output = None;
@@ -144,6 +146,7 @@ fn parse_render_configuration(
         match argument.as_str() {
             "--report-canonical-configuration" => report_only = true,
             "--hold-background-preparation" => hold_background_preparation = true,
+            "--hold-post-upload-candidate" => hold_post_upload_candidate = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
             "--winding-diagnostic" => {
                 if scene_was_selected {
@@ -269,6 +272,7 @@ fn parse_render_configuration(
             scene,
             camera,
             hold_background_preparation,
+            hold_post_upload_candidate,
             inject_raster_upload_failure,
             measurement,
         },
@@ -599,6 +603,11 @@ struct DesktopApplication {
     drawable_extent: ash::vk::Extent2D,
     measurement: Option<MeasurementSession>,
     occupied_voxels: u64,
+    frontend: Option<VoxelFrontend>,
+    lifecycle_controller: Option<RasterLifecycleController>,
+    lifecycle_edit: Option<VoxelEditCommand>,
+    post_upload_hold_reported: bool,
+    last_presented_camera: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -640,6 +649,11 @@ impl DesktopApplication {
             drawable_extent: ash::vk::Extent2D::default(),
             measurement,
             occupied_voxels: 0,
+            frontend: None,
+            lifecycle_controller: None,
+            lifecycle_edit: None,
+            post_upload_hold_reported: false,
+            last_presented_camera: None,
         })
     }
 
@@ -652,6 +666,15 @@ impl DesktopApplication {
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: impl ToString) {
         self.application_error = Some(error.to_string());
         event_loop.exit();
+    }
+
+    fn record_close_error(&mut self, error: impl ToString) {
+        let error = error.to_string();
+        if self.application_error.is_none() {
+            self.application_error = Some(error);
+        } else {
+            eprintln!("additional error during desktop close: {error}");
+        }
     }
 
     fn set_drawable_extent(&mut self, drawable_extent: ash::vk::Extent2D) {
@@ -669,6 +692,21 @@ impl DesktopApplication {
                     "Desktop lifecycle serviced while preparation paused: resize={}x{}",
                     drawable_extent.width, drawable_extent.height
                 );
+            }
+        }
+        if self.render_configuration.hold_post_upload_candidate {
+            if drawable_extent.width == 0 || drawable_extent.height == 0 {
+                println!("Desktop lifecycle serviced while post-upload candidate held: suspended");
+                self.set_status("post-upload-held suspended");
+            } else {
+                println!(
+                    "Desktop lifecycle serviced while post-upload candidate held: resize={}x{}",
+                    drawable_extent.width, drawable_extent.height
+                );
+                self.set_status(&format!(
+                    "post-upload-held lifecycle-responsive {}x{}",
+                    drawable_extent.width, drawable_extent.height
+                ));
             }
         }
         if drawable_extent.width > 0
@@ -830,6 +868,27 @@ impl DesktopApplication {
             measurement.installation_at = Some(installation_at);
         }
         println!("Raster artifact installed: revision={installed_revision} count=1");
+        if let Some(command) = self.lifecycle_edit.take() {
+            let outcome = match self.frontend.as_ref() {
+                Some(frontend) => match frontend.edit(command) {
+                    Ok(outcome) => outcome,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                },
+                None => {
+                    self.fail(event_loop, "the lifecycle Voxel Frontend is unavailable");
+                    return;
+                }
+            };
+            if let Some(controller) = &self.lifecycle_controller
+                && let Err(error) = controller.submit(outcome)
+            {
+                self.fail(event_loop, error);
+                return;
+            }
+        }
         self.set_status(&format!("artifact-ready revision {installed_revision}"));
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -972,7 +1031,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
         };
         self.occupied_voxels = occupied_voxels;
-        let view = match VoxelFrontend::new().publish(scene) {
+        let frontend = VoxelFrontend::new();
+        let view = match frontend.publish(scene) {
             Ok(view) => view,
             Err(error) => {
                 self.application_error = Some(format!(
@@ -982,6 +1042,41 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 return;
             }
         };
+        if self.render_configuration.hold_post_upload_candidate {
+            let volume_identity = VoxelVolumeId::new("canonical-volume");
+            let coordinate = VoxelCoordinate::new(0, 0, 0);
+            let sample = match view.read_region(
+                &volume_identity,
+                VoxelRegion::new(coordinate, VoxelExtent::new(1, 1, 1)),
+            ) {
+                Ok(samples) => match samples.first() {
+                    Some(sample) => sample.value().clone(),
+                    None => {
+                        self.application_error = Some(
+                            "the post-upload lifecycle edit coordinate had no Voxel Sample"
+                                .to_owned(),
+                        );
+                        event_loop.exit();
+                        return;
+                    }
+                },
+                Err(error) => {
+                    self.application_error = Some(error.to_string());
+                    event_loop.exit();
+                    return;
+                }
+            };
+            let requested = match sample {
+                VoxelValue::Empty => VoxelValue::Occupied(VoxelMaterialId::new("canonical-warm")),
+                VoxelValue::Occupied(_) => VoxelValue::Empty,
+            };
+            self.lifecycle_edit = Some(VoxelEditCommand::new(
+                volume_identity,
+                coordinate,
+                requested,
+            ));
+        }
+        self.frontend = Some(frontend);
         let published_revision = view.revision();
         if let Some(measurement) = &mut self.measurement {
             let publication_at = Instant::now();
@@ -1002,11 +1097,19 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 return;
             }
         }
-        let (render_path, artifact_installer, camera_controller) =
+        let (mut render_path, artifact_installer, camera_controller) =
             RasterRenderPath::awaiting_artifact_with_camera_control(
                 self.render_configuration.camera_pose(),
                 published_revision,
             );
+        if self.render_configuration.hold_post_upload_candidate
+            || self.render_configuration.hold_background_preparation
+        {
+            self.lifecycle_controller = Some(
+                render_path
+                    .enable_lifecycle_control(self.render_configuration.hold_post_upload_candidate),
+            );
+        }
         if self.render_configuration.inject_raster_upload_failure
             && let Err(error) = artifact_installer.inject_next_upload_failure()
         {
@@ -1127,17 +1230,49 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 if let Some(release) = self.preparation_release.take()
                     && let Err(error) = release.release()
                 {
-                    self.application_error = Some(error.to_string());
+                    self.record_close_error(error);
                 }
                 if let Some(mut preparation) = self.preparation.take()
                     && let Err(error) = preparation.cancel_and_join()
                 {
-                    self.application_error = Some(error.to_string());
+                    self.record_close_error(error);
+                }
+                if self.render_configuration.hold_post_upload_candidate {
+                    match self
+                        .lifecycle_controller
+                        .as_ref()
+                        .map(RasterLifecycleController::post_upload_revision)
+                        .transpose()
+                    {
+                        Ok(Some(Some(revision))) => {
+                            println!(
+                                "Closing with post-upload hidden raster candidate: revision={revision}"
+                            );
+                        }
+                        Ok(_) => self.record_close_error(
+                            "desktop close did not retain the required post-upload hidden candidate",
+                        ),
+                        Err(error) => self.record_close_error(error),
+                    }
                 }
                 if let Some(backend) = &mut self.backend
                     && let Err(error) = backend.shutdown()
                 {
-                    self.application_error = Some(error.to_string());
+                    self.record_close_error(error);
+                }
+                if let Some(controller) = &self.lifecycle_controller {
+                    match controller.shutdown_owned_resource_count() {
+                        Ok(Some(0)) => {
+                            println!("Render Path-owned raster resources after shutdown: 0");
+                        }
+                        Ok(Some(count)) => self.record_close_error(format!(
+                            "Render Path shutdown retained {count} owned raster resources"
+                        )),
+                        Ok(None) => self.record_close_error(
+                            "Render Path shutdown did not report owned raster resource disposal",
+                        ),
+                        Err(error) => self.record_close_error(error),
+                    }
                 }
                 event_loop.exit();
             }
@@ -1365,6 +1500,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         if let Some(camera) = self.pending_camera_report.take() {
                             println!("Canonical camera presented: camera={camera}");
                             self.set_status(&format!("camera-presented {camera}"));
+                            self.last_presented_camera = Some(camera);
                         }
                         if self.preparation_is_paused {
                             self.set_status(&format!(
@@ -1373,6 +1509,36 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             ));
                         }
                         self.advance_camera_move(event_loop);
+                        if let Some(controller) = &self.lifecycle_controller {
+                            match controller.post_upload_revision() {
+                                Ok(Some(revision)) => {
+                                    if !self.post_upload_hold_reported {
+                                        println!(
+                                            "Post-upload raster candidate held: revision={revision}"
+                                        );
+                                        let status = match &self.last_presented_camera {
+                                            Some(camera) => format!(
+                                                "camera-presented {camera} post-upload-held revision {revision}"
+                                            ),
+                                            None => {
+                                                format!("post-upload-held revision {revision}")
+                                            }
+                                        };
+                                        self.set_status(&status);
+                                        self.post_upload_hold_reported = true;
+                                    }
+                                }
+                                Ok(None) => {
+                                    self.post_upload_hold_reported = false;
+                                    if let Some(window) = &self.window {
+                                        window.request_redraw();
+                                    }
+                                }
+                                Err(error) => {
+                                    self.fail(event_loop, error);
+                                }
+                            }
+                        }
                     }
                     FrameOutcome::Recreate => {
                         self.presentation_retry_at = None;

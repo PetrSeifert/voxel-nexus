@@ -634,6 +634,107 @@ function Complete-DesktopDemoProcess {
     }
 }
 
+function Invoke-InFlightCloseProof {
+    param(
+        [string]$BinaryPath,
+        [string]$Name,
+        [string[]]$Arguments,
+        [string]$StatePattern,
+        [int]$StateTimeoutSeconds,
+        [bool]$ExerciseLifecycle,
+        [bool]$RequireZeroResources
+    )
+
+    $process = Start-DesktopDemoProcess -BinaryPath $BinaryPath -Arguments $Arguments
+    $window = Wait-ForWindow -Process $process
+    Wait-ForWindowTitle `
+        -Process $process `
+        -Window $window `
+        -Pattern $StatePattern `
+        -TimeoutSeconds $StateTimeoutSeconds | Out-Null
+    if ($ExerciseLifecycle) {
+        foreach ($extent in @(
+            [PSCustomObject]@{ Width = 1100; Height = 700 },
+            [PSCustomObject]@{ Width = 650; Height = 900 }
+        )) {
+            $moved = $false
+            for ($attempt = 0; $attempt -lt 20 -and -not $moved; $attempt++) {
+                $moved = [LifecycleWindow]::MoveWindow(
+                    $window,
+                    100,
+                    100,
+                    $extent.Width,
+                    $extent.Height,
+                    $true
+                )
+                if (-not $moved) {
+                    Start-Sleep -Milliseconds 100
+                }
+            }
+            if (-not $moved) {
+                throw "Could not resize the $Name process."
+            }
+            Start-Sleep -Seconds 1
+        }
+        Wait-ForWindowTitle `
+            -Process $process `
+            -Window $window `
+            -Pattern "post-upload-held" | Out-Null
+        [LifecycleWindow]::ShowWindowAsync($window, [LifecycleWindow]::ShowMinimized) | Out-Null
+        $minimizeDeadline = [DateTime]::UtcNow.AddSeconds(10)
+        while (-not [LifecycleWindow]::IsIconic($window) -and [DateTime]::UtcNow -lt $minimizeDeadline) {
+            Start-Sleep -Milliseconds 50
+        }
+        if (-not [LifecycleWindow]::IsIconic($window)) {
+            throw "The $Name process did not minimize within 10 seconds."
+        }
+        $suspendedTitle = Wait-ForWindowTitle `
+            -Process $process `
+            -Window $window `
+            -Pattern "post-upload-held suspended"
+        [LifecycleWindow]::ShowWindowAsync($window, [LifecycleWindow]::ShowRestored) | Out-Null
+        $restoreDeadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ([LifecycleWindow]::IsIconic($window) -and [DateTime]::UtcNow -lt $restoreDeadline) {
+            Start-Sleep -Milliseconds 50
+        }
+        if ([LifecycleWindow]::IsIconic($window)) {
+            throw "The $Name process did not restore within 10 seconds."
+        }
+        Wait-ForWindowTitle `
+            -Process $process `
+            -Window $window `
+            -Pattern "post-upload-held lifecycle-responsive" `
+            -PreviousTitle $suspendedTitle | Out-Null
+        Send-DesktopVerificationEvent `
+            -Window $window `
+            -Message ([LifecycleWindow]::OverviewCameraMessage) `
+            -Name "$Name overview camera"
+        Wait-ForWindowTitle `
+            -Process $process `
+            -Window $window `
+            -Pattern "camera-presented overview" | Out-Null
+    }
+    $completion = Complete-DesktopDemoProcess `
+        -Process $process `
+        -Window $window `
+        -Name $Name `
+        -StandardOutputFile "$Name.stdout.log" `
+        -StandardErrorFile "$Name.stderr.log"
+    if ($RequireZeroResources -and $completion.StandardOutput -notmatch [Regex]::Escape("Render Path-owned raster resources after shutdown: 0")) {
+        throw "The $Name process did not report zero Render Path-owned raster resources."
+    }
+    if ($Name -eq "hidden-candidate-close" -and $completion.StandardOutput -notmatch [Regex]::Escape("Closing with post-upload hidden raster candidate: revision=2")) {
+        throw "The $Name process did not close with the uploaded candidate still hidden."
+    }
+    [PSCustomObject]@{
+        ExitCode = $completion.ExitCode
+        ValidationWarnings = $completion.ValidationWarnings
+        ValidationErrors = $completion.ValidationErrors
+        StandardOutput = "$Name.stdout.log"
+        StandardError = "$Name.stderr.log"
+    }
+}
+
 function Capture-AdditionalPresentation {
     param(
         [string]$BinaryPath,
@@ -823,6 +924,23 @@ try {
     if ($uploadInstallationFailure.ExitCode -ne 1 -or $uploadInstallationFailure.StandardError -match "panicked") {
         throw "Raster upload/install failure did not terminate cleanly."
     }
+
+    $activeCpuClose = Invoke-InFlightCloseProof `
+        -BinaryPath $binaryPath `
+        -Name "active-cpu-close" `
+        -Arguments @("--scene-scale", "64", "--hold-background-preparation") `
+        -StatePattern "preparation-paused revision 1" `
+        -StateTimeoutSeconds 10 `
+        -ExerciseLifecycle $false `
+        -RequireZeroResources $true
+    $hiddenCandidateClose = Invoke-InFlightCloseProof `
+        -BinaryPath $binaryPath `
+        -Name "hidden-candidate-close" `
+        -Arguments @("--scene-scale", "64", "--hold-post-upload-candidate") `
+        -StatePattern "post-upload-held revision 2" `
+        -StateTimeoutSeconds 30 `
+        -ExerciseLifecycle $true `
+        -RequireZeroResources $true
 
     $demoProcess = Start-DesktopDemoProcess `
         -BinaryPath $binaryPath `
@@ -1135,6 +1253,10 @@ try {
             StandardError = "raster-install-upload.stderr.log"
         }
         RenderPathFailures = $renderPathFailures
+        InFlightCloseProofs = [ordered]@{
+            ActiveCpu = $activeCpuClose
+            HiddenCandidate = $hiddenCandidateClose
+        }
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 (Join-Path $evidencePath "manifest.json")
     Write-Host "Windows lifecycle proof passed. Evidence: $evidencePath"

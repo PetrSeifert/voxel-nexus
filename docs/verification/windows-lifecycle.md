@@ -42,6 +42,8 @@ One validation-enabled `desktop-demo.exe` process is kept alive while the runner
 5. sends a normal window-close request and requires exit code 0 within ten seconds; and
 6. requires zero Vulkan validation warnings and zero Vulkan validation errors in the complete stderr log.
 
+The runner also performs two validation-enabled, watchdog-bounded normal-close proofs. One closes while the initial CPU preparation worker is held. The other holds a real uploaded Raster Convergence candidate before commit, exercises landscape and portrait resize, zero-size suspension, minimize, restore, presentation recreation, and a camera acknowledgement, then closes while the candidate is still hidden. Both runs require exit code zero, zero Render Path-owned raster resources after shutdown, and zero validation warnings or errors.
+
 The application event loop waits when it has no work. Worker arrival and completion, barrier release, camera selection, and camera-move progression wake it with explicit events; no timing sleep or redraw spin is part of the synchronization protocol.
 
 With `-CaptureCanonicalInspectionSet`, three additional validation-enabled processes render the same generated 256×128×256 Voxel Scene at the cavity/material pose, boundary-cutaway pose, and step 60 of the fixed 120-step overview-to-cavity move. Each process retains a tolerant same-run pair, exits normally, and records zero validation findings. The manifest records generator identity and version, seed, dimensions, origin, voxel size, material catalogue, occupied and exposed-face counts, surface bound, and every exact camera parameter.

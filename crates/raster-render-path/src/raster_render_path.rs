@@ -535,6 +535,57 @@ pub struct RasterCameraController {
     camera_pose: Arc<Mutex<CameraPose>>,
 }
 
+struct RasterLifecycleControlState {
+    pending_outcomes: VecDeque<VoxelEditOutcome>,
+    post_upload_held: bool,
+    post_upload_revision: Option<VoxelSceneRevision>,
+    shutdown_owned_resource_count: Option<usize>,
+}
+
+#[derive(Clone)]
+pub struct RasterLifecycleController {
+    state: Arc<Mutex<RasterLifecycleControlState>>,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[error("the raster lifecycle control state is unavailable")]
+pub struct RasterLifecycleControlError;
+
+impl RasterLifecycleController {
+    pub fn submit(&self, outcome: VoxelEditOutcome) -> Result<(), RasterLifecycleControlError> {
+        self.state
+            .lock()
+            .map_err(|_| RasterLifecycleControlError)?
+            .pending_outcomes
+            .push_back(outcome);
+        Ok(())
+    }
+
+    pub fn post_upload_revision(
+        &self,
+    ) -> Result<Option<VoxelSceneRevision>, RasterLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|state| state.post_upload_revision)
+            .map_err(|_| RasterLifecycleControlError)
+    }
+
+    pub fn release_post_upload(&self) -> Result<(), RasterLifecycleControlError> {
+        let mut state = self.state.lock().map_err(|_| RasterLifecycleControlError)?;
+        state.post_upload_held = false;
+        Ok(())
+    }
+
+    pub fn shutdown_owned_resource_count(
+        &self,
+    ) -> Result<Option<usize>, RasterLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|state| state.shutdown_owned_resource_count)
+            .map_err(|_| RasterLifecycleControlError)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 #[error("the raster camera control state is unavailable")]
 pub struct RasterCameraControlError;
@@ -674,6 +725,7 @@ pub struct RasterRenderPath {
     camera_constants: [f32; 16],
     installed_regions: Vec<RasterRegionInstallation>,
     convergence: Option<RasterConvergence>,
+    lifecycle_control: Option<RasterLifecycleController>,
 }
 
 impl Default for RasterRenderPath {
@@ -707,6 +759,7 @@ impl Default for RasterRenderPath {
             camera_constants: [0.0; 16],
             installed_regions: Vec::new(),
             convergence: None,
+            lifecycle_control: None,
         }
     }
 }
@@ -765,6 +818,22 @@ impl RasterRenderPath {
 
     pub fn camera_pose(&self) -> Result<CameraPose, RasterCameraControlError> {
         self.camera_control.pose()
+    }
+
+    pub fn enable_lifecycle_control(
+        &mut self,
+        hold_post_upload: bool,
+    ) -> RasterLifecycleController {
+        let controller = RasterLifecycleController {
+            state: Arc::new(Mutex::new(RasterLifecycleControlState {
+                pending_outcomes: VecDeque::new(),
+                post_upload_held: hold_post_upload,
+                post_upload_revision: None,
+                shutdown_owned_resource_count: None,
+            })),
+        };
+        self.lifecycle_control = Some(controller.clone());
+        controller
     }
 
     pub fn install_artifact(&mut self, artifact: RasterArtifact) {
@@ -848,11 +917,44 @@ impl RasterRenderPath {
         &mut self,
         device: Option<&RenderPathDeviceContext<'_>>,
     ) -> Result<(), RasterConvergenceError> {
+        if let Some(controller) = &self.lifecycle_control {
+            let outcomes = {
+                let mut state = controller
+                    .state
+                    .lock()
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+                state.pending_outcomes.drain(..).collect::<Vec<_>>()
+            };
+            if !outcomes.is_empty() && self.convergence.is_none() {
+                self.begin_convergence()?;
+            }
+            for outcome in outcomes {
+                self.accept_edit_outcome(outcome)?;
+            }
+        }
         let Some(mut convergence) = self.convergence.take() else {
             return Ok(());
         };
         let result = (|| {
-            convergence.upload_ready_with_optional_device(device, self)?;
+            let upload = convergence.upload_ready_with_optional_device(device, self)?;
+            if matches!(
+                upload,
+                RasterConvergenceUpload::Uploaded { .. }
+                    | RasterConvergenceUpload::CandidateAlreadyRetained { .. }
+            ) && let Some(controller) = &self.lifecycle_control
+            {
+                let mut state = controller
+                    .state
+                    .lock()
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+                if state.post_upload_held {
+                    state.post_upload_revision = convergence
+                        .hidden_candidate
+                        .as_ref()
+                        .map(|candidate| candidate.target.view.revision());
+                    return Ok(());
+                }
+            }
             let commit = convergence.commit_at_frame_boundary(self)?;
             let retirement = match commit {
                 RasterConvergenceCommit::NoCandidate => return Ok(()),
@@ -2005,6 +2107,11 @@ struct RasterCandidateRetirement {
     resources: Vec<RasterRegionGpuResources>,
 }
 
+struct RasterConvergenceShutdown {
+    retirement: RasterCandidateRetirement,
+    worker_error: Option<RasterConvergenceError>,
+}
+
 impl RasterCandidateRetirement {
     fn resource_count(&self) -> usize {
         self.resources.len()
@@ -2085,6 +2192,8 @@ pub enum RasterConvergenceError {
     MissingConfiguredRegion { identity: RasterRegionIdentity },
     #[error("Raster candidate resource bookkeeping could not be allocated")]
     ResourceBookkeepingAllocation,
+    #[error("the Raster Convergence lifecycle control state is unavailable")]
+    LifecycleControlUnavailable,
     #[error("GPU upload failed for Raster Region {identity:?}: {source}")]
     Upload {
         identity: RasterRegionIdentity,
@@ -2701,19 +2810,22 @@ impl RasterConvergence {
         );
     }
 
-    fn take_hidden_resources_for_release(&mut self) -> Vec<RasterRegionGpuResources> {
+    fn take_hidden_resources_for_release(
+        &mut self,
+    ) -> Result<Vec<RasterRegionGpuResources>, RasterConvergenceError> {
         let Some(candidate) = self.hidden_candidate.take() else {
-            return Vec::new();
+            return Ok(Vec::new());
         };
         let candidate_is_current = candidate.generation == self.required_generation
             && candidate.target.view.revision() == self.required_revision;
         if candidate_is_current && self.active.is_none() && self.pending.is_none() {
             self.pending = Some(candidate.target);
+            self.start_pending_preparation()?;
         }
-        candidate.successor_gpu_resources
+        Ok(candidate.successor_gpu_resources)
     }
 
-    fn shutdown(&mut self) -> Result<RasterCandidateRetirement, RasterConvergenceError> {
+    fn shutdown(&mut self) -> RasterConvergenceShutdown {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
@@ -2725,15 +2837,19 @@ impl RasterConvergence {
             .take()
             .map(|candidate| candidate.successor_gpu_resources)
             .unwrap_or_default();
+        let mut worker_error = None;
         if let Some(mut active) = active {
             let revision = active.target.view.revision();
             if let Some(worker) = active.worker.take()
                 && worker.join().is_err()
             {
-                return Err(RasterConvergenceError::PreparationTerminated { revision });
+                worker_error = Some(RasterConvergenceError::PreparationTerminated { revision });
             }
         }
-        Ok(RasterCandidateRetirement { resources })
+        RasterConvergenceShutdown {
+            retirement: RasterCandidateRetirement { resources },
+            worker_error,
+        }
     }
 
     fn active_is_ready(&self) -> bool {
@@ -3682,11 +3798,18 @@ impl RasterResourceError {
 impl RenderPath for RasterRenderPath {
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         if let Some(convergence) = &mut self.convergence {
-            for resources in convergence.take_hidden_resources_for_release() {
+            for resources in convergence.take_hidden_resources_for_release()? {
                 release_raster_region_resources(&device, resources);
             }
         }
         self.release_resources(&device);
+        if let Some(controller) = &self.lifecycle_control {
+            controller
+                .state
+                .lock()
+                .map_err(|_| RasterLifecycleControlError)?
+                .post_upload_revision = None;
+        }
         Ok(())
     }
 
@@ -3728,11 +3851,33 @@ impl RenderPath for RasterRenderPath {
     }
 
     fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        let mut worker_error = None;
         if let Some(convergence) = &mut self.convergence {
-            let retirement = convergence.shutdown()?;
-            unsafe { retirement.release_after_gpu_completion(&device) };
+            let shutdown = convergence.shutdown();
+            unsafe { shutdown.retirement.release_after_gpu_completion(&device) };
+            worker_error = shutdown.worker_error;
         }
         self.release_resources(&device);
+        if let Some(controller) = &self.lifecycle_control {
+            let mut state = controller
+                .state
+                .lock()
+                .map_err(|_| RasterLifecycleControlError)?;
+            state.pending_outcomes.clear();
+            state.post_upload_revision = None;
+            state.shutdown_owned_resource_count = Some(
+                self.region_resources.len()
+                    + self
+                        .convergence
+                        .as_ref()
+                        .and_then(|convergence| convergence.hidden_candidate.as_ref())
+                        .map(|candidate| candidate.successor_gpu_resources.len())
+                        .unwrap_or(0),
+            );
+        }
+        if let Some(error) = worker_error {
+            return Err(Box::new(error));
+        }
         Ok(())
     }
 
@@ -4543,7 +4688,8 @@ mod convergence_tests {
             lifecycle.retire(resources);
         }
         convergence
-            .shutdown()?
+            .shutdown()
+            .retirement
             .release_with(|resources| lifecycle.retire(resources));
         lifecycle.assert_balanced();
         Ok(())
@@ -4569,7 +4715,8 @@ mod convergence_tests {
         convergence.accept(changed(&frontend, 1)?)?;
 
         convergence
-            .shutdown()?
+            .shutdown()
+            .retirement
             .release_with(|resources| lifecycle.retire(resources));
         assert!(convergence.active.is_none());
         assert!(convergence.pending.is_none());
@@ -4579,6 +4726,31 @@ mod convergence_tests {
             lifecycle.retire(resources);
         }
         lifecycle.assert_balanced();
+        Ok(())
+    }
+
+    #[test]
+    fn presentation_release_restarts_the_held_candidate_target()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(210, 1)?;
+        let mut render_path = render_path(&frontend)?;
+        render_path.region_resources = render_path
+            .installed_regions()
+            .iter()
+            .map(|installation| fake_resources(installation.identity().clone(), 70))
+            .collect();
+        let mut convergence = RasterConvergence::from_visible(&render_path)?;
+        convergence.accept(changed(&frontend, 0)?)?;
+        wait_until_ready_without_draining(&mut convergence)?;
+        convergence.upload_ready_with_test_resources(&render_path, &mut |region| {
+            Ok(fake_resources(region.identity().clone(), 80))
+        })?;
+
+        let resources = convergence.take_hidden_resources_for_release()?;
+        assert_eq!(resources.len(), 1);
+        assert!(convergence.hidden_candidate.is_none());
+        assert!(convergence.active.is_some());
+        assert!(convergence.pending.is_none());
         Ok(())
     }
 
