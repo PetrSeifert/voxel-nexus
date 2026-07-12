@@ -261,6 +261,7 @@ impl RasterVertex {
 pub struct RasterArtifact {
     scene_identity: VoxelSceneId,
     source_revision: VoxelSceneRevision,
+    region_extent: Option<VoxelExtent>,
     volume_identity: Option<VoxelVolumeId>,
     vertices: Vec<RasterVertex>,
     indices: Vec<u32>,
@@ -336,7 +337,7 @@ pub enum RasterRegionResourceOwnership {
 pub struct RasterRegionInstallation {
     identity: RasterRegionIdentity,
     resource_ownership: RasterRegionResourceOwnership,
-    installation_generation: u64,
+    installation_generation: RasterRegionInstallationGeneration,
     gpu_resource_identity: Option<RasterRegionGpuResourceIdentity>,
     activity: RasterRegionActivity,
 }
@@ -344,7 +345,20 @@ pub struct RasterRegionInstallation {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RasterRegionGpuResourceIdentity {
     region_identity: RasterRegionIdentity,
-    installation_generation: u64,
+    installation_generation: RasterRegionInstallationGeneration,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct RasterRegionInstallationGeneration(u64);
+
+impl RasterRegionInstallationGeneration {
+    pub fn new(generation: u64) -> Self {
+        Self(generation)
+    }
+
+    pub fn checked_successor(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -364,7 +378,7 @@ impl RasterRegionInstallation {
         self.resource_ownership
     }
 
-    pub fn installation_generation(&self) -> u64 {
+    pub fn installation_generation(&self) -> RasterRegionInstallationGeneration {
         self.installation_generation
     }
 
@@ -374,6 +388,27 @@ impl RasterRegionInstallation {
 
     pub fn activity(&self) -> RasterRegionActivity {
         self.activity
+    }
+
+    fn new(
+        region: &RasterRegionResult,
+        has_gpu_resources: bool,
+        installation_generation: RasterRegionInstallationGeneration,
+    ) -> Self {
+        Self {
+            identity: region.identity().clone(),
+            resource_ownership: if has_gpu_resources {
+                RasterRegionResourceOwnership::VertexAndIndex
+            } else {
+                RasterRegionResourceOwnership::None
+            },
+            gpu_resource_identity: has_gpu_resources.then(|| RasterRegionGpuResourceIdentity {
+                region_identity: region.identity().clone(),
+                installation_generation,
+            }),
+            installation_generation,
+            activity: RasterRegionActivity::default(),
+        }
     }
 }
 
@@ -439,6 +474,20 @@ pub enum RasterAdjacentChangeError {
     MissingInstallation,
     #[error("the successor artifact is missing installed Raster Region {identity:?}")]
     MissingSuccessorRegion { identity: RasterRegionIdentity },
+    #[error("the installed artifact does not define a Raster Region grid")]
+    MissingRegionGrid,
+    #[error("configured Raster Region resources require a device context for replacement")]
+    ConfiguredResourcesRequireDevice,
+    #[error("configured GPU resources are missing Raster Region {identity:?}")]
+    MissingConfiguredRegion { identity: RasterRegionIdentity },
+    #[error("Raster Region resource bookkeeping could not be allocated")]
+    ResourceBookkeepingAllocation,
+    #[error("GPU upload failed for Raster Region {identity:?}: {source}")]
+    Upload {
+        identity: RasterRegionIdentity,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -722,25 +771,11 @@ impl RasterRenderPath {
             .regions()
             .iter()
             .map(|region| {
-                let gpu_resource_identity = if region.is_empty() {
-                    None
-                } else {
-                    Some(RasterRegionGpuResourceIdentity {
-                        region_identity: region.identity().clone(),
-                        installation_generation: 1,
-                    })
-                };
-                RasterRegionInstallation {
-                    identity: region.identity().clone(),
-                    resource_ownership: if region.is_empty() {
-                        RasterRegionResourceOwnership::None
-                    } else {
-                        RasterRegionResourceOwnership::VertexAndIndex
-                    },
-                    installation_generation: 1,
-                    gpu_resource_identity,
-                    activity: RasterRegionActivity::default(),
-                }
+                RasterRegionInstallation::new(
+                    region,
+                    !region.is_empty(),
+                    RasterRegionInstallationGeneration::new(1),
+                )
             })
             .collect();
         self.artifact = Some(artifact);
@@ -762,7 +797,24 @@ impl RasterRenderPath {
         &mut self,
         successor_view: &VoxelSceneView,
         change_set: &VoxelChangeSet,
-        region_extent: VoxelExtent,
+    ) -> Result<RasterAdjacentChangeOutcome, RasterAdjacentChangeError> {
+        self.apply_adjacent_change_with_optional_device(None, successor_view, change_set)
+    }
+
+    pub fn apply_adjacent_change_with_device(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+        successor_view: &VoxelSceneView,
+        change_set: &VoxelChangeSet,
+    ) -> Result<RasterAdjacentChangeOutcome, RasterAdjacentChangeError> {
+        self.apply_adjacent_change_with_optional_device(Some(&device), successor_view, change_set)
+    }
+
+    fn apply_adjacent_change_with_optional_device(
+        &mut self,
+        device: Option<&RenderPathDeviceContext<'_>>,
+        successor_view: &VoxelSceneView,
+        change_set: &VoxelChangeSet,
     ) -> Result<RasterAdjacentChangeOutcome, RasterAdjacentChangeError> {
         let mut mismatches = Vec::new();
         let installed_scene_identity = self
@@ -804,13 +856,16 @@ impl RasterRenderPath {
             return Ok(RasterAdjacentChangeOutcome::Inapplicable { mismatches });
         }
 
-        let affected_region_identities =
-            affected_raster_region_identities(successor_view, change_set, region_extent)?;
-        let mut replacement_regions = HashMap::new();
         let installed_artifact = self
             .artifact
             .as_ref()
             .ok_or(RasterAdjacentChangeError::MissingInstallation)?;
+        let region_extent = installed_artifact
+            .region_extent
+            .ok_or(RasterAdjacentChangeError::MissingRegionGrid)?;
+        let affected_region_identities =
+            affected_raster_region_identities(successor_view, change_set, region_extent)?;
+        let mut replacement_regions = HashMap::new();
         for region in installed_artifact
             .regions()
             .iter()
@@ -844,6 +899,7 @@ impl RasterRenderPath {
         let successor_artifact = assemble_raster_artifact(
             successor_view.scene_id().clone(),
             successor_view.revision(),
+            region_extent,
             successor_regions,
         )?;
 
@@ -862,7 +918,7 @@ impl RasterRenderPath {
                 })?;
             installation.installation_generation = installation
                 .installation_generation
-                .checked_add(1)
+                .checked_successor()
                 .ok_or_else(
                     || RasterAdjacentChangeError::InstallationGenerationOverflow {
                         identity: installation.identity().clone(),
@@ -889,16 +945,85 @@ impl RasterRenderPath {
             };
         }
 
+        let configured_resources = self.configuration_id.is_some();
+        if configured_resources && device.is_none() {
+            return Err(RasterAdjacentChangeError::ConfiguredResourcesRequireDevice);
+        }
+        if configured_resources {
+            for identity in &affected_region_identities {
+                if !self
+                    .region_resources
+                    .iter()
+                    .any(|resources| &resources.identity == identity)
+                {
+                    return Err(RasterAdjacentChangeError::MissingConfiguredRegion {
+                        identity: identity.clone(),
+                    });
+                }
+            }
+        }
+
+        let mut successor_gpu_resources = Vec::new();
+        let mut retired_gpu_resources = Vec::new();
+        let mut replacement_gpu_resources = Vec::new();
+        if configured_resources {
+            successor_gpu_resources
+                .try_reserve_exact(self.region_resources.len())
+                .map_err(|_| RasterAdjacentChangeError::ResourceBookkeepingAllocation)?;
+            retired_gpu_resources
+                .try_reserve_exact(affected_region_identities.len())
+                .map_err(|_| RasterAdjacentChangeError::ResourceBookkeepingAllocation)?;
+            replacement_gpu_resources
+                .try_reserve_exact(affected_region_identities.len())
+                .map_err(|_| RasterAdjacentChangeError::ResourceBookkeepingAllocation)?;
+            let device =
+                device.ok_or(RasterAdjacentChangeError::ConfiguredResourcesRequireDevice)?;
+            for region in successor_artifact
+                .regions()
+                .iter()
+                .filter(|region| affected_region_identities.contains(region.identity()))
+            {
+                match upload_raster_region_resources(device, region) {
+                    Ok(resources) => replacement_gpu_resources.push(resources),
+                    Err(source) => {
+                        for resources in replacement_gpu_resources.drain(..) {
+                            release_raster_region_resources(device, resources);
+                        }
+                        return Err(RasterAdjacentChangeError::Upload {
+                            identity: region.identity().clone(),
+                            source: Box::new(source),
+                        });
+                    }
+                }
+            }
+        }
+
         let affected_regions = successor_artifact
             .regions()
             .iter()
             .filter(|region| affected_region_identities.contains(region.identity()))
             .map(|region| region.identity().clone())
             .collect();
+        if configured_resources {
+            for resources in std::mem::take(&mut self.region_resources) {
+                if affected_region_identities.contains(&resources.identity) {
+                    retired_gpu_resources.push(resources);
+                } else {
+                    successor_gpu_resources.push(resources);
+                }
+            }
+            successor_gpu_resources.append(&mut replacement_gpu_resources);
+            self.region_resources = successor_gpu_resources;
+        }
         self.expected_source_revision = Some(successor_view.revision());
         self.installed_source_revision = Some(successor_view.revision());
         self.installed_regions = successor_installations;
         self.artifact = Some(successor_artifact);
+        if let Some(device) = device {
+            for resources in retired_gpu_resources {
+                release_raster_region_resources(device, resources);
+            }
+        }
         Ok(RasterAdjacentChangeOutcome::Applied {
             scene_identity: successor_view.scene_id().clone(),
             predecessor_revision: change_set.predecessor_revision(),
@@ -1236,7 +1361,12 @@ pub fn derive_raster_regions(
                 .ok_or_else(|| metadata_dimensions_error(source_revision))?;
         }
     }
-    assemble_raster_artifact(view.scene_id().clone(), source_revision, regions)
+    assemble_raster_artifact(
+        view.scene_id().clone(),
+        source_revision,
+        region_extent,
+        regions,
+    )
 }
 
 fn affected_raster_region_identities(
@@ -1510,6 +1640,7 @@ fn derive_raster_region(
 fn assemble_raster_artifact(
     scene_identity: VoxelSceneId,
     source_revision: VoxelSceneRevision,
+    region_extent: VoxelExtent,
     regions: Vec<RasterRegionResult>,
 ) -> Result<RasterArtifact, RasterArtifactBuildError> {
     let mut vertices = Vec::new();
@@ -1539,6 +1670,7 @@ fn assemble_raster_artifact(
     Ok(RasterArtifact {
         scene_identity,
         source_revision,
+        region_extent: Some(region_extent),
         volume_identity: None,
         vertices,
         indices,
@@ -1896,6 +2028,7 @@ fn build_geometry(
     Ok(RasterArtifact {
         scene_identity: scene_identity.clone(),
         source_revision,
+        region_extent: None,
         volume_identity: Some(volume_identity.clone()),
         vertices,
         indices,
@@ -2267,27 +2400,15 @@ impl RasterRenderPath {
         self.installed_regions = artifact
             .regions()
             .iter()
-            .map(|region| RasterRegionInstallation {
-                identity: region.identity().clone(),
-                resource_ownership: if self.region_resources.iter().any(|resources| {
+            .map(|region| {
+                let has_gpu_resources = self.region_resources.iter().any(|resources| {
                     resources.identity == *region.identity() && resources.index_count > 0
-                }) {
-                    RasterRegionResourceOwnership::VertexAndIndex
-                } else {
-                    RasterRegionResourceOwnership::None
-                },
-                installation_generation: 1,
-                gpu_resource_identity: if self.region_resources.iter().any(|resources| {
-                    resources.identity == *region.identity() && resources.index_count > 0
-                }) {
-                    Some(RasterRegionGpuResourceIdentity {
-                        region_identity: region.identity().clone(),
-                        installation_generation: 1,
-                    })
-                } else {
-                    None
-                },
-                activity: RasterRegionActivity::default(),
+                });
+                RasterRegionInstallation::new(
+                    region,
+                    has_gpu_resources,
+                    RasterRegionInstallationGeneration::new(1),
+                )
             })
             .collect();
         if let Some(installer) = &self.installation {
@@ -2307,45 +2428,8 @@ impl RasterRenderPath {
     ) -> Result<(), RasterResourceError> {
         if let Some(artifact) = &self.artifact {
             for region in artifact.regions() {
-                let index_count = u32::try_from(region.indices().len())
-                    .map_err(|_| RasterResourceError::IndexCount)?;
-                let resource_index = self.region_resources.len();
-                self.region_resources.push(RasterRegionGpuResources {
-                    identity: region.identity().clone(),
-                    vertex_buffer: vk::Buffer::null(),
-                    vertex_memory: vk::DeviceMemory::null(),
-                    index_buffer: vk::Buffer::null(),
-                    index_memory: vk::DeviceMemory::null(),
-                    index_count,
-                });
-                if !region.vertices().is_empty() {
-                    let vertex = create_static_buffer(
-                        device,
-                        raster_vertex_bytes(region.vertices()),
-                        vk::BufferUsageFlags::VERTEX_BUFFER,
-                        "vertex",
-                    )?;
-                    let resources = self
-                        .region_resources
-                        .get_mut(resource_index)
-                        .ok_or(RasterResourceError::IndexCount)?;
-                    resources.vertex_buffer = vertex.buffer;
-                    resources.vertex_memory = vertex.memory;
-                }
-                if !region.indices().is_empty() {
-                    let index = create_static_buffer(
-                        device,
-                        u32_bytes(region.indices()),
-                        vk::BufferUsageFlags::INDEX_BUFFER,
-                        "index",
-                    )?;
-                    let resources = self
-                        .region_resources
-                        .get_mut(resource_index)
-                        .ok_or(RasterResourceError::IndexCount)?;
-                    resources.index_buffer = index.buffer;
-                    resources.index_memory = index.memory;
-                }
+                self.region_resources
+                    .push(upload_raster_region_resources(device, region)?);
             }
         }
         self.create_depth_resources(device, target.extent())?;
@@ -2722,18 +2806,7 @@ impl RasterRenderPath {
                 self.depth_memory = vk::DeviceMemory::null();
             }
             for resources in self.region_resources.drain(..) {
-                if resources.index_buffer != vk::Buffer::null() {
-                    device.destroy_buffer(resources.index_buffer);
-                }
-                if resources.index_memory != vk::DeviceMemory::null() {
-                    device.free_memory(resources.index_memory);
-                }
-                if resources.vertex_buffer != vk::Buffer::null() {
-                    device.destroy_buffer(resources.vertex_buffer);
-                }
-                if resources.vertex_memory != vk::DeviceMemory::null() {
-                    device.free_memory(resources.vertex_memory);
-                }
+                release_raster_region_resources(device, resources);
             }
         }
         self.configured_attachments.clear();
@@ -2744,6 +2817,81 @@ impl RasterRenderPath {
 struct StaticBuffer {
     buffer: vk::Buffer,
     memory: vk::DeviceMemory,
+}
+
+fn upload_raster_region_resources(
+    device: &RenderPathDeviceContext<'_>,
+    region: &RasterRegionResult,
+) -> Result<RasterRegionGpuResources, RasterResourceError> {
+    let index_count =
+        u32::try_from(region.indices().len()).map_err(|_| RasterResourceError::IndexCount)?;
+    let vertex = if region.vertices().is_empty() {
+        None
+    } else {
+        Some(create_static_buffer(
+            device,
+            raster_vertex_bytes(region.vertices()),
+            vk::BufferUsageFlags::VERTEX_BUFFER,
+            "vertex",
+        )?)
+    };
+    let index = if region.indices().is_empty() {
+        None
+    } else {
+        match create_static_buffer(
+            device,
+            u32_bytes(region.indices()),
+            vk::BufferUsageFlags::INDEX_BUFFER,
+            "index",
+        ) {
+            Ok(index) => Some(index),
+            Err(error) => {
+                if let Some(vertex) = vertex {
+                    unsafe {
+                        device.destroy_buffer(vertex.buffer);
+                        device.free_memory(vertex.memory);
+                    }
+                }
+                return Err(error);
+            }
+        }
+    };
+    Ok(RasterRegionGpuResources {
+        identity: region.identity().clone(),
+        vertex_buffer: vertex
+            .as_ref()
+            .map_or(vk::Buffer::null(), |vertex| vertex.buffer),
+        vertex_memory: vertex
+            .as_ref()
+            .map_or(vk::DeviceMemory::null(), |vertex| vertex.memory),
+        index_buffer: index
+            .as_ref()
+            .map_or(vk::Buffer::null(), |index| index.buffer),
+        index_memory: index
+            .as_ref()
+            .map_or(vk::DeviceMemory::null(), |index| index.memory),
+        index_count,
+    })
+}
+
+fn release_raster_region_resources(
+    device: &RenderPathDeviceContext<'_>,
+    resources: RasterRegionGpuResources,
+) {
+    unsafe {
+        if resources.index_buffer != vk::Buffer::null() {
+            device.destroy_buffer(resources.index_buffer);
+        }
+        if resources.index_memory != vk::DeviceMemory::null() {
+            device.free_memory(resources.index_memory);
+        }
+        if resources.vertex_buffer != vk::Buffer::null() {
+            device.destroy_buffer(resources.vertex_buffer);
+        }
+        if resources.vertex_memory != vk::DeviceMemory::null() {
+            device.free_memory(resources.vertex_memory);
+        }
+    }
 }
 
 fn create_static_buffer(

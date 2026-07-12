@@ -59,7 +59,7 @@ fn frontend(
     Ok(frontend)
 }
 
-fn changed(
+fn changed_view_and_change_set(
     outcome: &VoxelEditOutcome,
 ) -> Result<
     (
@@ -125,8 +125,8 @@ fn one_adjacent_edit_replaces_only_face_neighbor_regions_with_complete_results()
         changed_coordinate,
         VoxelValue::Occupied(VoxelMaterialId::new("stone")),
     ))?;
-    let (successor_view, change_set) = changed(&edit)?;
-    let outcome = render_path.apply_adjacent_change(successor_view, change_set, region_extent)?;
+    let (successor_view, change_set) = changed_view_and_change_set(&edit)?;
+    let outcome = render_path.apply_adjacent_change(successor_view, change_set)?;
 
     let expected_affected = HashSet::from([
         VoxelCoordinate::new(0, 0, 0),
@@ -159,7 +159,10 @@ fn one_adjacent_edit_replaces_only_face_neighbor_regions_with_complete_results()
         if expected_affected.contains(&installation.identity().core_origin()) {
             assert_eq!(
                 installation.installation_generation(),
-                prior.installation_generation() + 1
+                prior
+                    .installation_generation()
+                    .checked_successor()
+                    .ok_or("test installation generation overflow")?
             );
             assert_ne!(
                 installation.gpu_resource_identity(),
@@ -223,8 +226,8 @@ fn applicability_mismatches_leave_the_complete_installation_unchanged()
         VoxelCoordinate::new(1, 0, 0),
         VoxelValue::Occupied(VoxelMaterialId::new("stone")),
     ))?;
-    let (other_view, other_change_set) = changed(&other_edit)?;
-    let outcome = render_path.apply_adjacent_change(other_view, other_change_set, region_extent)?;
+    let (other_view, other_change_set) = changed_view_and_change_set(&other_edit)?;
+    let outcome = render_path.apply_adjacent_change(other_view, other_change_set)?;
 
     let RasterAdjacentChangeOutcome::Inapplicable { mismatches } = outcome else {
         return Err("mismatched submission must be inapplicable".into());
@@ -252,31 +255,8 @@ fn applicability_mismatches_leave_the_complete_installation_unchanged()
         VoxelCoordinate::new(1, 0, 0),
         VoxelValue::Occupied(VoxelMaterialId::new("stone")),
     ))?;
-    let (installed_successor_view, installed_change_set) = changed(&installed_edit)?;
-    let error = match render_path.apply_adjacent_change(
-        installed_successor_view,
-        installed_change_set,
-        VoxelExtent::new(0, 1, 1),
-    ) {
-        Ok(_) => return Err("failed derivation must be reported".into()),
-        Err(error) => error,
-    };
-    assert!(matches!(
-        error,
-        raster_render_path::RasterAdjacentChangeError::Derivation(_)
-    ));
-    assert_eq!(render_path.installed_source_revision(), before_revision);
-    assert_eq!(render_path.installed_regions(), before_regions);
-    assert_eq!(
-        render_path
-            .installed_artifact()
-            .ok_or("missing artifact")?
-            .semantic_faces(),
-        before_faces
-    );
-
-    let outcome =
-        render_path.apply_adjacent_change(other_view, installed_change_set, region_extent)?;
+    let (_, installed_change_set) = changed_view_and_change_set(&installed_edit)?;
+    let outcome = render_path.apply_adjacent_change(other_view, installed_change_set)?;
     let RasterAdjacentChangeOutcome::Inapplicable { mismatches } = outcome else {
         return Err("successor mismatch must be inapplicable".into());
     };
@@ -350,8 +330,8 @@ fn an_edit_in_one_volume_retains_every_installation_in_other_volumes()
         VoxelCoordinate::new(1, 0, 0),
         VoxelValue::Occupied(material_identity),
     ))?;
-    let (successor_view, change_set) = changed(&edit)?;
-    render_path.apply_adjacent_change(successor_view, change_set, VoxelExtent::new(1, 1, 1))?;
+    let (successor_view, change_set) = changed_view_and_change_set(&edit)?;
+    render_path.apply_adjacent_change(successor_view, change_set)?;
 
     let detail_after = render_path
         .installed_regions()
