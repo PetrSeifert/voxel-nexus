@@ -762,6 +762,13 @@ pub trait RenderPath {
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()>;
 
+    fn commit_frame_boundary(
+        &mut self,
+        _device: RenderPathDeviceContext<'_>,
+    ) -> RenderPathResult<()> {
+        Ok(())
+    }
+
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()>;
 }
 
@@ -1041,6 +1048,7 @@ impl RenderBackend {
         let submitted_frame_sequence = self.frame_sequences.pending();
         let outcome = match rendering.draw_frame(
             self.path.as_mut(),
+            self.memory_properties,
             self.graphics_queue,
             self.presentation_queue,
             submitted_frame_sequence,
@@ -1427,6 +1435,7 @@ impl PresentationResources {
     fn draw_frame(
         &mut self,
         path: &mut dyn RenderPath,
+        memory_properties: vk::PhysicalDeviceMemoryProperties,
         graphics_queue: vk::Queue,
         presentation_queue: vk::Queue,
         submitted_frame_sequence: u64,
@@ -1438,6 +1447,12 @@ impl PresentationResources {
                 .map_err(BackendError::WaitForFrame)?;
         }
         self.collect_timestamp_observation()?;
+        run_render_path_phase(RenderPathPhase::Record, || {
+            path.commit_frame_boundary(RenderPathDeviceContext {
+                device: &self.device,
+                memory_properties,
+            })
+        })?;
         let (image_index, acquire_suboptimal) = match unsafe {
             self.swapchain_loader.acquire_next_image(
                 self.swapchain,
