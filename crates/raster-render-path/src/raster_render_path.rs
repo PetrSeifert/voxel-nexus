@@ -3,6 +3,7 @@ use render_backend::{
     PresentationConfigurationId, RenderPath, RenderPathAttachmentIdentity, RenderPathDeviceContext,
     RenderPathFrameContext, RenderPathResult, RenderPathTarget,
 };
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Cursor;
 use std::mem::size_of;
@@ -264,6 +265,85 @@ pub struct RasterArtifact {
     semantic_faces: Vec<SemanticFace>,
     vertex_byte_size: usize,
     index_byte_size: usize,
+    regions: Vec<RasterRegionResult>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RasterRegionIdentity {
+    volume_identity: VoxelVolumeId,
+    core_origin: VoxelCoordinate,
+}
+
+impl RasterRegionIdentity {
+    pub fn volume_identity(&self) -> &VoxelVolumeId {
+        &self.volume_identity
+    }
+
+    pub fn core_origin(&self) -> VoxelCoordinate {
+        self.core_origin
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RasterRegionResult {
+    identity: RasterRegionIdentity,
+    core: VoxelRegion,
+    source_revision: VoxelSceneRevision,
+    vertices: Vec<RasterVertex>,
+    indices: Vec<u32>,
+    semantic_faces: Vec<SemanticFace>,
+}
+
+impl RasterRegionResult {
+    pub fn identity(&self) -> &RasterRegionIdentity {
+        &self.identity
+    }
+
+    pub fn core(&self) -> VoxelRegion {
+        self.core
+    }
+
+    pub fn source_revision(&self) -> VoxelSceneRevision {
+        self.source_revision
+    }
+
+    pub fn vertices(&self) -> &[RasterVertex] {
+        &self.vertices
+    }
+
+    pub fn indices(&self) -> &[u32] {
+        &self.indices
+    }
+
+    pub fn semantic_faces(&self) -> &[SemanticFace] {
+        &self.semantic_faces
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.semantic_faces.is_empty()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RasterRegionResourceOwnership {
+    None,
+    VertexAndIndex,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RasterRegionInstallation {
+    identity: RasterRegionIdentity,
+    resource_ownership: RasterRegionResourceOwnership,
+}
+
+impl RasterRegionInstallation {
+    pub fn identity(&self) -> &RasterRegionIdentity {
+        &self.identity
+    }
+
+    pub fn resource_ownership(&self) -> RasterRegionResourceOwnership {
+        self.resource_ownership
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -436,10 +516,7 @@ pub struct RasterRenderPath {
     expected_source_revision: Option<VoxelSceneRevision>,
     installed_source_revision: Option<VoxelSceneRevision>,
     camera_control: RasterCameraController,
-    vertex_buffer: vk::Buffer,
-    vertex_memory: vk::DeviceMemory,
-    index_buffer: vk::Buffer,
-    index_memory: vk::DeviceMemory,
+    region_resources: Vec<RasterRegionGpuResources>,
     depth_image: vk::Image,
     depth_memory: vk::DeviceMemory,
     depth_view: vk::ImageView,
@@ -450,7 +527,7 @@ pub struct RasterRenderPath {
     configured_attachments: Vec<RenderPathAttachmentIdentity>,
     configuration_id: Option<PresentationConfigurationId>,
     camera_constants: [f32; 16],
-    index_count: u32,
+    installed_regions: Vec<RasterRegionInstallation>,
 }
 
 impl Default for RasterRenderPath {
@@ -471,10 +548,7 @@ impl Default for RasterRenderPath {
             camera_control: RasterCameraController {
                 camera_pose: Arc::new(Mutex::new(camera_pose)),
             },
-            vertex_buffer: vk::Buffer::null(),
-            vertex_memory: vk::DeviceMemory::null(),
-            index_buffer: vk::Buffer::null(),
-            index_memory: vk::DeviceMemory::null(),
+            region_resources: Vec::new(),
             depth_image: vk::Image::null(),
             depth_memory: vk::DeviceMemory::null(),
             depth_view: vk::ImageView::null(),
@@ -485,7 +559,7 @@ impl Default for RasterRenderPath {
             configured_attachments: Vec::new(),
             configuration_id: None,
             camera_constants: [0.0; 16],
-            index_count: 0,
+            installed_regions: Vec::new(),
         }
     }
 }
@@ -549,11 +623,16 @@ impl RasterRenderPath {
     pub fn install_artifact(&mut self, artifact: RasterArtifact) {
         self.expected_source_revision = Some(artifact.source_revision());
         self.installed_source_revision = Some(artifact.source_revision());
+        self.installed_regions = artifact.installation_records();
         self.artifact = Some(artifact);
     }
 
     pub fn installed_source_revision(&self) -> Option<VoxelSceneRevision> {
         self.installed_source_revision
+    }
+
+    pub fn installed_regions(&self) -> &[RasterRegionInstallation] {
+        &self.installed_regions
     }
 }
 
@@ -594,6 +673,24 @@ impl RasterArtifact {
 
     pub fn index_byte_size(&self) -> usize {
         self.index_byte_size
+    }
+
+    pub fn regions(&self) -> &[RasterRegionResult] {
+        &self.regions
+    }
+
+    fn installation_records(&self) -> Vec<RasterRegionInstallation> {
+        self.regions
+            .iter()
+            .map(|region| RasterRegionInstallation {
+                identity: region.identity.clone(),
+                resource_ownership: if region.is_empty() {
+                    RasterRegionResourceOwnership::None
+                } else {
+                    RasterRegionResourceOwnership::VertexAndIndex
+                },
+            })
+            .collect()
     }
 }
 
@@ -639,6 +736,8 @@ pub enum RasterArtifactBuildCause {
     InvalidSceneTransform,
     #[error("geometry needs an index that cannot be represented as u32")]
     IndexOverflow,
+    #[error("Raster Region extent must be non-empty")]
+    EmptyRasterRegionExtent,
 }
 
 #[derive(Debug, Error)]
@@ -811,6 +910,269 @@ pub fn derive_raster_artifact(
     build_geometry(source_revision, volume_identity, metadata, pending_faces)
 }
 
+pub fn derive_raster_regions(
+    view: &VoxelSceneView,
+    region_extent: VoxelExtent,
+) -> Result<RasterArtifact, RasterArtifactBuildError> {
+    let source_revision = view.revision();
+    let [region_width, region_height, region_depth] = region_extent.dimensions();
+    if region_width == 0 || region_height == 0 || region_depth == 0 {
+        return Err(build_error(
+            source_revision,
+            RasterArtifactBuildPhase::Metadata,
+            RasterArtifactBuildCause::EmptyRasterRegionExtent,
+        ));
+    }
+    let first_volume = view.volumes().first().ok_or_else(|| {
+        build_error(
+            source_revision,
+            RasterArtifactBuildPhase::Metadata,
+            RasterArtifactBuildCause::UnknownVolume(VoxelVolumeId::new("complete scene")),
+        )
+    })?;
+    let mut regions = Vec::new();
+    for metadata in view.volumes() {
+        let [volume_width, volume_height, volume_depth] = metadata.extent().dimensions();
+        checked_dimensions(metadata.extent()).ok_or_else(|| {
+            build_error(
+                source_revision,
+                RasterArtifactBuildPhase::Metadata,
+                RasterArtifactBuildCause::UnrepresentableVolumeDimensions,
+            )
+        })?;
+        let mut origin_z = 0_u32;
+        while origin_z < volume_depth {
+            let mut origin_y = 0_u32;
+            while origin_y < volume_height {
+                let mut origin_x = 0_u32;
+                while origin_x < volume_width {
+                    let core = VoxelRegion::new(
+                        VoxelCoordinate::new(
+                            i32::try_from(origin_x)
+                                .map_err(|_| metadata_dimensions_error(source_revision))?,
+                            i32::try_from(origin_y)
+                                .map_err(|_| metadata_dimensions_error(source_revision))?,
+                            i32::try_from(origin_z)
+                                .map_err(|_| metadata_dimensions_error(source_revision))?,
+                        ),
+                        VoxelExtent::new(
+                            region_width.min(volume_width - origin_x),
+                            region_height.min(volume_height - origin_y),
+                            region_depth.min(volume_depth - origin_z),
+                        ),
+                    );
+                    regions.push(derive_raster_region(view, metadata, core)?);
+                    origin_x = origin_x
+                        .checked_add(region_width)
+                        .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+                }
+                origin_y = origin_y
+                    .checked_add(region_height)
+                    .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+            }
+            origin_z = origin_z
+                .checked_add(region_depth)
+                .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+        }
+    }
+    assemble_raster_artifact(source_revision, first_volume.identity(), regions)
+}
+
+fn derive_raster_region(
+    view: &VoxelSceneView,
+    metadata: &VoxelVolumeMetadata,
+    core: VoxelRegion,
+) -> Result<RasterRegionResult, RasterArtifactBuildError> {
+    let source_revision = view.revision();
+    let [core_x, core_y, core_z] = core.origin().components();
+    let [core_width, core_height, core_depth] = core.extent().dimensions();
+    let core_end_x = core_x
+        .checked_add(
+            i32::try_from(core_width).map_err(|_| metadata_dimensions_error(source_revision))?,
+        )
+        .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+    let core_end_y = core_y
+        .checked_add(
+            i32::try_from(core_height).map_err(|_| metadata_dimensions_error(source_revision))?,
+        )
+        .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+    let core_end_z = core_z
+        .checked_add(
+            i32::try_from(core_depth).map_err(|_| metadata_dimensions_error(source_revision))?,
+        )
+        .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+    let face_neighbor_regions = [
+        core,
+        VoxelRegion::new(
+            VoxelCoordinate::new(core_x - 1, core_y, core_z),
+            VoxelExtent::new(1, core_height, core_depth),
+        ),
+        VoxelRegion::new(
+            VoxelCoordinate::new(core_end_x, core_y, core_z),
+            VoxelExtent::new(1, core_height, core_depth),
+        ),
+        VoxelRegion::new(
+            VoxelCoordinate::new(core_x, core_y - 1, core_z),
+            VoxelExtent::new(core_width, 1, core_depth),
+        ),
+        VoxelRegion::new(
+            VoxelCoordinate::new(core_x, core_end_y, core_z),
+            VoxelExtent::new(core_width, 1, core_depth),
+        ),
+        VoxelRegion::new(
+            VoxelCoordinate::new(core_x, core_y, core_z - 1),
+            VoxelExtent::new(core_width, core_height, 1),
+        ),
+        VoxelRegion::new(
+            VoxelCoordinate::new(core_x, core_y, core_end_z),
+            VoxelExtent::new(core_width, core_height, 1),
+        ),
+    ];
+    let mut values = HashMap::new();
+    for region in face_neighbor_regions {
+        let samples = view
+            .read_region(metadata.identity(), region)
+            .map_err(|error| {
+                build_error(
+                    source_revision,
+                    RasterArtifactBuildPhase::VoxelRead,
+                    RasterArtifactBuildCause::VoxelRead(error),
+                )
+            })?;
+        values.extend(
+            samples
+                .into_iter()
+                .map(|sample| (sample.coordinate(), sample.value().clone())),
+        );
+    }
+    let mut pending_faces = Vec::new();
+    for z_offset in 0..core_depth {
+        for y_offset in 0..core_height {
+            for x_offset in 0..core_width {
+                let coordinate = VoxelCoordinate::new(
+                    core_x
+                        .checked_add(
+                            i32::try_from(x_offset)
+                                .map_err(|_| metadata_dimensions_error(source_revision))?,
+                        )
+                        .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+                    core_y
+                        .checked_add(
+                            i32::try_from(y_offset)
+                                .map_err(|_| metadata_dimensions_error(source_revision))?,
+                        )
+                        .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+                    core_z
+                        .checked_add(
+                            i32::try_from(z_offset)
+                                .map_err(|_| metadata_dimensions_error(source_revision))?,
+                        )
+                        .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+                );
+                let Some(VoxelValue::Occupied(material_identity)) = values.get(&coordinate) else {
+                    continue;
+                };
+                let linear_base_color = view
+                    .materials()
+                    .iter()
+                    .find(|material| material.identity() == material_identity)
+                    .map(|material| material.linear_base_color())
+                    .ok_or_else(|| {
+                        build_error(
+                            source_revision,
+                            RasterArtifactBuildPhase::MaterialResolution,
+                            RasterArtifactBuildCause::UnknownMaterial(material_identity.clone()),
+                        )
+                    })?;
+                for normal in AXIS_NORMALS {
+                    let [offset_x, offset_y, offset_z] = normal.offset();
+                    let neighbor = VoxelCoordinate::new(
+                        coordinate.components()[0] + offset_x,
+                        coordinate.components()[1] + offset_y,
+                        coordinate.components()[2] + offset_z,
+                    );
+                    if !matches!(values.get(&neighbor), Some(VoxelValue::Occupied(_))) {
+                        pending_faces.push(PendingFace {
+                            coordinate,
+                            normal,
+                            material_identity: material_identity.clone(),
+                            linear_base_color,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    let artifact = build_geometry(
+        source_revision,
+        metadata.identity(),
+        metadata,
+        pending_faces,
+    )?;
+    let mut region = artifact.regions.into_iter().next().ok_or_else(|| {
+        build_error(
+            source_revision,
+            RasterArtifactBuildPhase::Geometry,
+            RasterArtifactBuildCause::ArithmeticOverflow,
+        )
+    })?;
+    region.identity = RasterRegionIdentity {
+        volume_identity: metadata.identity().clone(),
+        core_origin: core.origin(),
+    };
+    region.core = core;
+    Ok(region)
+}
+
+fn assemble_raster_artifact(
+    source_revision: VoxelSceneRevision,
+    first_volume_identity: &VoxelVolumeId,
+    regions: Vec<RasterRegionResult>,
+) -> Result<RasterArtifact, RasterArtifactBuildError> {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let mut semantic_faces = Vec::new();
+    for region in &regions {
+        let first_vertex =
+            u32::try_from(vertices.len()).map_err(|_| geometry_overflow(source_revision))?;
+        vertices.extend_from_slice(&region.vertices);
+        for index in &region.indices {
+            indices.push(
+                first_vertex
+                    .checked_add(*index)
+                    .ok_or_else(|| geometry_overflow(source_revision))?,
+            );
+        }
+        semantic_faces.extend_from_slice(&region.semantic_faces);
+    }
+    let vertex_byte_size = vertices
+        .len()
+        .checked_mul(size_of::<RasterVertex>())
+        .ok_or_else(|| geometry_overflow(source_revision))?;
+    let index_byte_size = indices
+        .len()
+        .checked_mul(size_of::<u32>())
+        .ok_or_else(|| geometry_overflow(source_revision))?;
+    Ok(RasterArtifact {
+        source_revision,
+        volume_identity: first_volume_identity.clone(),
+        vertices,
+        indices,
+        semantic_faces,
+        vertex_byte_size,
+        index_byte_size,
+        regions,
+    })
+}
+
+fn metadata_dimensions_error(source_revision: VoxelSceneRevision) -> RasterArtifactBuildError {
+    build_error(
+        source_revision,
+        RasterArtifactBuildPhase::Metadata,
+        RasterArtifactBuildCause::UnrepresentableVolumeDimensions,
+    )
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RasterArtifactPreparationEvent {
     PausedAtBarrier { source_revision: VoxelSceneRevision },
@@ -960,6 +1322,18 @@ pub struct RasterArtifactPreparation {
 }
 
 impl RasterArtifactPreparation {
+    pub fn start_regions(
+        view: VoxelSceneView,
+        region_extent: VoxelExtent,
+        barrier: Option<RasterPreparationBarrier>,
+        notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
+    ) -> Result<Self, RasterArtifactPreparationError> {
+        let source_revision = view.revision();
+        Self::start_with_derivation(source_revision, barrier, notify, move || {
+            derive_raster_regions(&view, region_extent)
+        })
+    }
+
     pub fn start(
         view: VoxelSceneView,
         volume_identity: VoxelVolumeId,
@@ -967,6 +1341,17 @@ impl RasterArtifactPreparation {
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
         let source_revision = view.revision();
+        Self::start_with_derivation(source_revision, barrier, notify, move || {
+            derive_raster_artifact(&view, &volume_identity)
+        })
+    }
+
+    fn start_with_derivation(
+        source_revision: VoxelSceneRevision,
+        barrier: Option<RasterPreparationBarrier>,
+        notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
+        derive: impl FnOnce() -> Result<RasterArtifact, RasterArtifactBuildError> + Send + 'static,
+    ) -> Result<Self, RasterArtifactPreparationError> {
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let worker = thread::Builder::new()
             .name(format!("raster-preparation-{source_revision}"))
@@ -975,7 +1360,7 @@ impl RasterArtifactPreparation {
                     if let Some(barrier) = barrier {
                         barrier.reach_and_wait(source_revision, &notify)?;
                     }
-                    derive_raster_artifact(&view, &volume_identity).map_err(|source| {
+                    derive().map_err(|source| {
                         RasterArtifactPreparationError::Derivation {
                             source_revision,
                             source,
@@ -1112,6 +1497,17 @@ fn build_geometry(
         ));
     }
 
+    let region = RasterRegionResult {
+        identity: RasterRegionIdentity {
+            volume_identity: volume_identity.clone(),
+            core_origin: VoxelCoordinate::new(0, 0, 0),
+        },
+        core: VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), metadata.extent()),
+        source_revision,
+        vertices: vertices.clone(),
+        indices: indices.clone(),
+        semantic_faces: semantic_faces.clone(),
+    };
     Ok(RasterArtifact {
         source_revision,
         volume_identity: volume_identity.clone(),
@@ -1120,6 +1516,7 @@ fn build_geometry(
         semantic_faces,
         vertex_byte_size,
         index_byte_size,
+        regions: vec![region],
     })
 }
 
@@ -1356,6 +1753,15 @@ enum RasterResourceError {
     MissingFramebuffer,
 }
 
+struct RasterRegionGpuResources {
+    identity: RasterRegionIdentity,
+    vertex_buffer: vk::Buffer,
+    vertex_memory: vk::DeviceMemory,
+    index_buffer: vk::Buffer,
+    index_memory: vk::DeviceMemory,
+    index_count: u32,
+}
+
 impl RasterResourceError {
     fn installation_phase(&self) -> RasterArtifactInstallationPhase {
         match self {
@@ -1472,6 +1878,20 @@ impl RasterRenderPath {
             .into());
         }
         self.installed_source_revision = Some(source_revision);
+        self.installed_regions = artifact
+            .regions()
+            .iter()
+            .map(|region| RasterRegionInstallation {
+                identity: region.identity().clone(),
+                resource_ownership: if self.region_resources.iter().any(|resources| {
+                    resources.identity == *region.identity() && resources.index_count > 0
+                }) {
+                    RasterRegionResourceOwnership::VertexAndIndex
+                } else {
+                    RasterRegionResourceOwnership::None
+                },
+            })
+            .collect();
         if let Some(installer) = &self.installation {
             let mut state = installer
                 .state
@@ -1488,27 +1908,46 @@ impl RasterRenderPath {
         target: RenderPathTarget<'_>,
     ) -> Result<(), RasterResourceError> {
         if let Some(artifact) = &self.artifact {
-            self.index_count = u32::try_from(artifact.indices().len())
-                .map_err(|_| RasterResourceError::IndexCount)?;
-            if !artifact.vertices().is_empty() {
-                let vertex = create_static_buffer(
-                    device,
-                    raster_vertex_bytes(artifact.vertices()),
-                    vk::BufferUsageFlags::VERTEX_BUFFER,
-                    "vertex",
-                )?;
-                self.vertex_buffer = vertex.buffer;
-                self.vertex_memory = vertex.memory;
-            }
-            if !artifact.indices().is_empty() {
-                let index = create_static_buffer(
-                    device,
-                    u32_bytes(artifact.indices()),
-                    vk::BufferUsageFlags::INDEX_BUFFER,
-                    "index",
-                )?;
-                self.index_buffer = index.buffer;
-                self.index_memory = index.memory;
+            for region in artifact.regions() {
+                let index_count = u32::try_from(region.indices().len())
+                    .map_err(|_| RasterResourceError::IndexCount)?;
+                let resource_index = self.region_resources.len();
+                self.region_resources.push(RasterRegionGpuResources {
+                    identity: region.identity().clone(),
+                    vertex_buffer: vk::Buffer::null(),
+                    vertex_memory: vk::DeviceMemory::null(),
+                    index_buffer: vk::Buffer::null(),
+                    index_memory: vk::DeviceMemory::null(),
+                    index_count,
+                });
+                if !region.vertices().is_empty() {
+                    let vertex = create_static_buffer(
+                        device,
+                        raster_vertex_bytes(region.vertices()),
+                        vk::BufferUsageFlags::VERTEX_BUFFER,
+                        "vertex",
+                    )?;
+                    let resources = self
+                        .region_resources
+                        .get_mut(resource_index)
+                        .ok_or(RasterResourceError::IndexCount)?;
+                    resources.vertex_buffer = vertex.buffer;
+                    resources.vertex_memory = vertex.memory;
+                }
+                if !region.indices().is_empty() {
+                    let index = create_static_buffer(
+                        device,
+                        u32_bytes(region.indices()),
+                        vk::BufferUsageFlags::INDEX_BUFFER,
+                        "index",
+                    )?;
+                    let resources = self
+                        .region_resources
+                        .get_mut(resource_index)
+                        .ok_or(RasterResourceError::IndexCount)?;
+                    resources.index_buffer = index.buffer;
+                    resources.index_memory = index.memory;
+                }
             }
         }
         self.create_depth_resources(device, target.extent())?;
@@ -1840,12 +2279,15 @@ impl RasterRenderPath {
         unsafe {
             frame.begin_render_pass(&render_pass_info, vk::SubpassContents::INLINE);
             frame.bind_pipeline(vk::PipelineBindPoint::GRAPHICS, self.pipeline);
-            if self.index_count > 0 {
-                frame.bind_vertex_buffer(self.vertex_buffer);
-                frame.bind_index_buffer(self.index_buffer);
+            for resources in &self.region_resources {
+                if resources.index_count == 0 {
+                    continue;
+                }
+                frame.bind_vertex_buffer(resources.vertex_buffer);
+                frame.bind_index_buffer(resources.index_buffer);
                 frame
                     .push_vertex_constants(self.pipeline_layout, f32_bytes(&self.camera_constants));
-                frame.draw_indexed(self.index_count);
+                frame.draw_indexed(resources.index_count);
             }
             frame.end_render_pass();
         }
@@ -1881,26 +2323,23 @@ impl RasterRenderPath {
                 device.free_memory(self.depth_memory);
                 self.depth_memory = vk::DeviceMemory::null();
             }
-            if self.index_buffer != vk::Buffer::null() {
-                device.destroy_buffer(self.index_buffer);
-                self.index_buffer = vk::Buffer::null();
-            }
-            if self.index_memory != vk::DeviceMemory::null() {
-                device.free_memory(self.index_memory);
-                self.index_memory = vk::DeviceMemory::null();
-            }
-            if self.vertex_buffer != vk::Buffer::null() {
-                device.destroy_buffer(self.vertex_buffer);
-                self.vertex_buffer = vk::Buffer::null();
-            }
-            if self.vertex_memory != vk::DeviceMemory::null() {
-                device.free_memory(self.vertex_memory);
-                self.vertex_memory = vk::DeviceMemory::null();
+            for resources in self.region_resources.drain(..) {
+                if resources.index_buffer != vk::Buffer::null() {
+                    device.destroy_buffer(resources.index_buffer);
+                }
+                if resources.index_memory != vk::DeviceMemory::null() {
+                    device.free_memory(resources.index_memory);
+                }
+                if resources.vertex_buffer != vk::Buffer::null() {
+                    device.destroy_buffer(resources.vertex_buffer);
+                }
+                if resources.vertex_memory != vk::DeviceMemory::null() {
+                    device.free_memory(resources.vertex_memory);
+                }
             }
         }
         self.configured_attachments.clear();
         self.configuration_id = None;
-        self.index_count = 0;
     }
 }
 

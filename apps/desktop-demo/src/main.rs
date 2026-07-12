@@ -949,11 +949,11 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             height: drawable_size.height,
         };
         self.drawable_extent = initial_drawable_extent;
-        let (scene, volume_identity, occupied_voxels) = match self.render_configuration.scene {
+        let (scene, occupied_voxels) = match self.render_configuration.scene {
             DesktopSceneSelection::WindingDiagnostic => {
-                let (scene, volume_identity) = winding_diagnostic_scene();
+                let (scene, _) = winding_diagnostic_scene();
                 report_winding_diagnostic_configuration(&self.render_configuration);
-                (scene, volume_identity, 2)
+                (scene, 2)
             }
             DesktopSceneSelection::Canonical(scale) => {
                 let canonical = match generate_canonical_scene(scale) {
@@ -968,8 +968,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 };
                 report_canonical_configuration(canonical.metadata(), &self.render_configuration);
                 let occupied_voxels = canonical.metadata().occupied_count();
-                let volume_identity = canonical.metadata().volume_identity().clone();
-                (canonical.into_scene(), volume_identity, occupied_voxels)
+                (canonical.into_scene(), occupied_voxels)
             }
         };
         self.occupied_voxels = occupied_voxels;
@@ -1089,22 +1088,26 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 (None, None)
             };
         let event_proxy = self.event_proxy.clone();
-        let preparation =
-            match RasterArtifactPreparation::start(view, volume_identity, barrier, move |event| {
+        let preparation = match RasterArtifactPreparation::start_regions(
+            view,
+            VoxelExtent::new(32, 32, 32),
+            barrier,
+            move |event| {
                 if event_proxy
                     .send_event(DesktopEvent::Preparation(event))
                     .is_err()
                 {
                     eprintln!("desktop event loop closed before preparation notification");
                 }
-            }) {
-                Ok(preparation) => preparation,
-                Err(error) => {
-                    self.application_error = Some(error.to_string());
-                    event_loop.exit();
-                    return;
-                }
-            };
+            },
+        ) {
+            Ok(preparation) => preparation,
+            Err(error) => {
+                self.application_error = Some(error.to_string());
+                event_loop.exit();
+                return;
+            }
+        };
         self.preparation = Some(preparation);
         self.preparation_release = preparation_release;
         self.set_status(&format!("preparing revision {published_revision}"));
