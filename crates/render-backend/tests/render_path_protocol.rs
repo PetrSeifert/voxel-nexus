@@ -49,6 +49,7 @@ fn every_render_path_phase_preserves_phase_and_source_context() {
         (RenderPathPhase::Release, "release"),
         (RenderPathPhase::Configure, "configure"),
         (RenderPathPhase::Record, "record"),
+        (RenderPathPhase::Shutdown, "shutdown"),
     ] {
         let error =
             run_render_path_phase::<()>(phase, || Err(Box::new(ProofPathError("proof failure"))))

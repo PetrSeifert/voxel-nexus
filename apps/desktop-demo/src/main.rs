@@ -1129,6 +1129,11 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 {
                     self.application_error = Some(error.to_string());
                 }
+                if let Some(mut preparation) = self.preparation.take()
+                    && let Err(error) = preparation.cancel_and_join()
+                {
+                    self.application_error = Some(error.to_string());
+                }
                 if let Some(backend) = &mut self.backend
                     && let Err(error) = backend.shutdown()
                 {
@@ -1629,6 +1634,7 @@ fn render_path_failure_diagnostic(
         Some("release") => Ok(RenderPathPhase::Release),
         Some("configure") => Ok(RenderPathPhase::Configure),
         Some("record") => Ok(RenderPathPhase::Record),
+        Some("shutdown") => Ok(RenderPathPhase::Shutdown),
         Some("upload") => {
             return Some(Err(RasterArtifactInstallationError::new(
                 RasterArtifactInstallationPhase::Upload,
@@ -1638,10 +1644,11 @@ fn render_path_failure_diagnostic(
             .to_string()));
         }
         Some(phase) => Err(format!(
-            "unknown Render Path phase {phase:?}; expected release, configure, record, or upload"
+            "unknown Render Path phase {phase:?}; expected release, configure, record, shutdown, or upload"
         )),
         None => Err(
-            "missing Render Path phase; expected release, configure, record, or upload".to_owned(),
+            "missing Render Path phase; expected release, configure, record, shutdown, or upload"
+                .to_owned(),
         ),
     };
     Some(phase.and_then(|phase| {

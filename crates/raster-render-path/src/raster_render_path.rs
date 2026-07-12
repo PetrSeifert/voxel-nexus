@@ -1400,6 +1400,32 @@ pub fn derive_raster_regions(
     )
 }
 
+fn derive_raster_regions_until_cancelled(
+    view: &VoxelSceneView,
+    region_extent: VoxelExtent,
+    cancellation: &AtomicBool,
+) -> Result<Option<RasterArtifact>, RasterArtifactBuildError> {
+    let source_revision = view.revision();
+    let mut regions = Vec::new();
+    let completed = visit_raster_region_cores(view, region_extent, |metadata, core| {
+        if cancellation.load(Ordering::Acquire) {
+            return Ok(false);
+        }
+        regions.push(derive_raster_region(view, metadata, core)?);
+        Ok(!cancellation.load(Ordering::Acquire))
+    })?;
+    if !completed {
+        return Ok(None);
+    }
+    assemble_raster_artifact(
+        view.scene_id().clone(),
+        source_revision,
+        region_extent,
+        regions,
+    )
+    .map(Some)
+}
+
 fn visit_raster_region_cores(
     view: &VoxelSceneView,
     region_extent: VoxelExtent,
@@ -1984,13 +2010,17 @@ impl RasterCandidateRetirement {
         self.resources.len()
     }
 
+    fn release_with(mut self, mut release: impl FnMut(RasterRegionGpuResources)) {
+        for resources in self.resources.drain(..) {
+            release(resources);
+        }
+    }
+
     /// # Safety
     ///
     /// No submitted GPU work may still reference any resource in this handoff.
     unsafe fn release_after_gpu_completion(self, device: &RenderPathDeviceContext<'_>) {
-        for resources in self.resources {
-            release_raster_region_resources(device, resources);
-        }
+        self.release_with(|resources| release_raster_region_resources(device, resources));
     }
 }
 
@@ -2683,6 +2713,29 @@ impl RasterConvergence {
         candidate.successor_gpu_resources
     }
 
+    fn shutdown(&mut self) -> Result<RasterCandidateRetirement, RasterConvergenceError> {
+        if let Some(active) = &self.active {
+            active.cancellation.store(true, Ordering::Release);
+        }
+        let active = self.active.take();
+        self.pending = None;
+        self.paused = None;
+        let resources = self
+            .hidden_candidate
+            .take()
+            .map(|candidate| candidate.successor_gpu_resources)
+            .unwrap_or_default();
+        if let Some(mut active) = active {
+            let revision = active.target.view.revision();
+            if let Some(worker) = active.worker.take()
+                && worker.join().is_err()
+            {
+                return Err(RasterConvergenceError::PreparationTerminated { revision });
+            }
+        }
+        Ok(RasterCandidateRetirement { resources })
+    }
+
     fn active_is_ready(&self) -> bool {
         self.active.as_ref().is_some_and(|active| {
             matches!(active.status, RasterActivePreparationStatus::Ready { .. })
@@ -2882,6 +2935,15 @@ impl Drop for RasterConvergence {
     fn drop(&mut self) {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
+        }
+        if let Some(mut active) = self.active.take()
+            && let Some(worker) = active.worker.take()
+            && worker.join().is_err()
+        {
+            eprintln!(
+                "Raster Convergence worker panicked for Voxel Scene Revision {}",
+                active.target.view.revision()
+            );
         }
     }
 }
@@ -3083,8 +3145,10 @@ impl Drop for RasterPreparationBarrierRelease {
 
 pub struct RasterArtifactPreparation {
     source_revision: VoxelSceneRevision,
-    result_receiver: mpsc::Receiver<Result<RasterArtifact, RasterArtifactPreparationError>>,
+    result_receiver: mpsc::Receiver<Result<Option<RasterArtifact>, RasterArtifactPreparationError>>,
     worker: Option<JoinHandle<()>>,
+    cancellation: Arc<AtomicBool>,
+    cancellation_barrier: Option<RasterPreparationBarrierRelease>,
 }
 
 impl RasterArtifactPreparation {
@@ -3095,8 +3159,8 @@ impl RasterArtifactPreparation {
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
         let source_revision = view.revision();
-        Self::start_with_derivation(source_revision, barrier, notify, move || {
-            derive_raster_regions(&view, region_extent)
+        Self::start_with_derivation(source_revision, barrier, notify, move |cancellation| {
+            derive_raster_regions_until_cancelled(&view, region_extent, cancellation)
         })
     }
 
@@ -3107,8 +3171,8 @@ impl RasterArtifactPreparation {
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
         let source_revision = view.revision();
-        Self::start_with_derivation(source_revision, barrier, notify, move || {
-            derive_raster_artifact(&view, &volume_identity)
+        Self::start_with_derivation(source_revision, barrier, notify, move |_| {
+            derive_raster_artifact(&view, &volume_identity).map(Some)
         })
     }
 
@@ -3116,31 +3180,50 @@ impl RasterArtifactPreparation {
         source_revision: VoxelSceneRevision,
         barrier: Option<RasterPreparationBarrier>,
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
-        derive: impl FnOnce() -> Result<RasterArtifact, RasterArtifactBuildError> + Send + 'static,
+        derive: impl FnOnce(&AtomicBool) -> Result<Option<RasterArtifact>, RasterArtifactBuildError>
+        + Send
+        + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
-        let worker = thread::Builder::new()
-            .name(format!("raster-preparation-{source_revision}"))
-            .spawn(move || {
+        let cancellation = Arc::new(AtomicBool::new(false));
+        let cancellation_barrier =
+            barrier
+                .as_ref()
+                .map(|barrier| RasterPreparationBarrierRelease {
+                    shared: barrier.shared.clone(),
+                });
+        let worker_task = {
+            let cancellation = cancellation.clone();
+            move || {
                 let result = (|| {
                     if let Some(barrier) = barrier {
                         barrier.reach_and_wait(source_revision, &notify)?;
                     }
-                    derive().map_err(|source| {
+                    if cancellation.load(Ordering::Acquire) {
+                        return Ok(None);
+                    }
+                    derive(&cancellation).map_err(|source| {
                         RasterArtifactPreparationError::Derivation {
                             source_revision,
                             source,
                         }
                     })
                 })();
+                let should_notify = !matches!(&result, Ok(None));
                 if result_sender.send(result).is_err() {
                     eprintln!(
                         "background raster preparation result receiver closed for Voxel Scene Revision {source_revision}"
                     );
                     return;
                 }
-                notify(RasterArtifactPreparationEvent::Completed { source_revision });
-            })
+                if should_notify {
+                    notify(RasterArtifactPreparationEvent::Completed { source_revision });
+                }
+            }
+        };
+        let worker = thread::Builder::new()
+            .name(format!("raster-preparation-{source_revision}"))
+            .spawn(worker_task)
             .map_err(|source| RasterArtifactPreparationError::WorkerStart {
                 source_revision,
                 source,
@@ -3149,6 +3232,8 @@ impl RasterArtifactPreparation {
             source_revision,
             result_receiver,
             worker: Some(worker),
+            cancellation,
+            cancellation_barrier,
         })
     }
 
@@ -3179,7 +3264,51 @@ impl RasterArtifactPreparation {
                 source_revision: self.source_revision,
             });
         }
-        result.map(Some)
+        result
+    }
+
+    pub fn cancel_and_join(&mut self) -> Result<(), RasterArtifactPreparationError> {
+        self.cancellation.store(true, Ordering::Release);
+        let barrier_result = self
+            .cancellation_barrier
+            .take()
+            .map(|barrier| barrier.release())
+            .transpose()
+            .map(|_| ())
+            .map_err(|_| RasterArtifactPreparationError::Synchronization {
+                source_revision: self.source_revision,
+            });
+        let Some(worker) = self.worker.take() else {
+            return barrier_result;
+        };
+        if worker.join().is_err() {
+            return Err(RasterArtifactPreparationError::WorkerTerminated {
+                source_revision: self.source_revision,
+            });
+        }
+        barrier_result
+    }
+}
+
+impl Drop for RasterArtifactPreparation {
+    fn drop(&mut self) {
+        self.cancellation.store(true, Ordering::Release);
+        if let Some(barrier) = self.cancellation_barrier.take()
+            && barrier.release().is_err()
+        {
+            eprintln!(
+                "background raster preparation barrier was unavailable during cancellation for Voxel Scene Revision {}",
+                self.source_revision
+            );
+        }
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            eprintln!(
+                "background raster preparation worker panicked for Voxel Scene Revision {}",
+                self.source_revision
+            );
+        }
     }
 }
 
@@ -3595,6 +3724,15 @@ impl RenderPath for RasterRenderPath {
         device: RenderPathDeviceContext<'_>,
     ) -> RenderPathResult<()> {
         self.advance_convergence_at_frame_boundary(Some(&device))?;
+        Ok(())
+    }
+
+    fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        if let Some(convergence) = &mut self.convergence {
+            let retirement = convergence.shutdown()?;
+            unsafe { retirement.release_after_gpu_completion(&device) };
+        }
+        self.release_resources(&device);
         Ok(())
     }
 
@@ -4324,6 +4462,124 @@ mod convergence_tests {
             index_memory: vk::DeviceMemory::from_raw(raw_identity + 3_000),
             index_count: 6,
         }
+    }
+
+    #[derive(Default)]
+    struct DeterministicResourceLifecycle {
+        created: usize,
+        retired: usize,
+        live: HashSet<u64>,
+        next_identity: u64,
+    }
+
+    impl DeterministicResourceLifecycle {
+        fn with_next_identity(next_identity: u64) -> Self {
+            Self {
+                next_identity,
+                ..Self::default()
+            }
+        }
+
+        fn create(&mut self, identity: RasterRegionIdentity) -> RasterRegionGpuResources {
+            let raw_identity = self.next_identity;
+            self.next_identity += 1;
+            self.created += 1;
+            assert!(self.live.insert(raw_identity));
+            fake_resources(identity, raw_identity)
+        }
+
+        fn retire(&mut self, resources: RasterRegionGpuResources) {
+            self.retired += 1;
+            assert!(self.live.remove(&resources.vertex_buffer.as_raw()));
+        }
+
+        fn assert_balanced(&self) {
+            assert_eq!(self.created, self.retired);
+            assert!(self.live.is_empty());
+        }
+    }
+
+    #[test]
+    fn superseded_uploaded_resources_remain_live_until_fence_safe_retirement()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(190, 2)?;
+        let mut render_path = render_path(&frontend)?;
+        let mut lifecycle = DeterministicResourceLifecycle::with_next_identity(10);
+        render_path.region_resources = render_path
+            .installed_regions()
+            .iter()
+            .map(|installation| lifecycle.create(installation.identity().clone()))
+            .collect();
+        let mut convergence = RasterConvergence::from_visible(&render_path)?;
+
+        convergence.accept(changed(&frontend, 0)?)?;
+        wait_until_ready_without_draining(&mut convergence)?;
+        convergence.upload_ready_with_test_resources(&render_path, &mut |region| {
+            Ok(lifecycle.create(region.identity().clone()))
+        })?;
+        convergence.accept(changed(&frontend, 1)?)?;
+        let RasterConvergenceCommit::Rejected { retirement } =
+            convergence.commit_at_frame_boundary(&mut render_path)?
+        else {
+            return Err("superseded uploaded candidate was not rejected".into());
+        };
+        let superseded_resource_count = retirement.resource_count();
+        assert_eq!(lifecycle.live.len(), lifecycle.created);
+        assert_eq!(lifecycle.retired, 0);
+        retirement.release_with(|resources| lifecycle.retire(resources));
+        assert_eq!(lifecycle.retired, superseded_resource_count);
+
+        wait_until_ready_without_draining(&mut convergence)?;
+        convergence.upload_ready_with_test_resources(&render_path, &mut |region| {
+            Ok(lifecycle.create(region.identity().clone()))
+        })?;
+        let RasterConvergenceCommit::Committed { retirement } =
+            convergence.commit_at_frame_boundary(&mut render_path)?
+        else {
+            return Err("newest uploaded candidate was not committed".into());
+        };
+        retirement.release_with(|resources| lifecycle.retire(resources));
+        for resources in std::mem::take(&mut render_path.region_resources) {
+            lifecycle.retire(resources);
+        }
+        convergence
+            .shutdown()?
+            .release_with(|resources| lifecycle.retire(resources));
+        lifecycle.assert_balanced();
+        Ok(())
+    }
+
+    #[test]
+    fn shutdown_joins_active_work_and_disposes_a_hidden_uploaded_candidate()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(200, 2)?;
+        let mut render_path = render_path(&frontend)?;
+        let mut lifecycle = DeterministicResourceLifecycle::with_next_identity(40);
+        render_path.region_resources = render_path
+            .installed_regions()
+            .iter()
+            .map(|installation| lifecycle.create(installation.identity().clone()))
+            .collect();
+        let mut convergence = RasterConvergence::from_visible(&render_path)?;
+        convergence.accept(changed(&frontend, 0)?)?;
+        wait_until_ready_without_draining(&mut convergence)?;
+        convergence.upload_ready_with_test_resources(&render_path, &mut |region| {
+            Ok(lifecycle.create(region.identity().clone()))
+        })?;
+        convergence.accept(changed(&frontend, 1)?)?;
+
+        convergence
+            .shutdown()?
+            .release_with(|resources| lifecycle.retire(resources));
+        assert!(convergence.active.is_none());
+        assert!(convergence.pending.is_none());
+        assert!(convergence.paused.is_none());
+        assert!(convergence.hidden_candidate.is_none());
+        for resources in std::mem::take(&mut render_path.region_resources) {
+            lifecycle.retire(resources);
+        }
+        lifecycle.assert_balanced();
+        Ok(())
     }
 
     #[test]

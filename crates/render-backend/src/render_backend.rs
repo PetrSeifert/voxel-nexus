@@ -317,6 +317,7 @@ pub enum RenderPathPhase {
     Release,
     Configure,
     Record,
+    Shutdown,
 }
 
 impl fmt::Display for RenderPathPhase {
@@ -325,6 +326,7 @@ impl fmt::Display for RenderPathPhase {
             Self::Release => "release",
             Self::Configure => "configure",
             Self::Record => "record",
+            Self::Shutdown => "shutdown",
         })
     }
 }
@@ -769,6 +771,10 @@ pub trait RenderPath {
         Ok(())
     }
 
+    fn shutdown(&mut self, _device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        Ok(())
+    }
+
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()>;
 }
 
@@ -882,6 +888,7 @@ pub struct RenderBackend {
     next_configuration_id: u64,
     frame_sequences: BackendFrameSequences,
     path_is_configured: bool,
+    path_is_shutdown: bool,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
     options: RenderBackendOptions,
 }
@@ -990,6 +997,7 @@ impl RenderBackend {
             next_configuration_id: 1,
             frame_sequences: BackendFrameSequences::new(),
             path_is_configured: false,
+            path_is_shutdown: false,
             memory_properties,
             options,
         };
@@ -1120,9 +1128,24 @@ impl RenderBackend {
         Ok(())
     }
 
+    fn shutdown_path(&mut self) -> Result<(), BackendError> {
+        if self.path_is_shutdown {
+            return Ok(());
+        }
+        run_render_path_phase(RenderPathPhase::Shutdown, || {
+            self.path.shutdown(RenderPathDeviceContext {
+                device: &self.device,
+                memory_properties: self.memory_properties,
+            })
+        })?;
+        self.path_is_shutdown = true;
+        Ok(())
+    }
+
     pub fn shutdown(&mut self) -> Result<(), BackendError> {
         unsafe { self.device.device_wait_idle() }.map_err(BackendError::WaitForDevice)?;
         self.release_path()?;
+        self.shutdown_path()?;
         self.rendering = None;
         Ok(())
     }
@@ -1145,6 +1168,9 @@ impl Drop for RenderBackend {
             return;
         }
         if let Err(error) = self.release_path() {
+            eprintln!("{error}");
+        }
+        if let Err(error) = self.shutdown_path() {
             eprintln!("{error}");
         }
     }

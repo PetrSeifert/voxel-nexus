@@ -316,10 +316,11 @@ function Wait-ForWindowTitle {
         [System.Diagnostics.Process]$Process,
         [IntPtr]$Window,
         [string]$Pattern,
-        [string]$PreviousTitle = ""
+        [string]$PreviousTitle = "",
+        [int]$TimeoutSeconds = 10
     )
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(30)
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         if ($Process.HasExited) {
             throw "The desktop demo exited while waiting for window state '$Pattern' with code $($Process.ExitCode)."
@@ -330,7 +331,7 @@ function Wait-ForWindowTitle {
         }
         Start-Sleep -Milliseconds 50
     }
-    throw "The desktop demo did not report window state '$Pattern' within 30 seconds. Last title: $(Get-DemoWindowTitle -Window $Window)"
+    throw "The desktop demo did not report window state '$Pattern' within $TimeoutSeconds seconds. Last title: $(Get-DemoWindowTitle -Window $Window)"
 }
 
 function Send-DesktopVerificationEvent {
@@ -760,7 +761,7 @@ try {
     }
 
     $renderPathFailures = @()
-    foreach ($phase in @("release", "configure", "record", "upload")) {
+    foreach ($phase in @("release", "configure", "record", "shutdown", "upload")) {
         $phaseResult = Invoke-CapturedProcess `
             -Executable $binaryPath `
             -Arguments @("--verify-render-path-failure", $phase) `
@@ -896,7 +897,11 @@ try {
         -Window $window `
         -Message ([LifecycleWindow]::ReleasePreparationMessage) `
         -Name "release background preparation"
-    Wait-ForWindowTitle -Process $demoProcess -Window $window -Pattern "artifact-ready revision 1" | Out-Null
+    Wait-ForWindowTitle `
+        -Process $demoProcess `
+        -Window $window `
+        -Pattern "artifact-ready revision 1" `
+        -TimeoutSeconds 30 | Out-Null
 
     if (-not [LifecycleWindow]::MoveWindow($window, 100, 100, 900, 650, $true)) {
         throw "Could not set the desktop demo launch extent."

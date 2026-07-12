@@ -34,7 +34,7 @@ fn collect_output(
 #[test]
 fn every_render_path_phase_failure_reaches_the_application_boundary()
 -> Result<(), Box<dyn std::error::Error>> {
-    for phase in ["release", "configure", "record"] {
+    for phase in ["release", "configure", "record", "shutdown"] {
         let output = run_diagnostic(phase)?;
         let standard_error = String::from_utf8(output.stderr)?;
 

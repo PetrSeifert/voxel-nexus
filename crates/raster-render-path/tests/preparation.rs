@@ -3,6 +3,7 @@ use raster_render_path::{
 };
 use std::sync::mpsc;
 use std::thread;
+use std::time::{Duration, Instant};
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
     VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelSceneRevision,
@@ -107,5 +108,33 @@ fn derivation_failure_keeps_phase_and_source_revision_at_the_worker_boundary()
     assert!(error.to_string().contains("background derivation"));
     assert!(error.to_string().contains("metadata"));
     assert!(error.to_string().contains("VoxelSceneRevision(27)"));
+    Ok(())
+}
+
+#[test]
+fn clean_close_releases_a_held_barrier_and_joins_the_worker_under_the_watchdog()
+-> Result<(), Box<dyn std::error::Error>> {
+    let (worker_barrier, _barrier_release) = RasterPreparationBarrier::held();
+    let (event_sender, event_receiver) = mpsc::channel();
+    let mut preparation = RasterArtifactPreparation::start_regions(
+        published_view()?,
+        VoxelExtent::new(1, 1, 1),
+        Some(worker_barrier),
+        move |event| {
+            if event_sender.send(event).is_err() {
+                eprintln!("preparation test event receiver closed");
+            }
+        },
+    )?;
+    assert_eq!(
+        event_receiver.recv_timeout(Duration::from_secs(10))?,
+        RasterArtifactPreparationEvent::PausedAtBarrier {
+            source_revision: VoxelSceneRevision::new(27),
+        }
+    );
+
+    let started_at = Instant::now();
+    preparation.cancel_and_join()?;
+    assert!(started_at.elapsed() < Duration::from_secs(10));
     Ok(())
 }
