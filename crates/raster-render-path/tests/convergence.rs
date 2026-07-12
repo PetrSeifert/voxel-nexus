@@ -1,5 +1,6 @@
 use raster_render_path::{
-    RasterConvergence, RasterConvergenceAcceptance, RasterConvergenceEvent, RasterConvergenceRetry,
+    RasterConvergence, RasterConvergenceAcceptance, RasterConvergenceCommit,
+    RasterConvergenceEvent, RasterConvergenceRetry, RasterConvergenceUpload,
     RasterPreparationDisposition, RasterRenderPath, derive_raster_regions,
 };
 use std::thread;
@@ -274,5 +275,175 @@ fn an_older_discontinuous_outcome_cannot_replace_the_newest_requirement()
         }
     );
     assert_eq!(convergence.required_revision(), VoxelSceneRevision::new(91));
+    Ok(())
+}
+
+#[test]
+fn a_frame_boundary_commit_replaces_all_affected_regions_and_revision_together()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = frontend("atomic-commit", 100, VoxelExtent::new(3, 1, 1))?;
+    let initial_view = frontend.scene_view()?;
+    let mut render_path = RasterRenderPath::new();
+    render_path.install_artifact(derive_raster_regions(
+        &initial_view,
+        VoxelExtent::new(1, 1, 1),
+    )?);
+    let before = render_path.installed_regions().to_vec();
+    let mut convergence = RasterConvergence::from_visible(&render_path)?;
+
+    convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+    drain_until_ready(&mut convergence, VoxelSceneRevision::new(101))?;
+    assert!(matches!(
+        convergence.upload_ready(&render_path)?,
+        RasterConvergenceUpload::Uploaded {
+            revision
+        } if revision == VoxelSceneRevision::new(101)
+    ));
+    assert_eq!(
+        render_path.installed_source_revision(),
+        Some(VoxelSceneRevision::new(100))
+    );
+    assert_eq!(convergence.visible_revision(), VoxelSceneRevision::new(100));
+
+    let RasterConvergenceCommit::Committed {
+        revision,
+        affected_region_count,
+        retirement,
+    } = convergence.commit_at_frame_boundary(&mut render_path)?
+    else {
+        return Err("the newest candidate was not committed".into());
+    };
+    assert_eq!(revision, VoxelSceneRevision::new(101));
+    assert_eq!(affected_region_count, 2);
+    assert_eq!(retirement.region_count(), 2);
+    assert_eq!(
+        render_path.installed_source_revision(),
+        Some(VoxelSceneRevision::new(101))
+    );
+    assert_eq!(convergence.visible_revision(), VoxelSceneRevision::new(101));
+    assert!(
+        render_path
+            .installed_artifact()
+            .ok_or("missing committed artifact")?
+            .regions()
+            .iter()
+            .filter(|region| region.identity().core_origin() != VoxelCoordinate::new(2, 0, 0))
+            .all(|region| region.source_revision() == VoxelSceneRevision::new(101))
+    );
+
+    for installation in render_path.installed_regions() {
+        let prior = before
+            .iter()
+            .find(|prior| prior.identity() == installation.identity())
+            .ok_or("missing prior installation")?;
+        if installation.identity().core_origin() == VoxelCoordinate::new(2, 0, 0) {
+            assert_eq!(installation, prior);
+        } else {
+            assert_eq!(
+                installation.installation_generation(),
+                prior
+                    .installation_generation()
+                    .checked_successor()
+                    .ok_or("test generation overflow")?
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn a_superseded_post_upload_candidate_is_rejected_and_handed_to_retirement()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = frontend("post-upload-stale", 110, VoxelExtent::new(3, 1, 1))?;
+    let initial_view = frontend.scene_view()?;
+    let mut render_path = RasterRenderPath::new();
+    render_path.install_artifact(derive_raster_regions(
+        &initial_view,
+        VoxelExtent::new(1, 1, 1),
+    )?);
+    let before = render_path.installed_regions().to_vec();
+    let mut convergence = RasterConvergence::from_visible(&render_path)?;
+
+    convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+    drain_until_ready(&mut convergence, VoxelSceneRevision::new(111))?;
+    convergence.upload_ready(&render_path)?;
+    assert!(matches!(
+        convergence.upload_ready(&render_path)?,
+        RasterConvergenceUpload::CandidateAlreadyRetained {
+            revision
+        } if revision == VoxelSceneRevision::new(111)
+    ));
+
+    convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(2, 0, 0))?)?;
+    let RasterConvergenceCommit::Rejected {
+        revision,
+        retirement,
+    } = convergence.commit_at_frame_boundary(&mut render_path)?
+    else {
+        return Err("the stale candidate was not rejected".into());
+    };
+    assert_eq!(revision, VoxelSceneRevision::new(111));
+    assert_eq!(retirement.region_count(), 2);
+    assert_eq!(convergence.visible_revision(), VoxelSceneRevision::new(110));
+    assert_eq!(render_path.installed_regions(), before);
+    assert_eq!(
+        render_path.installed_source_revision(),
+        Some(VoxelSceneRevision::new(110))
+    );
+    assert!(convergence.drain_events()?.iter().any(|event| matches!(
+        event,
+        RasterConvergenceEvent::CandidateRejected {
+            revision,
+            disposition: RasterPreparationDisposition::SupersededAfterUpload,
+        } if *revision == VoxelSceneRevision::new(111)
+    )));
+
+    drain_until_ready(&mut convergence, VoxelSceneRevision::new(112))?;
+    convergence.upload_ready(&render_path)?;
+    assert!(matches!(
+        convergence.commit_at_frame_boundary(&mut render_path)?,
+        RasterConvergenceCommit::Committed {
+            revision,
+            ..
+        } if revision == VoxelSceneRevision::new(112)
+    ));
+    assert_eq!(convergence.visible_revision(), VoxelSceneRevision::new(112));
+    Ok(())
+}
+
+#[test]
+fn a_new_generation_permanently_invalidates_a_same_revision_candidate()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = frontend("generation-stale", 120, VoxelExtent::new(1, 1, 1))?;
+    let initial_view = frontend.scene_view()?;
+    let mut render_path = RasterRenderPath::new();
+    render_path.install_artifact(derive_raster_regions(
+        &initial_view,
+        VoxelExtent::new(1, 1, 1),
+    )?);
+    let mut convergence = RasterConvergence::from_visible(&render_path)?;
+
+    convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+    drain_until_ready(&mut convergence, VoxelSceneRevision::new(121))?;
+    convergence.upload_ready(&render_path)?;
+    assert_eq!(
+        convergence.request_retry()?,
+        RasterConvergenceRetry::Requested {
+            revision: VoxelSceneRevision::new(121),
+        }
+    );
+
+    assert!(matches!(
+        convergence.commit_at_frame_boundary(&mut render_path)?,
+        RasterConvergenceCommit::Rejected {
+            revision,
+            ..
+        } if revision == VoxelSceneRevision::new(121)
+    ));
+    assert_eq!(convergence.visible_revision(), VoxelSceneRevision::new(120));
+    assert_eq!(
+        render_path.installed_source_revision(),
+        Some(VoxelSceneRevision::new(120))
+    );
     Ok(())
 }
