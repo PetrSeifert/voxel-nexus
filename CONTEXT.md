@@ -28,17 +28,37 @@ _Avoid_: Chunk, brick, SVO node
 The owner of voxel-scene state, storage-independent access, and edit semantics presented to render paths.
 _Avoid_: Data backend
 
+**Voxel Edit Command**:
+An atomic request to set one coordinate in one identified Voxel Volume to one Voxel Value. Each value-changing command publishes exactly one new Voxel Scene Revision; a command that preserves the existing value publishes nothing.
+_Avoid_: Edit batch, editor action
+
 **Voxel Scene View**:
 A stable, read-only view of the logical Voxel Scene at one revision; later edits do not change what it presents.
 _Avoid_: Live scene, canonical copy
 
 **Voxel Scene Revision**:
-The monotonically ordered identity of the logical contents presented by a Voxel Scene View.
+The monotonically ordered identity, within one Voxel Scene, of the logical contents presented by a Voxel Scene View. Each value-changing Voxel Edit Command receives the checked immediate successor of the current revision.
 _Avoid_: Frame, storage version
 
+**Required Voxel Scene Revision**:
+The newest Voxel Scene Revision that a Render Path is obligated to make visible. Only a strictly newer changed submission can advance it, and no older not-yet-visible candidate can become visible.
+_Avoid_: Target revision, requested revision
+
+**Visible Voxel Scene Revision**:
+The one Voxel Scene Revision represented by the complete installed raster collection used to produce frames. It remains unchanged until a required revision is installed atomically.
+_Avoid_: Current revision, rendered version
+
 **Voxel Change Set**:
-A storage-independent description of semantic invalidations between two Voxel Scene Revisions; changed regions may be conservative but never incomplete.
+A storage-independent description of semantic invalidations for one Voxel Scene between two adjacent Voxel Scene Revisions; changed regions may be conservative but never incomplete. It applies only to a consumer representing both the Voxel Scene identity and predecessor revision it names.
 _Avoid_: Edit history, storage diff
+
+**Raster Region**:
+A fixed volume-local spatial identity for one independently derived raster result. Its identity and extent do not depend on a Voxel Scene Revision or Storage Tier partitioning.
+_Avoid_: Chunk, mesh chunk, storage region
+
+**Raster Convergence**:
+The Render Path process of replacing its Visible Voxel Scene Revision with its newest Required Voxel Scene Revision while preserving complete revision-correct frames.
+_Avoid_: Raster refresh, artifact update
 
 **Storage Tier**:
 The representation used to hold a voxel volume without changing that volume's logical contents.
