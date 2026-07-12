@@ -104,6 +104,14 @@ impl VoxelRegion {
     pub fn new(origin: VoxelCoordinate, extent: VoxelExtent) -> Self {
         Self { origin, extent }
     }
+
+    pub fn origin(self) -> VoxelCoordinate {
+        self.origin
+    }
+
+    pub fn extent(self) -> VoxelExtent {
+        self.extent
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -239,6 +247,104 @@ impl VoxelSample {
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoxelEditCommand {
+    volume_identity: VoxelVolumeId,
+    coordinate: VoxelCoordinate,
+    value: VoxelValue,
+}
+
+impl VoxelEditCommand {
+    pub fn new(
+        volume_identity: VoxelVolumeId,
+        coordinate: VoxelCoordinate,
+        value: VoxelValue,
+    ) -> Self {
+        Self {
+            volume_identity,
+            coordinate,
+            value,
+        }
+    }
+
+    pub fn volume_identity(&self) -> &VoxelVolumeId {
+        &self.volume_identity
+    }
+
+    pub fn coordinate(&self) -> VoxelCoordinate {
+        self.coordinate
+    }
+
+    pub fn value(&self) -> &VoxelValue {
+        &self.value
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoxelChangedRegion {
+    volume_identity: VoxelVolumeId,
+    region: VoxelRegion,
+}
+
+impl VoxelChangedRegion {
+    pub fn volume_identity(&self) -> &VoxelVolumeId {
+        &self.volume_identity
+    }
+
+    pub fn region(&self) -> VoxelRegion {
+        self.region
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoxelChangeSet {
+    scene_identity: VoxelSceneId,
+    predecessor_revision: VoxelSceneRevision,
+    successor_revision: VoxelSceneRevision,
+    changed_regions: Vec<VoxelChangedRegion>,
+}
+
+impl VoxelChangeSet {
+    pub fn scene_identity(&self) -> &VoxelSceneId {
+        &self.scene_identity
+    }
+
+    pub fn predecessor_revision(&self) -> VoxelSceneRevision {
+        self.predecessor_revision
+    }
+
+    pub fn successor_revision(&self) -> VoxelSceneRevision {
+        self.successor_revision
+    }
+
+    pub fn changed_regions(&self) -> &[VoxelChangedRegion] {
+        &self.changed_regions
+    }
+}
+
+pub enum VoxelEditOutcome {
+    Unchanged(VoxelSceneView),
+    Changed {
+        view: VoxelSceneView,
+        change_set: VoxelChangeSet,
+    },
+}
+
+impl VoxelEditOutcome {
+    pub fn view(&self) -> &VoxelSceneView {
+        match self {
+            Self::Unchanged(view) | Self::Changed { view, .. } => view,
+        }
+    }
+
+    pub fn change_set(&self) -> Option<&VoxelChangeSet> {
+        match self {
+            Self::Unchanged(_) => None,
+            Self::Changed { change_set, .. } => Some(change_set),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum VoxelFrontendError {
     #[error("Voxel Scene identity must not be empty")]
@@ -306,6 +412,26 @@ pub enum VoxelFrontendError {
     SceneAlreadyPublished,
     #[error("unknown Voxel Volume identity {identity:?}")]
     UnknownVolumeIdentity { identity: VoxelVolumeId },
+    #[error("Voxel Edit Command coordinate {coordinate:?} is outside Voxel Volume {identity:?}")]
+    EditCoordinateOutsideVolume {
+        identity: VoxelVolumeId,
+        coordinate: VoxelCoordinate,
+    },
+    #[error(
+        "Voxel Edit Command for Voxel Volume {volume_identity:?} coordinate {coordinate:?} references unknown Voxel Material {material_identity:?}"
+    )]
+    UnknownEditMaterial {
+        volume_identity: VoxelVolumeId,
+        coordinate: VoxelCoordinate,
+        material_identity: VoxelMaterialId,
+    },
+    #[error(
+        "Voxel Scene {scene_identity:?} revision {revision} has no immediate successor for a value-changing Voxel Edit Command"
+    )]
+    RevisionOverflow {
+        scene_identity: VoxelSceneId,
+        revision: VoxelSceneRevision,
+    },
     #[error("Voxel Region request for Voxel Volume {identity:?} has an empty extent")]
     EmptyRegionRequest { identity: VoxelVolumeId },
     #[error("Voxel Region request for Voxel Volume {identity:?} has invalid coordinate bounds")]
@@ -349,6 +475,91 @@ impl VoxelFrontend {
             .ok_or(VoxelFrontendError::SceneNotPublished)?;
         Ok(VoxelSceneView {
             published: Arc::clone(published),
+        })
+    }
+
+    pub fn edit(&self, command: VoxelEditCommand) -> Result<VoxelEditOutcome, VoxelFrontendError> {
+        let mut publication = self
+            .published
+            .write()
+            .map_err(|_| VoxelFrontendError::StateUnavailable)?;
+        let published = publication
+            .as_ref()
+            .ok_or(VoxelFrontendError::SceneNotPublished)?;
+        let volume = published
+            .volumes
+            .get(&command.volume_identity)
+            .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
+                identity: command.volume_identity.clone(),
+            })?;
+        let storage_index = dense_index(volume.extent, command.coordinate).ok_or_else(|| {
+            VoxelFrontendError::EditCoordinateOutsideVolume {
+                identity: command.volume_identity.clone(),
+                coordinate: command.coordinate,
+            }
+        })?;
+        if let VoxelValue::Occupied(material_identity) = &command.value
+            && !published
+                .materials
+                .iter()
+                .any(|material| &material.identity == material_identity)
+        {
+            return Err(VoxelFrontendError::UnknownEditMaterial {
+                volume_identity: command.volume_identity,
+                coordinate: command.coordinate,
+                material_identity: material_identity.clone(),
+            });
+        }
+        let current_value = volume.values.get(storage_index).ok_or_else(|| {
+            VoxelFrontendError::EditCoordinateOutsideVolume {
+                identity: command.volume_identity.clone(),
+                coordinate: command.coordinate,
+            }
+        })?;
+        if current_value == &command.value {
+            return Ok(VoxelEditOutcome::Unchanged(VoxelSceneView {
+                published: Arc::clone(published),
+            }));
+        }
+        let successor_revision =
+            VoxelSceneRevision(published.revision.0.checked_add(1).ok_or_else(|| {
+                VoxelFrontendError::RevisionOverflow {
+                    scene_identity: published.identity.clone(),
+                    revision: published.revision,
+                }
+            })?);
+        let predecessor_revision = published.revision;
+        let mut successor = PublishedScene::clone(published);
+        successor.revision = successor_revision;
+        let successor_volume = successor
+            .volumes
+            .get_mut(&command.volume_identity)
+            .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
+                identity: command.volume_identity.clone(),
+            })?;
+        let successor_value = successor_volume
+            .values
+            .get_mut(storage_index)
+            .ok_or_else(|| VoxelFrontendError::EditCoordinateOutsideVolume {
+                identity: command.volume_identity.clone(),
+                coordinate: command.coordinate,
+            })?;
+        *successor_value = command.value;
+
+        let change_set = VoxelChangeSet {
+            scene_identity: successor.identity.clone(),
+            predecessor_revision,
+            successor_revision,
+            changed_regions: vec![VoxelChangedRegion {
+                volume_identity: command.volume_identity,
+                region: VoxelRegion::new(command.coordinate, VoxelExtent::new(1, 1, 1)),
+            }],
+        };
+        let published = Arc::new(successor);
+        *publication = Some(Arc::clone(&published));
+        Ok(VoxelEditOutcome::Changed {
+            view: VoxelSceneView { published },
+            change_set,
         })
     }
 }
@@ -419,6 +630,7 @@ impl VoxelSceneView {
     }
 }
 
+#[derive(Clone)]
 struct PublishedScene {
     identity: VoxelSceneId,
     revision: VoxelSceneRevision,
@@ -504,6 +716,7 @@ fn validate_volume_metadata(metadata: &VoxelVolumeMetadata) -> Result<(), VoxelF
     Ok(())
 }
 
+#[derive(Clone)]
 struct DenseStorage {
     extent: VoxelExtent,
     values: Vec<VoxelValue>,
