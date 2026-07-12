@@ -1805,7 +1805,7 @@ pub enum RasterConvergenceFailurePhase {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RasterConvergenceFailure {
     scene_identity: VoxelSceneId,
-    target_revision: VoxelSceneRevision,
+    failed_revision: VoxelSceneRevision,
     phase: RasterConvergenceFailurePhase,
     source: String,
     region_identity: Option<RasterRegionIdentity>,
@@ -1816,8 +1816,8 @@ impl RasterConvergenceFailure {
         &self.scene_identity
     }
 
-    pub fn target_revision(&self) -> VoxelSceneRevision {
-        self.target_revision
+    pub fn failed_revision(&self) -> VoxelSceneRevision {
+        self.failed_revision
     }
 
     pub fn phase(&self) -> RasterConvergenceFailurePhase {
@@ -2318,15 +2318,37 @@ impl RasterConvergence {
         if active.generation != self.required_generation || revision != self.required_revision {
             return Ok(RasterConvergenceUpload::NoReadyPreparation);
         }
-        if render_path.installed_source_revision() != Some(self.visible_revision) {
-            return Err(RasterConvergenceError::VisibleRevisionMismatch {
-                expected: self.visible_revision,
-                actual: render_path.installed_source_revision(),
-            });
+        macro_rules! retain_after_upload_failure {
+            ($result:expr, $region_identity:expr) => {
+                match $result {
+                    Ok(value) => value,
+                    Err(error) => {
+                        self.pause_after_upload_failure(
+                            target,
+                            revision,
+                            error.to_string(),
+                            $region_identity,
+                        );
+                        return Ok(RasterConvergenceUpload::NoReadyPreparation);
+                    }
+                }
+            };
         }
-        let installed_artifact = render_path
-            .installed_artifact()
-            .ok_or(RasterConvergenceError::MissingVisibleInstallation)?;
+        if render_path.installed_source_revision() != Some(self.visible_revision) {
+            retain_after_upload_failure!(
+                Err::<(), _>(RasterConvergenceError::VisibleRevisionMismatch {
+                    expected: self.visible_revision,
+                    actual: render_path.installed_source_revision(),
+                }),
+                None
+            );
+        }
+        let installed_artifact = retain_after_upload_failure!(
+            render_path
+                .installed_artifact()
+                .ok_or(RasterConvergenceError::MissingVisibleInstallation),
+            None
+        );
         let affected_regions = regions
             .iter()
             .map(|region| region.identity().clone())
@@ -2350,16 +2372,22 @@ impl RasterConvergence {
                     .collect()
             }
         };
-        let artifact = assemble_raster_artifact(
-            self.scene_identity.clone(),
-            revision,
-            self.region_extent,
-            successor_regions,
-        )?;
+        let artifact = retain_after_upload_failure!(
+            assemble_raster_artifact(
+                self.scene_identity.clone(),
+                revision,
+                self.region_extent,
+                successor_regions,
+            ),
+            None
+        );
         let mut installations = Vec::new();
-        installations
-            .try_reserve_exact(artifact.regions().len())
-            .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation)?;
+        retain_after_upload_failure!(
+            installations
+                .try_reserve_exact(artifact.regions().len())
+                .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation),
+            None
+        );
         for region in artifact.regions() {
             let prior = render_path
                 .installed_regions()
@@ -2367,12 +2395,17 @@ impl RasterConvergence {
                 .find(|installation| installation.identity() == region.identity());
             if affected_regions.contains(region.identity()) {
                 let installation_generation = match prior {
-                    Some(prior) => prior
-                        .installation_generation()
-                        .checked_successor()
-                        .ok_or_else(|| RasterConvergenceError::InstallationGenerationOverflow {
-                            identity: region.identity().clone(),
-                        })?,
+                    Some(prior) => retain_after_upload_failure!(
+                        prior
+                            .installation_generation()
+                            .checked_successor()
+                            .ok_or_else(|| {
+                                RasterConvergenceError::InstallationGenerationOverflow {
+                                    identity: region.identity().clone(),
+                                }
+                            }),
+                        Some(region.identity().clone())
+                    ),
                     None => RasterRegionInstallationGeneration::new(1),
                 };
                 let mut installation = RasterRegionInstallation::new(
@@ -2388,12 +2421,14 @@ impl RasterConvergence {
                 };
                 installations.push(installation);
             } else {
-                let mut installation =
+                let mut installation = retain_after_upload_failure!(
                     prior
                         .cloned()
                         .ok_or_else(|| RasterConvergenceError::MissingVisibleRegion {
                             identity: region.identity().clone(),
-                        })?;
+                        }),
+                    Some(region.identity().clone())
+                );
                 installation.activity = RasterRegionActivity::default();
                 installations.push(installation);
             }
@@ -2401,7 +2436,10 @@ impl RasterConvergence {
 
         let configured_resources = !render_path.region_resources.is_empty();
         if configured_resources && device.is_none() && test_uploader.is_none() {
-            return Err(RasterConvergenceError::ConfiguredResourcesRequireDevice);
+            retain_after_upload_failure!(
+                Err::<(), _>(RasterConvergenceError::ConfiguredResourcesRequireDevice),
+                None
+            );
         }
         if configured_resources {
             for identity in &affected_regions {
@@ -2410,21 +2448,30 @@ impl RasterConvergence {
                     .iter()
                     .any(|resources| &resources.identity == identity)
                 {
-                    return Err(RasterConvergenceError::MissingConfiguredRegion {
-                        identity: identity.clone(),
-                    });
+                    retain_after_upload_failure!(
+                        Err::<(), _>(RasterConvergenceError::MissingConfiguredRegion {
+                            identity: identity.clone(),
+                        }),
+                        Some(identity.clone())
+                    );
                 }
             }
         }
         let mut successor_gpu_resources = Vec::new();
         let mut retired_gpu_resources = Vec::new();
         if configured_resources {
-            successor_gpu_resources
-                .try_reserve_exact(render_path.region_resources.len())
-                .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation)?;
-            retired_gpu_resources
-                .try_reserve_exact(affected_regions.len())
-                .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation)?;
+            retain_after_upload_failure!(
+                successor_gpu_resources
+                    .try_reserve_exact(render_path.region_resources.len())
+                    .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation),
+                None
+            );
+            retain_after_upload_failure!(
+                retired_gpu_resources
+                    .try_reserve_exact(affected_regions.len())
+                    .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation),
+                None
+            );
             for region in artifact
                 .regions()
                 .iter()
@@ -2432,16 +2479,17 @@ impl RasterConvergence {
             {
                 let upload = match test_uploader.as_mut() {
                     Some(uploader) => uploader(region),
-                    None => {
-                        let device = device
-                            .ok_or(RasterConvergenceError::ConfiguredResourcesRequireDevice)?;
-                        upload_raster_region_resources(device, region).map_err(|source| {
-                            RasterConvergenceError::Upload {
-                                identity: region.identity().clone(),
-                                source: Box::new(source),
-                            }
-                        })
-                    }
+                    None => match device {
+                        Some(device) => {
+                            upload_raster_region_resources(device, region).map_err(|source| {
+                                RasterConvergenceError::Upload {
+                                    identity: region.identity().clone(),
+                                    source: Box::new(source),
+                                }
+                            })
+                        }
+                        None => Err(RasterConvergenceError::ConfiguredResourcesRequireDevice),
+                    },
                 };
                 match upload {
                     Ok(resources) => successor_gpu_resources.push(resources),
@@ -2451,18 +2499,12 @@ impl RasterConvergence {
                                 release_raster_region_resources(device, resources);
                             }
                         }
-                        self.active = None;
-                        self.pending = None;
-                        self.paused = Some(target);
-                        self.events.push(RasterConvergenceEvent::Failure {
-                            failure: RasterConvergenceFailure {
-                                scene_identity: self.scene_identity.clone(),
-                                target_revision: revision,
-                                phase: RasterConvergenceFailurePhase::Upload,
-                                source: error.to_string(),
-                                region_identity: Some(region.identity().clone()),
-                            },
-                        });
+                        self.pause_after_upload_failure(
+                            target,
+                            revision,
+                            error.to_string(),
+                            Some(region.identity().clone()),
+                        );
                         return Ok(RasterConvergenceUpload::NoReadyPreparation);
                     }
                 }
@@ -2568,15 +2610,12 @@ impl RasterConvergence {
                 })?;
         let revision = candidate.target.view.revision();
         self.paused = Some(candidate.target);
-        self.events.push(RasterConvergenceEvent::Failure {
-            failure: RasterConvergenceFailure {
-                scene_identity: self.scene_identity.clone(),
-                target_revision: revision,
-                phase: RasterConvergenceFailurePhase::Commit,
-                source,
-                region_identity: None,
-            },
-        });
+        self.record_failure(
+            revision,
+            RasterConvergenceFailurePhase::Commit,
+            source,
+            None,
+        );
         Ok(RasterConvergenceCommit::Failed {
             retirement: RasterCandidateRetirement {
                 resources: candidate.successor_gpu_resources,
@@ -2594,6 +2633,42 @@ impl RasterConvergence {
                     .map(|candidate| &candidate.target)
             })
             .or(self.paused.as_ref())
+    }
+
+    fn record_failure(
+        &mut self,
+        failed_revision: VoxelSceneRevision,
+        phase: RasterConvergenceFailurePhase,
+        source: String,
+        region_identity: Option<RasterRegionIdentity>,
+    ) {
+        self.events.push(RasterConvergenceEvent::Failure {
+            failure: RasterConvergenceFailure {
+                scene_identity: self.scene_identity.clone(),
+                failed_revision,
+                phase,
+                source,
+                region_identity,
+            },
+        });
+    }
+
+    fn pause_after_upload_failure(
+        &mut self,
+        target: RasterPreparationTarget,
+        failed_revision: VoxelSceneRevision,
+        source: String,
+        region_identity: Option<RasterRegionIdentity>,
+    ) {
+        self.active = None;
+        self.pending = None;
+        self.paused = Some(target);
+        self.record_failure(
+            failed_revision,
+            RasterConvergenceFailurePhase::Upload,
+            source,
+            region_identity,
+        );
     }
 
     fn take_hidden_resources_for_release(&mut self) -> Vec<RasterRegionGpuResources> {
@@ -2728,15 +2803,12 @@ impl RasterConvergence {
         let is_current =
             active.generation == self.required_generation && revision == self.required_revision;
         if let RasterPreparationCompletion::Completed(Err(failure)) = completion {
-            self.events.push(RasterConvergenceEvent::Failure {
-                failure: RasterConvergenceFailure {
-                    scene_identity: self.scene_identity.clone(),
-                    target_revision: revision,
-                    phase: RasterConvergenceFailurePhase::Derivation,
-                    source: failure.source.to_string(),
-                    region_identity: failure.region_identity,
-                },
-            });
+            self.record_failure(
+                revision,
+                RasterConvergenceFailurePhase::Derivation,
+                failure.source.to_string(),
+                failure.region_identity,
+            );
             if is_current {
                 self.pending = None;
                 self.paused = Some(active.target);
@@ -4312,7 +4384,7 @@ mod convergence_tests {
             event,
             RasterConvergenceEvent::Failure { failure }
                 if failure.scene_identity() == &VoxelSceneId::new("convergence-unit")
-                    && failure.target_revision() == VoxelSceneRevision::new(41)
+                    && failure.failed_revision() == VoxelSceneRevision::new(41)
                     && failure.phase() == RasterConvergenceFailurePhase::Derivation
                     && failure.region_identity().is_none()
                     && failure.source().contains("dimensions")
@@ -4534,7 +4606,7 @@ mod convergence_tests {
             event,
             RasterConvergenceEvent::Failure { failure }
                 if failure.scene_identity() == &VoxelSceneId::new("convergence-unit")
-                    && failure.target_revision() == VoxelSceneRevision::new(151)
+                    && failure.failed_revision() == VoxelSceneRevision::new(151)
                     && failure.phase() == RasterConvergenceFailurePhase::Upload
                     && failure.region_identity().is_some()
                     && failure.source().contains("resource bookkeeping")
@@ -4545,6 +4617,86 @@ mod convergence_tests {
                 revision: VoxelSceneRevision::new(151)
             }
         );
+        wait_until_ready_without_draining(&mut convergence)?;
+        convergence.upload_ready_with_test_resources(&render_path, &mut |region| {
+            Ok(fake_resources(region.identity().clone(), 60))
+        })?;
+        let RasterConvergenceCommit::Committed { retirement } =
+            convergence.commit_at_frame_boundary(&mut render_path)?
+        else {
+            return Err("retried complete view was not committed".into());
+        };
+        assert_eq!(retirement.resource_count(), 1);
+        assert_eq!(
+            render_path.installed_source_revision(),
+            Some(VoxelSceneRevision::new(151))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn installation_generation_overflow_uses_the_contextual_upload_failure_path()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(155, 1)?;
+        let mut render_path = render_path(&frontend)?;
+        let installation = render_path
+            .installed_regions
+            .get_mut(0)
+            .ok_or("missing visible installation")?;
+        installation.installation_generation = RasterRegionInstallationGeneration::new(u64::MAX);
+        let visible_installations = render_path.installed_regions().to_vec();
+        let mut convergence = RasterConvergence::from_visible(&render_path)?;
+        convergence.accept(changed(&frontend, 0)?)?;
+        wait_until_ready_without_draining(&mut convergence)?;
+
+        assert!(matches!(
+            convergence.upload_ready_with_optional_device(None, &render_path)?,
+            RasterConvergenceUpload::NoReadyPreparation
+        ));
+        assert_eq!(render_path.installed_regions(), visible_installations);
+        assert!(convergence.active.is_none());
+        assert!(convergence.paused.is_some());
+        assert!(convergence.events.retained.iter().any(|event| matches!(
+            event,
+            RasterConvergenceEvent::Failure { failure }
+                if failure.failed_revision() == VoxelSceneRevision::new(156)
+                    && failure.phase() == RasterConvergenceFailurePhase::Upload
+                    && failure.region_identity().is_some()
+                    && failure.source().contains("generation overflow")
+        )));
+        Ok(())
+    }
+
+    #[test]
+    fn missing_configured_region_uses_the_contextual_upload_failure_path()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(157, 2)?;
+        let mut render_path = render_path(&frontend)?;
+        let retained_region = render_path
+            .installed_regions()
+            .first()
+            .ok_or("missing first visible installation")?;
+        render_path.region_resources = vec![fake_resources(retained_region.identity().clone(), 40)];
+        let mut convergence = RasterConvergence::from_visible(&render_path)?;
+        convergence.accept(changed(&frontend, 1)?)?;
+        wait_until_ready_without_draining(&mut convergence)?;
+
+        assert!(matches!(
+            convergence.upload_ready_with_test_resources(&render_path, &mut |region| {
+                Ok(fake_resources(region.identity().clone(), 50))
+            })?,
+            RasterConvergenceUpload::NoReadyPreparation
+        ));
+        assert!(convergence.active.is_none());
+        assert!(convergence.paused.is_some());
+        assert!(convergence.events.retained.iter().any(|event| matches!(
+            event,
+            RasterConvergenceEvent::Failure { failure }
+                if failure.failed_revision() == VoxelSceneRevision::new(158)
+                    && failure.phase() == RasterConvergenceFailurePhase::Upload
+                    && failure.region_identity().is_some()
+                    && failure.source().contains("configured GPU resources are missing")
+        )));
         Ok(())
     }
 
@@ -4583,7 +4735,7 @@ mod convergence_tests {
         assert!(convergence.events.retained.iter().any(|event| matches!(
             event,
             RasterConvergenceEvent::Failure { failure }
-                if failure.target_revision() == VoxelSceneRevision::new(161)
+                if failure.failed_revision() == VoxelSceneRevision::new(161)
                     && failure.phase() == RasterConvergenceFailurePhase::Commit
                     && failure.source().contains("changed before candidate commit")
         )));
@@ -4627,7 +4779,7 @@ mod convergence_tests {
         assert!(events.iter().any(|event| matches!(
             event,
             RasterConvergenceEvent::Failure { failure }
-                if failure.target_revision() == VoxelSceneRevision::new(171)
+                if failure.failed_revision() == VoxelSceneRevision::new(171)
                     && failure.phase() == RasterConvergenceFailurePhase::Derivation
                     && failure.region_identity().is_some()
         )));
