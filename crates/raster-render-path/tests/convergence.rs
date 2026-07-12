@@ -1,6 +1,6 @@
 use raster_render_path::{
     RasterConvergence, RasterConvergenceAcceptance, RasterConvergenceEvent, RasterConvergenceRetry,
-    RasterPreparationDisposition, RasterPreparationScope, RasterRenderPath, derive_raster_regions,
+    RasterPreparationDisposition, RasterRenderPath, derive_raster_regions,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -73,10 +73,8 @@ fn drain_until_ready(
         if observed.iter().any(|event| {
             matches!(
                 event,
-                RasterConvergenceEvent::PreparationReady {
-                    revision: actual,
-                    ..
-                } if *actual == revision
+                RasterConvergenceEvent::PreparationReady { revision: actual }
+                    if *actual == revision
             )
         }) {
             return Ok(observed);
@@ -130,12 +128,11 @@ fn adjacent_outcomes_accumulate_as_one_localized_newest_requirement()
         event,
         RasterConvergenceEvent::PreparationReady {
             revision,
-            scope: RasterPreparationScope::Localized,
         } if *revision == VoxelSceneRevision::new(12)
     )));
     assert!(!events.iter().any(|event| matches!(
         event,
-        RasterConvergenceEvent::PreparationReady { revision, .. }
+        RasterConvergenceEvent::PreparationReady { revision }
             if *revision == VoxelSceneRevision::new(11)
     )));
     Ok(())
@@ -162,7 +159,6 @@ fn a_discontinuous_newest_outcome_replaces_pending_work_with_a_full_rebuild()
         event,
         RasterConvergenceEvent::PreparationReady {
             revision,
-            scope: RasterPreparationScope::FullRebuild,
         } if *revision == VoxelSceneRevision::new(21)
     )));
     Ok(())
@@ -176,7 +172,7 @@ fn rapid_requirements_keep_only_the_newest_pending_target() -> Result<(), Box<dy
     let mut convergence = convergence(&frontend, VoxelExtent::new(1, 1, 1))?;
     let mut accepted_revisions = Vec::new();
 
-    for coordinate in 0..16 {
+    for coordinate in 0..128 {
         let acceptance = convergence.accept(changed_edit(
             &frontend,
             VoxelCoordinate::new(coordinate, 0, 0),
@@ -187,16 +183,17 @@ fn rapid_requirements_keep_only_the_newest_pending_target() -> Result<(), Box<dy
         accepted_revisions.push(revision);
     }
 
-    let newest_revision = VoxelSceneRevision::new(56);
+    let newest_revision = VoxelSceneRevision::new(168);
     let events = drain_until_ready(&mut convergence, newest_revision)?;
     let ready_revisions = events
         .iter()
         .filter_map(|event| match event {
-            RasterConvergenceEvent::PreparationReady { revision, .. } => Some(*revision),
+            RasterConvergenceEvent::PreparationReady { revision } => Some(*revision),
             _ => None,
         })
         .collect::<Vec<_>>();
     assert_eq!(ready_revisions, vec![newest_revision]);
+    assert!(events.len() <= 4);
     assert_eq!(convergence.required_revision(), newest_revision);
     assert!(accepted_revisions.contains(&newest_revision));
     Ok(())
@@ -222,7 +219,7 @@ fn a_new_requirement_discards_an_already_ready_result_before_upload()
     )));
     assert!(events.iter().any(|event| matches!(
         event,
-        RasterConvergenceEvent::PreparationReady { revision, .. }
+        RasterConvergenceEvent::PreparationReady { revision }
             if *revision == VoxelSceneRevision::new(72)
     )));
     Ok(())
@@ -250,12 +247,7 @@ fn retry_restarts_the_retained_required_view_without_another_edit()
     let events = drain_until_ready(&mut convergence, VoxelSceneRevision::new(81))?;
     assert!(events.iter().any(|event| matches!(
         event,
-        RasterConvergenceEvent::RetryRequested { revision }
-            if *revision == VoxelSceneRevision::new(81)
-    )));
-    assert!(events.iter().any(|event| matches!(
-        event,
-        RasterConvergenceEvent::PreparationReady { revision, .. }
+        RasterConvergenceEvent::PreparationReady { revision }
             if *revision == VoxelSceneRevision::new(81)
     )));
     Ok(())
