@@ -8,8 +8,8 @@ use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionI
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
-    RasterCameraController, RasterLifecycleController, RasterPreparationBarrier,
-    RasterPreparationBarrierRelease, RasterRenderPath,
+    RasterCameraController, RasterConvergenceStatus, RasterLifecycleController,
+    RasterPreparationBarrier, RasterPreparationBarrierRelease, RasterRenderPath,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -30,19 +30,21 @@ use std::time::{Duration, Instant};
 use std::{error::Error, fmt};
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelEditCommand,
-    VoxelExtent, VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId,
-    VoxelSceneRevision, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+    VoxelEditOutcome, VoxelExtent, VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion,
+    VoxelSceneId, VoxelSceneRevision, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
 };
 #[cfg(target_os = "windows")]
 use windows_adapter::{WindowsPresentationAdapter, set_measurement_extent};
 #[cfg(target_os = "windows")]
 use winit::application::ApplicationHandler;
 #[cfg(target_os = "windows")]
-use winit::event::WindowEvent;
+use winit::event::{ElementState, WindowEvent};
 #[cfg(target_os = "windows")]
 use winit::event_loop::EventLoopProxy;
 #[cfg(target_os = "windows")]
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+#[cfg(target_os = "windows")]
+use winit::keyboard::{Key, NamedKey};
 #[cfg(target_os = "windows")]
 use winit::platform::windows::EventLoopBuilderExtWindows;
 #[cfg(target_os = "windows")]
@@ -91,6 +93,7 @@ struct DesktopRenderConfiguration {
     hold_background_preparation: bool,
     hold_post_upload_candidate: bool,
     inject_raster_upload_failure: bool,
+    edit_burst_demo: bool,
     measurement: Option<MeasurementConfiguration>,
 }
 
@@ -140,6 +143,7 @@ fn parse_render_configuration(
     let mut hold_background_preparation = false;
     let mut hold_post_upload_candidate = false;
     let mut inject_raster_upload_failure = false;
+    let mut edit_burst_demo = false;
     let mut measurement_mode = None;
     let mut measurement_output = None;
     while let Some(argument) = arguments.next() {
@@ -148,6 +152,7 @@ fn parse_render_configuration(
             "--hold-background-preparation" => hold_background_preparation = true,
             "--hold-post-upload-candidate" => hold_post_upload_candidate = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
+            "--edit-burst-demo" => edit_burst_demo = true,
             "--winding-diagnostic" => {
                 if scene_was_selected {
                     return Err(
@@ -274,6 +279,7 @@ fn parse_render_configuration(
             hold_background_preparation,
             hold_post_upload_candidate,
             inject_raster_upload_failure,
+            edit_burst_demo,
             measurement,
         },
         report_only,
@@ -408,6 +414,10 @@ enum DesktopEvent {
     ReleasePreparation,
     SelectCamera(CanonicalCameraPose),
     StartCameraMove,
+    StartEditBurst,
+    ReleaseEditCpuBarrier,
+    ContinueEditBurstAfterPostUploadLifecycle,
+    ReleaseEditPostUploadBarrier,
 }
 
 #[cfg(target_os = "windows")]
@@ -420,6 +430,102 @@ const CAVITY_CAMERA_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::
 const BOUNDARY_CAMERA_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 30;
 #[cfg(target_os = "windows")]
 const START_CAMERA_MOVE_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 31;
+#[cfg(target_os = "windows")]
+const START_EDIT_BURST_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 32;
+#[cfg(target_os = "windows")]
+const RELEASE_EDIT_CPU_BARRIER_MESSAGE: u32 =
+    windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 33;
+#[cfg(target_os = "windows")]
+const RELEASE_EDIT_POST_UPLOAD_BARRIER_MESSAGE: u32 =
+    windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 34;
+#[cfg(target_os = "windows")]
+const CONTINUE_EDIT_BURST_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 35;
+
+#[cfg(target_os = "windows")]
+struct EditBurstPlan {
+    commands: VecDeque<VoxelEditCommand>,
+    expected_final_revision: VoxelSceneRevision,
+}
+
+#[cfg(target_os = "windows")]
+enum EditBurstStage {
+    AwaitingKey(EditBurstPlan),
+    WaitingForCpuBarrier(EditBurstPlan),
+    WaitingForSecondRequirement(EditBurstPlan),
+    CpuBarrierHeld(EditBurstPlan),
+    WaitingForCpuCancellation(EditBurstPlan),
+    WaitingForPostUploadCandidate(EditBurstPlan),
+    PostUploadCandidateHeld(EditBurstPlan),
+    WaitingForPostUploadCandidateAfterLifecycle(EditBurstPlan),
+    WaitingForFinalRequirement(EditBurstPlan),
+    PostUploadBarrierHeld(EditBurstPlan),
+    WaitingForCandidateRejection(EditBurstPlan),
+    WaitingForFinalVisibility(EditBurstPlan),
+    Complete,
+}
+
+#[cfg(target_os = "windows")]
+fn voxel_value_identity(value: &VoxelValue) -> String {
+    match value {
+        VoxelValue::Empty => "empty".to_owned(),
+        VoxelValue::Occupied(identity) => format!("occupied:{identity:?}"),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn fixed_edit_burst(view: &voxel_frontend::VoxelSceneView) -> Result<EditBurstPlan, String> {
+    let volume_identity = VoxelVolumeId::new("canonical-volume");
+    let coordinates = [
+        VoxelCoordinate::new(0, 0, 0),
+        VoxelCoordinate::new(40, 0, 0),
+        VoxelCoordinate::new(80, 0, 0),
+    ];
+    let mut commands = VecDeque::new();
+    for (index, coordinate) in coordinates.into_iter().enumerate() {
+        let samples = view
+            .read_region(
+                &volume_identity,
+                VoxelRegion::new(coordinate, VoxelExtent::new(1, 1, 1)),
+            )
+            .map_err(|error| error.to_string())?;
+        let old_value = samples
+            .first()
+            .ok_or_else(|| format!("edit burst coordinate {coordinate:?} has no Voxel Sample"))?
+            .value()
+            .clone();
+        let requested_value = match &old_value {
+            VoxelValue::Empty => VoxelValue::Occupied(VoxelMaterialId::new("canonical-warm")),
+            VoxelValue::Occupied(_) => VoxelValue::Empty,
+        };
+        println!(
+            "Edit burst command: order={} volume={volume_identity:?} coordinate={coordinate:?} old={} requested={}",
+            index + 1,
+            voxel_value_identity(&old_value),
+            voxel_value_identity(&requested_value)
+        );
+        commands.push_back(VoxelEditCommand::new(
+            volume_identity.clone(),
+            coordinate,
+            requested_value,
+        ));
+    }
+    let expected_final_revision =
+        (0..commands.len()).try_fold(view.revision(), |revision, _| {
+            revision.checked_successor().ok_or_else(|| {
+                "the checked expected final Voxel Scene Revision overflowed".to_owned()
+            })
+        })?;
+    println!(
+        "Edit burst inputs: scene={:?} generator=voxel-nexus-canonical-dense generator_version=1 initial_revision={} raster_region_extent=32x32x32 camera=overview installed_revision={} installed_complete=true expected_final_revision={expected_final_revision}",
+        view.scene_id(),
+        view.revision(),
+        view.revision()
+    );
+    Ok(EditBurstPlan {
+        commands,
+        expected_final_revision,
+    })
+}
 
 #[cfg(target_os = "windows")]
 struct MeasurementSession {
@@ -608,6 +714,9 @@ struct DesktopApplication {
     lifecycle_edit: Option<VoxelEditCommand>,
     post_upload_hold_reported: bool,
     last_presented_camera: Option<String>,
+    edit_burst_stage: Option<EditBurstStage>,
+    raster_region_count: usize,
+    last_overlay_report: Option<String>,
 }
 
 #[cfg(target_os = "windows")]
@@ -654,12 +763,349 @@ impl DesktopApplication {
             lifecycle_edit: None,
             post_upload_hold_reported: false,
             last_presented_camera: None,
+            edit_burst_stage: None,
+            raster_region_count: 0,
+            last_overlay_report: None,
         })
     }
 
     fn set_status(&self, status: &str) {
         if let Some(window) = &self.window {
             window.set_title(&format!("Voxel Nexus Vulkan Demo | {status}"));
+        }
+    }
+
+    fn set_convergence_overlay(&mut self, status: RasterConvergenceStatus) {
+        let stage = match &self.edit_burst_stage {
+            Some(EditBurstStage::AwaitingKey(_)) => "awaiting-key",
+            Some(EditBurstStage::WaitingForCpuBarrier(_)) => "waiting-cpu-barrier",
+            Some(EditBurstStage::WaitingForSecondRequirement(_)) => "second-requirement",
+            Some(EditBurstStage::CpuBarrierHeld(_)) => "cpu-barrier-held",
+            Some(EditBurstStage::WaitingForCpuCancellation(_)) => "cpu-cancellation",
+            Some(EditBurstStage::WaitingForPostUploadCandidate(_)) => "post-upload-candidate",
+            Some(EditBurstStage::PostUploadCandidateHeld(_)) => "post-upload-candidate-held",
+            Some(EditBurstStage::WaitingForPostUploadCandidateAfterLifecycle(_)) => {
+                "post-upload-candidate-after-lifecycle"
+            }
+            Some(EditBurstStage::WaitingForFinalRequirement(_)) => "final-requirement",
+            Some(EditBurstStage::PostUploadBarrierHeld(_)) => "post-upload-barrier-held",
+            Some(EditBurstStage::WaitingForCandidateRejection(_)) => "candidate-rejection",
+            Some(EditBurstStage::WaitingForFinalVisibility(_)) => "final-visibility",
+            Some(EditBurstStage::Complete) => "complete",
+            None => "inactive",
+        };
+        let camera = self.last_presented_camera.as_deref().unwrap_or("initial");
+        let report = format!(
+            "EditBurst={stage} Required={} Visible={} Affected={} Unaffected={} Camera={camera}",
+            status.required_revision,
+            status.visible_revision,
+            status.affected_region_count,
+            status.unaffected_region_count
+        );
+        if self.last_overlay_report.as_deref() != Some(&report) {
+            println!("Edit burst overlay: {report}");
+            self.last_overlay_report = Some(report.clone());
+        }
+        self.set_status(&report);
+    }
+
+    fn publish_next_burst_command(&self, plan: &mut EditBurstPlan) -> Result<(), String> {
+        let command = plan
+            .commands
+            .pop_front()
+            .ok_or_else(|| "the edit burst has no remaining command".to_owned())?;
+        let outcome = self
+            .frontend
+            .as_ref()
+            .ok_or_else(|| "the edit burst Voxel Frontend is unavailable".to_owned())?
+            .edit(command)
+            .map_err(|error| error.to_string())?;
+        let revision = match &outcome {
+            VoxelEditOutcome::Changed { view, .. } => view.revision(),
+            VoxelEditOutcome::Unchanged(_) => {
+                return Err("a fixed edit burst command did not change its Voxel Value".to_owned());
+            }
+        };
+        self.lifecycle_controller
+            .as_ref()
+            .ok_or_else(|| "the edit burst lifecycle controller is unavailable".to_owned())?
+            .submit(outcome)
+            .map_err(|error| error.to_string())?;
+        println!("Edit burst command published: revision={revision}");
+        Ok(())
+    }
+
+    fn start_edit_burst(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(EditBurstStage::AwaitingKey(mut plan)) = self.edit_burst_stage.take() else {
+            self.fail(
+                event_loop,
+                "the fixed edit burst is not awaiting its keypress",
+            );
+            return;
+        };
+        if let Err(error) = self.publish_next_burst_command(&mut plan) {
+            self.fail(event_loop, error);
+            return;
+        }
+        println!("Edit burst started by one keypress");
+        self.edit_burst_stage = Some(EditBurstStage::WaitingForCpuBarrier(plan));
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn advance_edit_burst(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(stage) = self.edit_burst_stage.take() else {
+            return;
+        };
+        let Some(controller) = self.lifecycle_controller.clone() else {
+            self.edit_burst_stage = Some(stage);
+            return;
+        };
+        let next_stage = match stage {
+            EditBurstStage::AwaitingKey(plan) => EditBurstStage::AwaitingKey(plan),
+            EditBurstStage::WaitingForCpuBarrier(mut plan) => {
+                let observation = match controller.cpu_barrier_observation() {
+                    Ok(observation) => observation,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if observation.is_some_and(|observation| observation.reached_revision.is_some()) {
+                    println!("Edit burst CPU barrier reached: scheduled_regions=1");
+                    if let Err(error) = self.publish_next_burst_command(&mut plan) {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                    EditBurstStage::WaitingForSecondRequirement(plan)
+                } else {
+                    EditBurstStage::WaitingForCpuBarrier(plan)
+                }
+            }
+            EditBurstStage::WaitingForSecondRequirement(plan) => {
+                let status = match controller.convergence_status() {
+                    Ok(status) => status,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if status.is_some_and(|status| {
+                    status.required_revision.checked_successor()
+                        == Some(plan.expected_final_revision)
+                }) {
+                    println!("Edit burst CPU barrier held with newer requirement installed");
+                    EditBurstStage::CpuBarrierHeld(plan)
+                } else {
+                    EditBurstStage::WaitingForSecondRequirement(plan)
+                }
+            }
+            EditBurstStage::CpuBarrierHeld(plan) => EditBurstStage::CpuBarrierHeld(plan),
+            EditBurstStage::WaitingForCpuCancellation(plan) => {
+                let observation = match controller.cpu_barrier_observation() {
+                    Ok(observation) => observation,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if observation.is_some_and(|observation| {
+                    observation.finished
+                        && observation.cancelled
+                        && observation.scheduled_region_count == 1
+                }) {
+                    println!(
+                        "Obsolete CPU generation cancelled: scheduled_regions_before_hold=1 scheduled_regions_total=1"
+                    );
+                    EditBurstStage::WaitingForPostUploadCandidate(plan)
+                } else {
+                    EditBurstStage::WaitingForCpuCancellation(plan)
+                }
+            }
+            EditBurstStage::WaitingForPostUploadCandidate(plan) => {
+                let revision = match controller.post_upload_revision() {
+                    Ok(revision) => revision,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if revision.is_some_and(|revision| {
+                    revision.checked_successor() == Some(plan.expected_final_revision)
+                }) {
+                    println!("Superseded candidate held after upload: revision={revision:?}");
+                    EditBurstStage::PostUploadCandidateHeld(plan)
+                } else {
+                    EditBurstStage::WaitingForPostUploadCandidate(plan)
+                }
+            }
+            EditBurstStage::PostUploadCandidateHeld(plan) => {
+                EditBurstStage::PostUploadCandidateHeld(plan)
+            }
+            EditBurstStage::WaitingForPostUploadCandidateAfterLifecycle(mut plan) => {
+                let revision = match controller.post_upload_revision() {
+                    Ok(revision) => revision,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if revision.is_some_and(|revision| {
+                    revision.checked_successor() == Some(plan.expected_final_revision)
+                }) {
+                    println!(
+                        "Post-upload candidate restored after lifecycle: revision={revision:?}"
+                    );
+                    if let Err(error) = self.publish_next_burst_command(&mut plan) {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                    EditBurstStage::WaitingForFinalRequirement(plan)
+                } else {
+                    EditBurstStage::WaitingForPostUploadCandidateAfterLifecycle(plan)
+                }
+            }
+            EditBurstStage::WaitingForFinalRequirement(plan) => {
+                let status = match controller.convergence_status() {
+                    Ok(status) => status,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if status
+                    .is_some_and(|status| status.required_revision == plan.expected_final_revision)
+                {
+                    println!("Post-upload barrier held with newest requirement installed");
+                    EditBurstStage::PostUploadBarrierHeld(plan)
+                } else {
+                    EditBurstStage::WaitingForFinalRequirement(plan)
+                }
+            }
+            EditBurstStage::PostUploadBarrierHeld(plan) => {
+                EditBurstStage::PostUploadBarrierHeld(plan)
+            }
+            EditBurstStage::WaitingForCandidateRejection(plan) => {
+                let rejection = match controller.rejected_candidate() {
+                    Ok(rejection) => rejection,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if let Some(rejection) = rejection {
+                    if rejection.revision.checked_successor() != Some(plan.expected_final_revision)
+                    {
+                        self.fail(
+                            event_loop,
+                            format!(
+                                "unexpected rejected candidate revision {}; expected the predecessor of {}",
+                                rejection.revision, plan.expected_final_revision
+                            ),
+                        );
+                        return;
+                    }
+                    println!(
+                        "Superseded candidate rejected at commit: revision={} retired_resources={}",
+                        rejection.revision, rejection.retired_resource_count
+                    );
+                    EditBurstStage::WaitingForFinalVisibility(plan)
+                } else {
+                    EditBurstStage::WaitingForCandidateRejection(plan)
+                }
+            }
+            EditBurstStage::WaitingForFinalVisibility(plan) => {
+                let status = match controller.convergence_status() {
+                    Ok(status) => status,
+                    Err(error) => {
+                        self.fail(event_loop, error);
+                        return;
+                    }
+                };
+                if status.is_some_and(|status| {
+                    status.required_revision == plan.expected_final_revision
+                        && status.visible_revision == plan.expected_final_revision
+                }) {
+                    println!(
+                        "Edit burst converged atomically: visible_revision={} expected_final_revision={}",
+                        plan.expected_final_revision, plan.expected_final_revision
+                    );
+                    EditBurstStage::Complete
+                } else {
+                    EditBurstStage::WaitingForFinalVisibility(plan)
+                }
+            }
+            EditBurstStage::Complete => EditBurstStage::Complete,
+        };
+        self.edit_burst_stage = Some(next_stage);
+    }
+
+    fn release_edit_cpu_barrier(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(EditBurstStage::CpuBarrierHeld(plan)) = self.edit_burst_stage.take() else {
+            self.fail(event_loop, "the edit burst CPU barrier is not held");
+            return;
+        };
+        let result = self
+            .lifecycle_controller
+            .as_ref()
+            .ok_or_else(|| "the edit burst lifecycle controller is unavailable".to_owned())
+            .and_then(|controller| {
+                controller
+                    .release_cpu_barrier()
+                    .map_err(|error| error.to_string())
+            });
+        if let Err(error) = result {
+            self.fail(event_loop, error);
+            return;
+        }
+        println!("Edit burst CPU barrier released after newer requirement");
+        self.edit_burst_stage = Some(EditBurstStage::WaitingForCpuCancellation(plan));
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn release_edit_post_upload_barrier(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(EditBurstStage::PostUploadBarrierHeld(plan)) = self.edit_burst_stage.take() else {
+            self.fail(event_loop, "the edit burst post-upload barrier is not held");
+            return;
+        };
+        let result = self
+            .lifecycle_controller
+            .as_ref()
+            .ok_or_else(|| "the edit burst lifecycle controller is unavailable".to_owned())
+            .and_then(|controller| {
+                controller
+                    .release_post_upload()
+                    .map_err(|error| error.to_string())
+            });
+        if let Err(error) = result {
+            self.fail(event_loop, error);
+            return;
+        }
+        println!("Post-upload barrier released for newest requirement");
+        self.edit_burst_stage = Some(EditBurstStage::WaitingForCandidateRejection(plan));
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn continue_edit_burst_after_post_upload_lifecycle(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(EditBurstStage::PostUploadCandidateHeld(plan)) = self.edit_burst_stage.take()
+        else {
+            self.fail(
+                event_loop,
+                "the edit burst post-upload candidate is not held for lifecycle proof",
+            );
+            return;
+        };
+        println!("Post-upload lifecycle actions acknowledged; waiting for restored candidate");
+        self.edit_burst_stage = Some(EditBurstStage::WaitingForPostUploadCandidateAfterLifecycle(
+            plan,
+        ));
+        if let Some(window) = &self.window {
+            window.request_redraw();
         }
     }
 
@@ -740,6 +1186,7 @@ impl DesktopApplication {
                 return;
             }
         };
+        self.raster_region_count = artifact.regions().len();
         if let Some(measurement) = &mut self.measurement {
             let derived_at = Instant::now();
             let source_revision = match measurement_revision(artifact.source_revision()) {
@@ -868,6 +1315,29 @@ impl DesktopApplication {
             measurement.installation_at = Some(installation_at);
         }
         println!("Raster artifact installed: revision={installed_revision} count=1");
+        if self.render_configuration.edit_burst_demo {
+            let plan = match self
+                .frontend
+                .as_ref()
+                .ok_or_else(|| "the edit burst Voxel Frontend is unavailable".to_owned())
+                .and_then(|frontend| frontend.scene_view().map_err(|error| error.to_string()))
+                .and_then(|view| fixed_edit_burst(&view))
+            {
+                Ok(plan) => plan,
+                Err(error) => {
+                    self.fail(event_loop, error);
+                    return;
+                }
+            };
+            self.edit_burst_stage = Some(EditBurstStage::AwaitingKey(plan));
+            self.set_convergence_overlay(RasterConvergenceStatus {
+                required_revision: installed_revision,
+                visible_revision: installed_revision,
+                affected_region_count: 0,
+                unaffected_region_count: self.raster_region_count,
+            });
+            println!("Edit burst ready: press Space");
+        }
         if let Some(command) = self.lifecycle_edit.take() {
             let outcome = match self.frontend.as_ref() {
                 Some(frontend) => match frontend.edit(command) {
@@ -889,7 +1359,9 @@ impl DesktopApplication {
                 return;
             }
         }
-        self.set_status(&format!("artifact-ready revision {installed_revision}"));
+        if !self.render_configuration.edit_burst_demo {
+            self.set_status(&format!("artifact-ready revision {installed_revision}"));
+        }
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -1104,11 +1576,20 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             );
         if self.render_configuration.hold_post_upload_candidate
             || self.render_configuration.hold_background_preparation
+            || self.render_configuration.edit_burst_demo
         {
-            self.lifecycle_controller = Some(
-                render_path
-                    .enable_lifecycle_control(self.render_configuration.hold_post_upload_candidate),
-            );
+            self.lifecycle_controller = Some(render_path.enable_lifecycle_control(
+                self.render_configuration.hold_post_upload_candidate
+                    || self.render_configuration.edit_burst_demo,
+            ));
+        }
+        if self.render_configuration.edit_burst_demo
+            && let Some(controller) = &self.lifecycle_controller
+            && let Err(error) = controller.hold_next_cpu_generation_after_regions(1)
+        {
+            self.application_error = Some(error.to_string());
+            event_loop.exit();
+            return;
         }
         if self.render_configuration.inject_raster_upload_failure
             && let Err(error) = artifact_installer.inject_next_upload_failure()
@@ -1358,6 +1839,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 };
                 self.set_drawable_extent(drawable_extent);
             }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == ElementState::Pressed
+                    && matches!(event.logical_key, Key::Named(NamedKey::Space)) =>
+            {
+                self.start_edit_burst(event_loop);
+            }
             WindowEvent::RedrawRequested => {
                 let frame_started_at = Instant::now();
                 let (outcome, gpu_observation, submitted_frame_sequence, presentation_extent) =
@@ -1539,6 +2026,30 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                 }
                             }
                         }
+                        self.advance_edit_burst(event_loop);
+                        if let Some(controller) = &self.lifecycle_controller {
+                            match controller.convergence_status() {
+                                Ok(Some(status)) => self.set_convergence_overlay(status),
+                                Ok(None) => {}
+                                Err(error) => {
+                                    self.fail(event_loop, error);
+                                    return;
+                                }
+                            }
+                        }
+                        if self.render_configuration.edit_burst_demo
+                            && !matches!(
+                                self.edit_burst_stage,
+                                Some(EditBurstStage::AwaitingKey(_))
+                                    | Some(EditBurstStage::CpuBarrierHeld(_))
+                                    | Some(EditBurstStage::PostUploadCandidateHeld(_))
+                                    | Some(EditBurstStage::PostUploadBarrierHeld(_))
+                                    | Some(EditBurstStage::Complete)
+                            )
+                            && let Some(window) = &self.window
+                        {
+                            window.request_redraw();
+                        }
                     }
                     FrameOutcome::Recreate => {
                         self.presentation_retry_at = None;
@@ -1619,6 +2130,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     window.request_redraw();
                 }
             }
+            DesktopEvent::StartEditBurst => self.start_edit_burst(event_loop),
+            DesktopEvent::ReleaseEditCpuBarrier => self.release_edit_cpu_barrier(event_loop),
+            DesktopEvent::ContinueEditBurstAfterPostUploadLifecycle => {
+                self.continue_edit_burst_after_post_upload_lifecycle(event_loop);
+            }
+            DesktopEvent::ReleaseEditPostUploadBarrier => {
+                self.release_edit_post_upload_barrier(event_loop);
+            }
         }
     }
 
@@ -1651,6 +2170,14 @@ fn desktop_event_for_windows_message(message: u32) -> Option<DesktopEvent> {
             CanonicalCameraPose::BoundaryCutaway,
         )),
         START_CAMERA_MOVE_MESSAGE => Some(DesktopEvent::StartCameraMove),
+        START_EDIT_BURST_MESSAGE => Some(DesktopEvent::StartEditBurst),
+        RELEASE_EDIT_CPU_BARRIER_MESSAGE => Some(DesktopEvent::ReleaseEditCpuBarrier),
+        RELEASE_EDIT_POST_UPLOAD_BARRIER_MESSAGE => {
+            Some(DesktopEvent::ReleaseEditPostUploadBarrier)
+        }
+        CONTINUE_EDIT_BURST_MESSAGE => {
+            Some(DesktopEvent::ContinueEditBurstAfterPostUploadLifecycle)
+        }
         _ => None,
     }
 }
@@ -1882,9 +2409,31 @@ fn main() -> ExitCode {
 
 #[cfg(all(test, target_os = "windows"))]
 mod measurement_tests {
-    use super::{CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection};
+    use super::{CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst};
+    use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
     use render_backend::FrameObservation;
     use std::time::{Duration, Instant};
+    use voxel_frontend::{VoxelEditOutcome, VoxelFrontend, VoxelSceneRevision};
+
+    #[test]
+    fn fixed_edit_burst_has_three_ordered_value_changing_commands_and_checked_final_revision()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = VoxelFrontend::new();
+        let view =
+            frontend.publish(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
+        let mut plan = fixed_edit_burst(&view)?;
+        assert_eq!(plan.commands.len(), 3);
+        assert_eq!(plan.expected_final_revision, VoxelSceneRevision::new(4));
+        for expected_revision in 2..=4 {
+            let command = plan.commands.pop_front().ok_or("missing fixed command")?;
+            let outcome = frontend.edit(command)?;
+            let VoxelEditOutcome::Changed { view, .. } = outcome else {
+                return Err("fixed command did not change its Voxel Value".into());
+            };
+            assert_eq!(view.revision(), VoxelSceneRevision::new(expected_revision));
+        }
+        Ok(())
+    }
 
     #[test]
     fn steady_collection_pairs_sequences_and_excludes_pre_warmup_frames()

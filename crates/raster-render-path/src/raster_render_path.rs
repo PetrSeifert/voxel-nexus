@@ -540,11 +540,51 @@ struct RasterLifecycleControlState {
     post_upload_held: bool,
     post_upload_revision: Option<VoxelSceneRevision>,
     shutdown_owned_resource_count: Option<usize>,
+    cpu_barrier: Option<Arc<RasterConvergenceCpuBarrierShared>>,
+    status: Option<RasterConvergenceStatus>,
+    rejected_candidate: Option<RasterRejectedCandidate>,
 }
 
 #[derive(Clone)]
 pub struct RasterLifecycleController {
     state: Arc<Mutex<RasterLifecycleControlState>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RasterConvergenceStatus {
+    pub required_revision: VoxelSceneRevision,
+    pub visible_revision: VoxelSceneRevision,
+    pub affected_region_count: usize,
+    pub unaffected_region_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RasterConvergenceCpuBarrierObservation {
+    pub reached_revision: Option<VoxelSceneRevision>,
+    pub scheduled_region_count: usize,
+    pub finished: bool,
+    pub cancelled: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RasterRejectedCandidate {
+    pub revision: VoxelSceneRevision,
+    pub retired_resource_count: usize,
+}
+
+#[derive(Default)]
+struct RasterConvergenceCpuBarrierState {
+    reached_revision: Option<VoxelSceneRevision>,
+    scheduled_region_count: usize,
+    released: bool,
+    finished: bool,
+    cancelled: bool,
+}
+
+struct RasterConvergenceCpuBarrierShared {
+    hold_after_scheduled_regions: usize,
+    state: Mutex<RasterConvergenceCpuBarrierState>,
+    released: Condvar,
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -574,6 +614,82 @@ impl RasterLifecycleController {
         let mut state = self.state.lock().map_err(|_| RasterLifecycleControlError)?;
         state.post_upload_held = false;
         Ok(())
+    }
+
+    pub fn hold_next_cpu_generation_after_regions(
+        &self,
+        scheduled_region_count: usize,
+    ) -> Result<(), RasterLifecycleControlError> {
+        let barrier = Arc::new(RasterConvergenceCpuBarrierShared {
+            hold_after_scheduled_regions: scheduled_region_count,
+            state: Mutex::new(RasterConvergenceCpuBarrierState::default()),
+            released: Condvar::new(),
+        });
+        self.state
+            .lock()
+            .map_err(|_| RasterLifecycleControlError)?
+            .cpu_barrier = Some(barrier);
+        Ok(())
+    }
+
+    pub fn cpu_barrier_observation(
+        &self,
+    ) -> Result<Option<RasterConvergenceCpuBarrierObservation>, RasterLifecycleControlError> {
+        let barrier = self
+            .state
+            .lock()
+            .map_err(|_| RasterLifecycleControlError)?
+            .cpu_barrier
+            .clone();
+        barrier
+            .map(|barrier| {
+                barrier
+                    .state
+                    .lock()
+                    .map(|state| RasterConvergenceCpuBarrierObservation {
+                        reached_revision: state.reached_revision,
+                        scheduled_region_count: state.scheduled_region_count,
+                        finished: state.finished,
+                        cancelled: state.cancelled,
+                    })
+                    .map_err(|_| RasterLifecycleControlError)
+            })
+            .transpose()
+    }
+
+    pub fn release_cpu_barrier(&self) -> Result<(), RasterLifecycleControlError> {
+        let barrier = self
+            .state
+            .lock()
+            .map_err(|_| RasterLifecycleControlError)?
+            .cpu_barrier
+            .clone()
+            .ok_or(RasterLifecycleControlError)?;
+        let mut state = barrier
+            .state
+            .lock()
+            .map_err(|_| RasterLifecycleControlError)?;
+        state.released = true;
+        barrier.released.notify_one();
+        Ok(())
+    }
+
+    pub fn convergence_status(
+        &self,
+    ) -> Result<Option<RasterConvergenceStatus>, RasterLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|state| state.status)
+            .map_err(|_| RasterLifecycleControlError)
+    }
+
+    pub fn rejected_candidate(
+        &self,
+    ) -> Result<Option<RasterRejectedCandidate>, RasterLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|state| state.rejected_candidate)
+            .map_err(|_| RasterLifecycleControlError)
     }
 
     pub fn shutdown_owned_resource_count(
@@ -830,6 +946,9 @@ impl RasterRenderPath {
                 post_upload_held: hold_post_upload,
                 post_upload_revision: None,
                 shutdown_owned_resource_count: None,
+                cpu_barrier: None,
+                status: None,
+                rejected_candidate: None,
             })),
         };
         self.lifecycle_control = Some(controller.clone());
@@ -918,15 +1037,21 @@ impl RasterRenderPath {
         device: Option<&RenderPathDeviceContext<'_>>,
     ) -> Result<(), RasterConvergenceError> {
         if let Some(controller) = &self.lifecycle_control {
-            let outcomes = {
+            let (outcomes, cpu_barrier) = {
                 let mut state = controller
                     .state
                     .lock()
                     .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
-                state.pending_outcomes.drain(..).collect::<Vec<_>>()
+                (
+                    state.pending_outcomes.drain(..).collect::<Vec<_>>(),
+                    state.cpu_barrier.clone(),
+                )
             };
             if !outcomes.is_empty() && self.convergence.is_none() {
                 self.begin_convergence()?;
+                if let Some(convergence) = &mut self.convergence {
+                    convergence.cpu_barrier = cpu_barrier;
+                }
             }
             for outcome in outcomes {
                 self.accept_edit_outcome(outcome)?;
@@ -935,6 +1060,7 @@ impl RasterRenderPath {
         let Some(mut convergence) = self.convergence.take() else {
             return Ok(());
         };
+        let mut rejected_candidate = None;
         let result = (|| {
             let upload = convergence.upload_ready_with_optional_device(device, self)?;
             if matches!(
@@ -958,8 +1084,17 @@ impl RasterRenderPath {
             let commit = convergence.commit_at_frame_boundary(self)?;
             let retirement = match commit {
                 RasterConvergenceCommit::NoCandidate => return Ok(()),
+                RasterConvergenceCommit::Rejected {
+                    revision,
+                    retirement,
+                } => {
+                    rejected_candidate = Some(RasterRejectedCandidate {
+                        revision,
+                        retired_resource_count: retirement.resource_count(),
+                    });
+                    retirement
+                }
                 RasterConvergenceCommit::Failed { retirement, .. }
-                | RasterConvergenceCommit::Rejected { retirement, .. }
                 | RasterConvergenceCommit::Committed { retirement, .. } => retirement,
             };
             if retirement.resource_count() == 0 {
@@ -970,6 +1105,17 @@ impl RasterRenderPath {
             unsafe { retirement.release_after_gpu_completion(device) };
             Ok(())
         })();
+        if let Some(controller) = &self.lifecycle_control {
+            let mut state = controller
+                .state
+                .lock()
+                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+            state.status = Some(convergence.status(self.installed_regions.len()));
+            if let Some(rejected_candidate) = rejected_candidate {
+                state.rejected_candidate = Some(rejected_candidate);
+                state.post_upload_revision = None;
+            }
+        }
         self.convergence = Some(convergence);
         result
     }
@@ -2143,6 +2289,7 @@ enum RasterConvergenceCommit {
         retirement: RasterCandidateRetirement,
     },
     Rejected {
+        revision: VoxelSceneRevision,
         retirement: RasterCandidateRetirement,
     },
     Committed {
@@ -2159,6 +2306,8 @@ pub enum RasterConvergenceError {
     AlreadyStarted,
     #[error("Raster Convergence has not been started")]
     NotStarted,
+    #[error("Raster Convergence CPU barrier state is unavailable")]
+    CpuBarrierSynchronization,
     #[error("Raster Convergence requires a complete visible installation")]
     MissingVisibleInstallation,
     #[error("the visible installation does not support convergence")]
@@ -2239,6 +2388,7 @@ struct RasterPreparationTarget {
 enum RasterPreparationCompletion {
     Completed(Result<Vec<RasterRegionResult>, RasterDerivationFailure>),
     Cancelled,
+    SynchronizationFailed,
 }
 
 struct RasterDerivationFailure {
@@ -2296,6 +2446,8 @@ pub struct RasterConvergence {
     paused: Option<RasterPreparationTarget>,
     hidden_candidate: Option<RasterHiddenCandidate>,
     events: RasterConvergenceEvents,
+    cpu_barrier: Option<Arc<RasterConvergenceCpuBarrierShared>>,
+    last_affected_region_count: usize,
 }
 
 impl RasterConvergence {
@@ -2319,6 +2471,8 @@ impl RasterConvergence {
             paused: None,
             hidden_candidate: None,
             events: RasterConvergenceEvents::new(),
+            cpu_barrier: None,
+            last_affected_region_count: 0,
         })
     }
 
@@ -2328,6 +2482,21 @@ impl RasterConvergence {
 
     pub fn required_revision(&self) -> VoxelSceneRevision {
         self.required_revision
+    }
+
+    fn status(&self, installed_region_count: usize) -> RasterConvergenceStatus {
+        let affected_region_count = match self.newest_target().map(|target| &target.scope) {
+            Some(RasterPreparationTargetScope::Localized(affected)) => affected.len(),
+            Some(RasterPreparationTargetScope::FullRebuild) => installed_region_count,
+            None => self.last_affected_region_count,
+        }
+        .min(installed_region_count);
+        RasterConvergenceStatus {
+            required_revision: self.required_revision,
+            visible_revision: self.visible_revision,
+            affected_region_count,
+            unaffected_region_count: installed_region_count - affected_region_count,
+        }
     }
 
     pub fn accept(
@@ -2692,6 +2861,7 @@ impl RasterConvergence {
                 disposition: RasterPreparationDisposition::SupersededAfterUpload,
             });
             return Ok(RasterConvergenceCommit::Rejected {
+                revision,
                 retirement: RasterCandidateRetirement {
                     resources: candidate.successor_gpu_resources,
                 },
@@ -2718,6 +2888,7 @@ impl RasterConvergence {
             .hidden_candidate
             .take()
             .ok_or(RasterConvergenceError::PreparationTerminated { revision })?;
+        self.last_affected_region_count = candidate.affected_regions.len();
         if candidate.configured_resources {
             for resources in std::mem::take(&mut render_path.region_resources) {
                 if candidate.affected_regions.contains(&resources.identity) {
@@ -2852,6 +3023,17 @@ impl RasterConvergence {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
+        let barrier_error =
+            self.cpu_barrier
+                .as_ref()
+                .and_then(|barrier| match barrier.state.lock() {
+                    Ok(mut state) => {
+                        state.released = true;
+                        barrier.released.notify_all();
+                        None
+                    }
+                    Err(_) => Some(RasterConvergenceError::CpuBarrierSynchronization),
+                });
         let active = self.active.take();
         self.pending = None;
         self.paused = None;
@@ -2860,11 +3042,12 @@ impl RasterConvergence {
             .take()
             .map(|candidate| candidate.successor_gpu_resources)
             .unwrap_or_default();
-        let mut worker_error = None;
+        let mut worker_error = barrier_error;
         if let Some(mut active) = active {
             let revision = active.target.view.revision();
             if let Some(worker) = active.worker.take()
                 && worker.join().is_err()
+                && worker_error.is_none()
             {
                 worker_error = Some(RasterConvergenceError::PreparationTerminated { revision });
             }
@@ -2893,7 +3076,12 @@ impl RasterConvergence {
             self.pending = Some(target);
             Ok(())
         } else {
-            let preparation = Self::start_preparation(generation, target, &mut self.events)?;
+            let preparation = Self::start_preparation(
+                generation,
+                target,
+                self.cpu_barrier.clone(),
+                &mut self.events,
+            )?;
             self.pending = None;
             self.active = Some(preparation);
             Ok(())
@@ -2921,7 +3109,12 @@ impl RasterConvergence {
         target: RasterPreparationTarget,
     ) -> Result<(), RasterConvergenceError> {
         let mut started_events = RasterConvergenceEvents::new();
-        let replacement = Self::start_preparation(generation, target, &mut started_events)?;
+        let replacement = Self::start_preparation(
+            generation,
+            target,
+            self.cpu_barrier.clone(),
+            &mut started_events,
+        )?;
         self.discard_ready_preparation();
         self.active = Some(replacement);
         self.events.append(&mut started_events);
@@ -2931,6 +3124,7 @@ impl RasterConvergence {
     fn start_preparation(
         generation: RasterConvergenceGeneration,
         target: RasterPreparationTarget,
+        cpu_barrier: Option<Arc<RasterConvergenceCpuBarrierShared>>,
         events: &mut RasterConvergenceEvents,
     ) -> Result<RasterActivePreparation, RasterConvergenceError> {
         let revision = target.view.revision();
@@ -2942,7 +3136,8 @@ impl RasterConvergence {
                 let target = target.clone();
                 let cancellation = cancellation.clone();
                 move || {
-                    let completion = derive_convergence_target(&target, &cancellation);
+                    let completion =
+                        derive_convergence_target(&target, &cancellation, cpu_barrier.as_deref());
                     if completion_sender.send(completion).is_err() {
                         eprintln!(
                             "Raster Convergence result receiver closed for Voxel Scene Revision {revision}"
@@ -2994,6 +3189,12 @@ impl RasterConvergence {
         }
         let is_current =
             active.generation == self.required_generation && revision == self.required_revision;
+        if matches!(
+            completion,
+            RasterPreparationCompletion::SynchronizationFailed
+        ) {
+            return Err(RasterConvergenceError::CpuBarrierSynchronization);
+        }
         if let RasterPreparationCompletion::Completed(Err(failure)) = completion {
             self.record_failure(
                 revision,
@@ -3036,8 +3237,12 @@ impl RasterConvergence {
         let Some(target) = self.pending.take() else {
             return Ok(());
         };
-        let preparation =
-            Self::start_preparation(self.required_generation, target.clone(), &mut self.events);
+        let preparation = Self::start_preparation(
+            self.required_generation,
+            target.clone(),
+            self.cpu_barrier.clone(),
+            &mut self.events,
+        );
         match preparation {
             Ok(preparation) => {
                 self.active = Some(preparation);
@@ -3075,6 +3280,17 @@ impl Drop for RasterConvergence {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
+        if let Some(barrier) = &self.cpu_barrier {
+            match barrier.state.lock() {
+                Ok(mut state) => {
+                    state.released = true;
+                    barrier.released.notify_all();
+                }
+                Err(_) => {
+                    eprintln!("Raster Convergence CPU barrier state was unavailable during drop")
+                }
+            }
+        }
         if let Some(mut active) = self.active.take()
             && let Some(worker) = active.worker.take()
             && worker.join().is_err()
@@ -3090,9 +3306,11 @@ impl Drop for RasterConvergence {
 fn derive_convergence_target(
     target: &RasterPreparationTarget,
     cancellation: &AtomicBool,
+    cpu_barrier: Option<&RasterConvergenceCpuBarrierShared>,
 ) -> RasterPreparationCompletion {
     let mut regions = Vec::new();
     let mut failed_region_identity = None;
+    let mut synchronization_failed = false;
     let traversal =
         visit_raster_region_cores(&target.view, target.region_extent, |metadata, core| {
             if cancellation.load(Ordering::Acquire) {
@@ -3108,7 +3326,42 @@ fn derive_convergence_target(
             };
             if should_derive {
                 match derive_raster_region(&target.view, metadata, core) {
-                    Ok(region) => regions.push(region),
+                    Ok(region) => {
+                        regions.push(region);
+                        if let Some(barrier) = cpu_barrier {
+                            let mut state = match barrier.state.lock() {
+                                Ok(state) => state,
+                                Err(_) => {
+                                    synchronization_failed = true;
+                                    return Ok(false);
+                                }
+                            };
+                            if state.reached_revision.is_none() {
+                                state.scheduled_region_count =
+                                    match state.scheduled_region_count.checked_add(1) {
+                                        Some(count) => count,
+                                        None => {
+                                            synchronization_failed = true;
+                                            return Ok(false);
+                                        }
+                                    };
+                                if state.scheduled_region_count
+                                    == barrier.hold_after_scheduled_regions
+                                {
+                                    state.reached_revision = Some(target.view.revision());
+                                    while !state.released {
+                                        state = match barrier.released.wait(state) {
+                                            Ok(state) => state,
+                                            Err(_) => {
+                                                synchronization_failed = true;
+                                                return Ok(false);
+                                            }
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Err(source) => {
                         failed_region_identity = Some(identity);
                         return Err(source);
@@ -3117,14 +3370,26 @@ fn derive_convergence_target(
             }
             Ok(true)
         });
-    match traversal {
+    let completion = match traversal {
+        _ if synchronization_failed => RasterPreparationCompletion::SynchronizationFailed,
         Ok(true) => RasterPreparationCompletion::Completed(Ok(regions)),
         Ok(false) => RasterPreparationCompletion::Cancelled,
         Err(source) => RasterPreparationCompletion::Completed(Err(RasterDerivationFailure {
             region_identity: failed_region_identity,
             source,
         })),
+    };
+    if let Some(barrier) = cpu_barrier {
+        let mut state = match barrier.state.lock() {
+            Ok(state) => state,
+            Err(_) => return RasterPreparationCompletion::SynchronizationFailed,
+        };
+        if state.reached_revision == Some(target.view.revision()) {
+            state.finished = true;
+            state.cancelled = matches!(completion, RasterPreparationCompletion::Cancelled);
+        }
     }
+    completion
 }
 
 fn raster_region_origin(
@@ -4644,6 +4909,167 @@ mod convergence_tests {
         Err("preparation did not become ready".into())
     }
 
+    #[test]
+    fn controller_barrier_proves_cancelled_generation_schedules_no_later_region()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(1, 4)?;
+        let mut render_path = render_path(&frontend)?;
+        let controller = render_path.enable_lifecycle_control(false);
+        controller.hold_next_cpu_generation_after_regions(1)?;
+        controller.submit(changed(&frontend, 0)?)?;
+        render_path.advance_convergence_at_frame_boundary(None)?;
+
+        for _ in 0..10_000 {
+            if controller
+                .cpu_barrier_observation()?
+                .is_some_and(|observation| {
+                    observation.reached_revision == Some(VoxelSceneRevision::new(2))
+                })
+            {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert_eq!(
+            controller.cpu_barrier_observation()?,
+            Some(RasterConvergenceCpuBarrierObservation {
+                reached_revision: Some(VoxelSceneRevision::new(2)),
+                scheduled_region_count: 1,
+                finished: false,
+                cancelled: false,
+            })
+        );
+
+        controller.submit(changed(&frontend, 3)?)?;
+        render_path.advance_convergence_at_frame_boundary(None)?;
+        assert_eq!(
+            controller
+                .convergence_status()?
+                .ok_or("missing convergence status")?
+                .required_revision,
+            VoxelSceneRevision::new(3)
+        );
+        controller.release_cpu_barrier()?;
+        for _ in 0..10_000 {
+            render_path.advance_convergence_at_frame_boundary(None)?;
+            if controller
+                .cpu_barrier_observation()?
+                .is_some_and(|observation| observation.finished)
+            {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert_eq!(
+            controller.cpu_barrier_observation()?,
+            Some(RasterConvergenceCpuBarrierObservation {
+                reached_revision: Some(VoxelSceneRevision::new(2)),
+                scheduled_region_count: 1,
+                finished: true,
+                cancelled: true,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn controller_observes_superseded_post_upload_rejection_before_final_visibility()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(1, 2)?;
+        let mut render_path = render_path(&frontend)?;
+        let controller = render_path.enable_lifecycle_control(true);
+        controller.submit(changed(&frontend, 0)?)?;
+        for _ in 0..10_000 {
+            render_path.advance_convergence_at_frame_boundary(None)?;
+            if controller.post_upload_revision()? == Some(VoxelSceneRevision::new(2)) {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert_eq!(
+            controller.post_upload_revision()?,
+            Some(VoxelSceneRevision::new(2))
+        );
+        assert_eq!(
+            controller
+                .convergence_status()?
+                .ok_or("missing held-candidate status")?
+                .visible_revision,
+            VoxelSceneRevision::new(1)
+        );
+
+        controller.submit(changed(&frontend, 1)?)?;
+        render_path.advance_convergence_at_frame_boundary(None)?;
+        controller.release_post_upload()?;
+        render_path.advance_convergence_at_frame_boundary(None)?;
+        assert_eq!(
+            controller.rejected_candidate()?,
+            Some(RasterRejectedCandidate {
+                revision: VoxelSceneRevision::new(2),
+                retired_resource_count: 0,
+            })
+        );
+        assert_eq!(
+            controller
+                .convergence_status()?
+                .ok_or("missing rejection status")?
+                .visible_revision,
+            VoxelSceneRevision::new(1)
+        );
+
+        for _ in 0..10_000 {
+            render_path.advance_convergence_at_frame_boundary(None)?;
+            if controller
+                .convergence_status()?
+                .is_some_and(|status| status.visible_revision == VoxelSceneRevision::new(3))
+            {
+                break;
+            }
+            thread::yield_now();
+        }
+        assert_eq!(
+            controller.convergence_status()?,
+            Some(RasterConvergenceStatus {
+                required_revision: VoxelSceneRevision::new(3),
+                visible_revision: VoxelSceneRevision::new(3),
+                affected_region_count: 2,
+                unaffected_region_count: 0,
+            })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dropping_convergence_releases_a_held_cpu_barrier_and_joins_the_worker()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(1, 4)?;
+        let mut render_path = render_path(&frontend)?;
+        let controller = render_path.enable_lifecycle_control(false);
+        controller.hold_next_cpu_generation_after_regions(1)?;
+        controller.submit(changed(&frontend, 0)?)?;
+        render_path.advance_convergence_at_frame_boundary(None)?;
+        for _ in 0..10_000 {
+            if controller
+                .cpu_barrier_observation()?
+                .is_some_and(|observation| observation.reached_revision.is_some())
+            {
+                break;
+            }
+            thread::yield_now();
+        }
+        drop(render_path);
+        assert_eq!(
+            controller.cpu_barrier_observation()?,
+            Some(RasterConvergenceCpuBarrierObservation {
+                reached_revision: Some(VoxelSceneRevision::new(2)),
+                scheduled_region_count: 1,
+                finished: true,
+                cancelled: true,
+            })
+        );
+        Ok(())
+    }
+
     fn fake_resources(
         identity: RasterRegionIdentity,
         raw_identity: u64,
@@ -4712,7 +5138,7 @@ mod convergence_tests {
             Ok(lifecycle.create(region.identity().clone()))
         })?;
         convergence.accept(changed(&frontend, 1)?)?;
-        let RasterConvergenceCommit::Rejected { retirement } =
+        let RasterConvergenceCommit::Rejected { retirement, .. } =
             convergence.commit_at_frame_boundary(&mut render_path)?
         else {
             return Err("superseded uploaded candidate was not rejected".into());

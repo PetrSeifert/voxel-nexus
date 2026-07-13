@@ -23,6 +23,17 @@ pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory ar
 
 The explicit build command proves the clean checkout can produce the executable and generated shaders. The runner repeats that locked build, runs the deterministic failure integration tests, and then performs the runtime proof.
 
+To reproduce the localized three-command edit-burst demonstration separately, run:
+
+```powershell
+pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 `
+    -EvidenceDirectory artifacts/edit-burst
+```
+
+The edit-burst runner keeps one validation-enabled process alive from its complete revision-one installation through a single burst-trigger event and normal close. It holds revision two after exactly one scheduled Raster Region, publishes revision three before releasing that obsolete worker, and requires its final cancelled scheduling count to remain one. It then holds the uploaded revision-three candidate, exercises camera, resize, minimize, restore, and presentation recreation, waits for the candidate to be restored, publishes revision four, and releases the hidden candidate only after revision four is Required. The runner requires revision three to be rejected at the frame-boundary commit gate with nonzero retired GPU resources, requires revision one to remain Visible throughout both holds, and accepts only revision four as the next Visible revision.
+
+The native window-title overlay reports the edit-burst stage, Required and Visible Voxel Scene Revisions, affected and unaffected Raster Region counts, and last acknowledged camera without introducing a separate text-rendering path. Whole-window PNG captures retain that overlay with the scene. The versioned JSON manifest records the canonical generator and scene inputs, all three commands with old and requested values, checked revisions, fixed 32³ Raster Region extent, barrier results, lifecycle sequence, capture hashes, validation counts, and process exit. These artifacts are descriptive inputs for later extent qualification and evidence assembly, not a selected extent or performance claim.
+
 To retain the canonical overview lifecycle plus stable paired captures for the cavity/material close-up, finite-boundary cutaway, and deterministic move midpoint, add `-CaptureCanonicalInspectionSet`:
 
 ```powershell
