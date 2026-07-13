@@ -7,9 +7,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::io::Cursor;
 use std::mem::size_of;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 use voxel_frontend::{
@@ -536,7 +537,7 @@ pub struct RasterCameraController {
 }
 
 struct RasterLifecycleControlState {
-    pending_outcomes: VecDeque<VoxelEditOutcome>,
+    pending_outcomes: VecDeque<RasterQueuedOutcome>,
     post_upload_held: bool,
     post_upload_revision: Option<VoxelSceneRevision>,
     shutdown_owned_resource_count: Option<usize>,
@@ -545,6 +546,13 @@ struct RasterLifecycleControlState {
     rejected_candidate: Option<RasterRejectedCandidate>,
     peak_live_gpu_bytes: u64,
     peak_live_gpu_resources: usize,
+    installed_gpu_resources: RasterGpuResourceUsage,
+    characterization: Option<RasterConvergenceCharacterization>,
+}
+
+struct RasterQueuedOutcome {
+    submitted_at: Instant,
+    outcome: VoxelEditOutcome,
 }
 
 #[derive(Clone)]
@@ -578,6 +586,62 @@ pub struct RasterRejectedCandidate {
 pub struct RasterGpuResourcePeak {
     pub bytes: u64,
     pub resources: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RasterGpuResourceUsage {
+    pub bytes: u64,
+    pub resources: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RasterConvergencePhaseTimings {
+    pub submission_bookkeeping_milliseconds: f64,
+    pub queued_wait_milliseconds: f64,
+    pub cpu_derivation_milliseconds: f64,
+    pub upload_milliseconds: f64,
+    pub frame_boundary_commit_milliseconds: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RasterRegionWorkDisposition {
+    pub scheduled: u64,
+    pub completed: u64,
+    pub cancelled: u64,
+    pub stale: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RasterCancellationObservation {
+    pub revision: VoxelSceneRevision,
+    pub scheduled_regions: u64,
+    pub completed_regions: u64,
+    pub cancelled_regions: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RasterSafeRetirementDisposition {
+    StaleCandidate,
+    ReplacedInstallation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RasterSafeRetirementEvent {
+    pub revision: VoxelSceneRevision,
+    pub disposition: RasterSafeRetirementDisposition,
+    pub resources: RasterGpuResourceUsage,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RasterConvergenceCharacterization {
+    pub phases: RasterConvergencePhaseTimings,
+    pub work: RasterRegionWorkDisposition,
+    pub installed: RasterGpuResourceUsage,
+    pub hidden: RasterGpuResourceUsage,
+    pub retired: RasterGpuResourceUsage,
+    pub peak: RasterGpuResourceUsage,
+    pub cancellation_observations: Vec<RasterCancellationObservation>,
+    pub safe_retirements: Vec<RasterSafeRetirementEvent>,
 }
 
 #[derive(Default)]
@@ -674,12 +738,37 @@ pub struct RasterLifecycleControlError;
 
 impl RasterLifecycleController {
     pub fn submit(&self, outcome: VoxelEditOutcome) -> Result<(), RasterLifecycleControlError> {
+        let submitted_at = Instant::now();
+        let mut state = self.state.lock().map_err(|_| RasterLifecycleControlError)?;
+        state.pending_outcomes.push_back(RasterQueuedOutcome {
+            submitted_at,
+            outcome,
+        });
+        let elapsed_milliseconds = submitted_at.elapsed().as_secs_f64() * 1_000.0;
+        if let Some(characterization) = &mut state.characterization {
+            characterization.phases.submission_bookkeeping_milliseconds += elapsed_milliseconds;
+        }
+        Ok(())
+    }
+
+    pub fn begin_characterization(&self) -> Result<(), RasterLifecycleControlError> {
+        let mut state = self.state.lock().map_err(|_| RasterLifecycleControlError)?;
+        let installed = state.installed_gpu_resources;
+        state.characterization = Some(RasterConvergenceCharacterization {
+            installed,
+            peak: installed,
+            ..RasterConvergenceCharacterization::default()
+        });
+        Ok(())
+    }
+
+    pub fn characterization(
+        &self,
+    ) -> Result<Option<RasterConvergenceCharacterization>, RasterLifecycleControlError> {
         self.state
             .lock()
-            .map_err(|_| RasterLifecycleControlError)?
-            .pending_outcomes
-            .push_back(outcome);
-        Ok(())
+            .map(|state| state.characterization.clone())
+            .map_err(|_| RasterLifecycleControlError)
     }
 
     pub fn post_upload_revision(
@@ -800,6 +889,27 @@ impl RasterCameraController {
             .map(|camera_pose| *camera_pose)
             .map_err(|_| RasterCameraControlError)
     }
+}
+
+fn raster_gpu_resource_usage<'resources>(
+    resources: impl IntoIterator<Item = &'resources RasterRegionGpuResources>,
+) -> Result<RasterGpuResourceUsage, RasterLifecycleControlError> {
+    let mut usage = RasterGpuResourceUsage::default();
+    for resources in resources {
+        usage.bytes = usage
+            .bytes
+            .checked_add(resources.vertex_buffer_bytes)
+            .and_then(|bytes| bytes.checked_add(resources.index_buffer_bytes))
+            .ok_or(RasterLifecycleControlError)?;
+        usage.resources = usage
+            .resources
+            .checked_add(usize::from(resources.vertex_buffer != vk::Buffer::null()))
+            .and_then(|count| {
+                count.checked_add(usize::from(resources.index_buffer != vk::Buffer::null()))
+            })
+            .ok_or(RasterLifecycleControlError)?;
+    }
+    Ok(usage)
 }
 
 #[derive(Debug, Error, Eq, PartialEq)]
@@ -1029,6 +1139,8 @@ impl RasterRenderPath {
                 rejected_candidate: None,
                 peak_live_gpu_bytes: 0,
                 peak_live_gpu_resources: 0,
+                installed_gpu_resources: RasterGpuResourceUsage::default(),
+                characterization: None,
             })),
         };
         self.lifecycle_control = Some(controller.clone());
@@ -1042,26 +1154,36 @@ impl RasterRenderPath {
         let Some(controller) = &self.lifecycle_control else {
             return Ok(());
         };
-        let mut bytes = 0_u64;
-        let mut resource_count = 0_usize;
-        for resources in resources {
-            bytes = bytes
-                .checked_add(resources.vertex_buffer_bytes)
-                .and_then(|bytes| bytes.checked_add(resources.index_buffer_bytes))
-                .ok_or(RasterLifecycleControlError)?;
-            resource_count = resource_count
-                .checked_add(usize::from(resources.vertex_buffer != vk::Buffer::null()))
-                .and_then(|count| {
-                    count.checked_add(usize::from(resources.index_buffer != vk::Buffer::null()))
-                })
-                .ok_or(RasterLifecycleControlError)?;
-        }
+        let usage = raster_gpu_resource_usage(resources)?;
         let mut state = controller
             .state
             .lock()
             .map_err(|_| RasterLifecycleControlError)?;
-        state.peak_live_gpu_bytes = state.peak_live_gpu_bytes.max(bytes);
-        state.peak_live_gpu_resources = state.peak_live_gpu_resources.max(resource_count);
+        state.peak_live_gpu_bytes = state.peak_live_gpu_bytes.max(usage.bytes);
+        state.peak_live_gpu_resources = state.peak_live_gpu_resources.max(usage.resources);
+        if let Some(characterization) = &mut state.characterization {
+            characterization.peak.bytes = characterization.peak.bytes.max(usage.bytes);
+            characterization.peak.resources = characterization.peak.resources.max(usage.resources);
+        }
+        Ok(())
+    }
+
+    fn observe_installed_gpu_resources<'resources>(
+        &self,
+        resources: impl IntoIterator<Item = &'resources RasterRegionGpuResources>,
+    ) -> Result<(), RasterLifecycleControlError> {
+        let Some(controller) = &self.lifecycle_control else {
+            return Ok(());
+        };
+        let usage = raster_gpu_resource_usage(resources)?;
+        let mut state = controller
+            .state
+            .lock()
+            .map_err(|_| RasterLifecycleControlError)?;
+        state.installed_gpu_resources = usage;
+        if let Some(characterization) = &mut state.characterization {
+            characterization.installed = usage;
+        }
         Ok(())
     }
 
@@ -1146,7 +1268,9 @@ impl RasterRenderPath {
         &mut self,
         device: Option<&RenderPathDeviceContext<'_>>,
     ) -> Result<(), RasterConvergenceError> {
-        if let Some(controller) = &self.lifecycle_control {
+        let mut queued_wait = Duration::ZERO;
+        let mut submission_bookkeeping = Duration::ZERO;
+        if let Some(controller) = self.lifecycle_control.clone() {
             let (outcomes, cpu_barrier) = {
                 let mut state = controller
                     .state
@@ -1163,8 +1287,25 @@ impl RasterRenderPath {
                     convergence.cpu_barrier = cpu_barrier;
                 }
             }
-            for outcome in outcomes {
-                self.accept_edit_outcome(outcome)?;
+            for queued in outcomes {
+                let acceptance_started_at = Instant::now();
+                queued_wait = queued_wait.saturating_add(
+                    acceptance_started_at.saturating_duration_since(queued.submitted_at),
+                );
+                self.accept_edit_outcome(queued.outcome)?;
+                submission_bookkeeping =
+                    submission_bookkeeping.saturating_add(acceptance_started_at.elapsed());
+            }
+            if let Some(characterization) = &mut controller
+                .state
+                .lock()
+                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
+                .characterization
+            {
+                characterization.phases.queued_wait_milliseconds +=
+                    queued_wait.as_secs_f64() * 1_000.0;
+                characterization.phases.submission_bookkeeping_milliseconds +=
+                    submission_bookkeeping.as_secs_f64() * 1_000.0;
             }
         }
         let Some(mut convergence) = self.convergence.take() else {
@@ -1172,7 +1313,19 @@ impl RasterRenderPath {
         };
         let mut rejected_candidate = None;
         let result = (|| {
+            let upload_started_at = Instant::now();
             let upload = convergence.upload_ready_with_optional_device(device, self)?;
+            if matches!(upload, RasterConvergenceUpload::Uploaded { .. })
+                && let Some(controller) = &self.lifecycle_control
+                && let Some(characterization) = &mut controller
+                    .state
+                    .lock()
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
+                    .characterization
+            {
+                characterization.phases.upload_milliseconds +=
+                    upload_started_at.elapsed().as_secs_f64() * 1_000.0;
+            }
             if let Some(candidate) = &convergence.hidden_candidate {
                 self.observe_live_gpu_resources(
                     self.region_resources
@@ -1180,6 +1333,19 @@ impl RasterRenderPath {
                         .chain(candidate.successor_gpu_resources.iter()),
                 )
                 .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+                let hidden = raster_gpu_resource_usage(candidate.successor_gpu_resources.iter())
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+                if let Some(controller) = &self.lifecycle_control
+                    && let Some(characterization) = &mut controller
+                        .state
+                        .lock()
+                        .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
+                        .characterization
+                {
+                    characterization.hidden.bytes = characterization.hidden.bytes.max(hidden.bytes);
+                    characterization.hidden.resources =
+                        characterization.hidden.resources.max(hidden.resources);
+                }
             }
             if matches!(
                 upload,
@@ -1199,22 +1365,51 @@ impl RasterRenderPath {
                     return Ok(());
                 }
             }
+            let commit_started_at = Instant::now();
             let commit = convergence.commit_at_frame_boundary(self)?;
-            let retirement = match commit {
+            let (retirement, retirement_revision, retirement_disposition) = match commit {
                 RasterConvergenceCommit::NoCandidate => return Ok(()),
                 RasterConvergenceCommit::Rejected {
                     revision,
                     retirement,
                 } => {
+                    let stale_regions = u64::try_from(retirement.resource_count())
+                        .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation)?;
+                    convergence.work_disposition.stale = convergence
+                        .work_disposition
+                        .stale
+                        .saturating_add(stale_regions);
                     rejected_candidate = Some(RasterRejectedCandidate {
                         revision,
                         retired_resource_count: retirement.resource_count(),
                     });
-                    retirement
+                    (
+                        retirement,
+                        revision,
+                        RasterSafeRetirementDisposition::StaleCandidate,
+                    )
                 }
-                RasterConvergenceCommit::Failed { retirement, .. }
-                | RasterConvergenceCommit::Committed { retirement, .. } => retirement,
+                RasterConvergenceCommit::Failed { retirement, .. } => (
+                    retirement,
+                    convergence.required_revision(),
+                    RasterSafeRetirementDisposition::StaleCandidate,
+                ),
+                RasterConvergenceCommit::Committed { retirement, .. } => (
+                    retirement,
+                    convergence.visible_revision(),
+                    RasterSafeRetirementDisposition::ReplacedInstallation,
+                ),
             };
+            if let Some(controller) = &self.lifecycle_control
+                && let Some(characterization) = &mut controller
+                    .state
+                    .lock()
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
+                    .characterization
+            {
+                characterization.phases.frame_boundary_commit_milliseconds +=
+                    commit_started_at.elapsed().as_secs_f64() * 1_000.0;
+            }
             self.observe_live_gpu_resources(
                 self.region_resources
                     .iter()
@@ -1224,17 +1419,51 @@ impl RasterRenderPath {
             if retirement.resource_count() == 0 {
                 return Ok(());
             }
+            let retired = raster_gpu_resource_usage(retirement.resources.iter())
+                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             let device = device.ok_or(RasterConvergenceError::ConfiguredResourcesRequireDevice)?;
             // The backend invokes this hook only after its sole in-flight frame fence has completed.
             unsafe { retirement.release_after_gpu_completion(device) };
+            if let Some(controller) = &self.lifecycle_control
+                && let Some(characterization) = &mut controller
+                    .state
+                    .lock()
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
+                    .characterization
+            {
+                characterization.retired.bytes =
+                    characterization.retired.bytes.saturating_add(retired.bytes);
+                characterization.retired.resources = characterization
+                    .retired
+                    .resources
+                    .saturating_add(retired.resources);
+                characterization
+                    .safe_retirements
+                    .push(RasterSafeRetirementEvent {
+                        revision: retirement_revision,
+                        disposition: retirement_disposition,
+                        resources: retired,
+                    });
+            }
             Ok(())
         })();
         if let Some(controller) = &self.lifecycle_control {
+            let installed = raster_gpu_resource_usage(self.region_resources.iter())
+                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             let mut state = controller
                 .state
                 .lock()
                 .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+            state.installed_gpu_resources = installed;
             state.status = Some(convergence.status(self.installed_regions.len()));
+            if let Some(characterization) = &mut state.characterization {
+                characterization.phases.cpu_derivation_milliseconds =
+                    convergence.cpu_derivation.as_secs_f64() * 1_000.0;
+                characterization.work = convergence.work_disposition;
+                characterization.installed = installed;
+                characterization.cancellation_observations =
+                    convergence.cancellation_observations.clone();
+            }
             if let Some(rejected_candidate) = rejected_candidate {
                 state.rejected_candidate = Some(rejected_candidate);
                 state.post_upload_revision = None;
@@ -2532,6 +2761,14 @@ struct RasterActivePreparation {
     completion_receiver: mpsc::Receiver<RasterPreparationCompletion>,
     worker: Option<JoinHandle<()>>,
     status: RasterActivePreparationStatus,
+    counters: Arc<RasterPreparationCounters>,
+}
+
+#[derive(Default)]
+struct RasterPreparationCounters {
+    scheduled_regions: AtomicU64,
+    completed_regions: AtomicU64,
+    cpu_derivation_nanoseconds: AtomicU64,
 }
 
 struct RasterHiddenCandidate {
@@ -2572,6 +2809,9 @@ pub struct RasterConvergence {
     events: RasterConvergenceEvents,
     cpu_barrier: Option<Arc<RasterConvergenceCpuBarrierShared>>,
     last_affected_region_count: usize,
+    cpu_derivation: Duration,
+    work_disposition: RasterRegionWorkDisposition,
+    cancellation_observations: Vec<RasterCancellationObservation>,
 }
 
 impl RasterConvergence {
@@ -2597,6 +2837,9 @@ impl RasterConvergence {
             events: RasterConvergenceEvents::new(),
             cpu_barrier: None,
             last_affected_region_count: 0,
+            cpu_derivation: Duration::ZERO,
+            work_disposition: RasterRegionWorkDisposition::default(),
+            cancellation_observations: Vec::new(),
         })
     }
 
@@ -3248,15 +3491,21 @@ impl RasterConvergence {
     ) -> Result<RasterActivePreparation, RasterConvergenceError> {
         let revision = target.view.revision();
         let cancellation = Arc::new(AtomicBool::new(false));
+        let counters = Arc::new(RasterPreparationCounters::default());
         let (completion_sender, completion_receiver) = mpsc::sync_channel(1);
         let worker = thread::Builder::new()
             .name(format!("raster-convergence-{revision}"))
             .spawn({
                 let target = target.clone();
                 let cancellation = cancellation.clone();
+                let counters = counters.clone();
                 move || {
-                    let completion =
-                        derive_convergence_target(&target, &cancellation, cpu_barrier.as_deref());
+                    let completion = derive_convergence_target(
+                        &target,
+                        &cancellation,
+                        cpu_barrier.as_deref(),
+                        &counters,
+                    );
                     if completion_sender.send(completion).is_err() {
                         eprintln!(
                             "Raster Convergence result receiver closed for Voxel Scene Revision {revision}"
@@ -3273,6 +3522,7 @@ impl RasterConvergence {
             completion_receiver,
             worker: Some(worker),
             status: RasterActivePreparationStatus::Running,
+            counters,
         })
     }
 
@@ -3306,6 +3556,42 @@ impl RasterConvergence {
         if worker.join().is_err() {
             return Err(RasterConvergenceError::PreparationTerminated { revision });
         }
+        let scheduled_regions = active.counters.scheduled_regions.load(Ordering::Relaxed);
+        let completed_regions = active.counters.completed_regions.load(Ordering::Relaxed);
+        let cpu_derivation_nanoseconds = active
+            .counters
+            .cpu_derivation_nanoseconds
+            .load(Ordering::Relaxed);
+        let cancelled = matches!(completion, RasterPreparationCompletion::Cancelled);
+        let cancelled_regions = if cancelled {
+            scheduled_regions.saturating_sub(completed_regions)
+        } else {
+            0
+        };
+        self.cpu_derivation = self
+            .cpu_derivation
+            .saturating_add(Duration::from_nanos(cpu_derivation_nanoseconds));
+        self.work_disposition.scheduled = self
+            .work_disposition
+            .scheduled
+            .saturating_add(scheduled_regions);
+        self.work_disposition.completed = self
+            .work_disposition
+            .completed
+            .saturating_add(completed_regions);
+        self.work_disposition.cancelled = self
+            .work_disposition
+            .cancelled
+            .saturating_add(cancelled_regions);
+        if cancelled {
+            self.cancellation_observations
+                .push(RasterCancellationObservation {
+                    revision,
+                    scheduled_regions,
+                    completed_regions,
+                    cancelled_regions,
+                });
+        }
         let is_current =
             active.generation == self.required_generation && revision == self.required_revision;
         if matches!(
@@ -3329,7 +3615,13 @@ impl RasterConvergence {
             }
             return Ok(());
         }
-        if !is_current || matches!(completion, RasterPreparationCompletion::Cancelled) {
+        if !is_current || cancelled {
+            if !cancelled {
+                self.work_disposition.stale = self
+                    .work_disposition
+                    .stale
+                    .saturating_add(completed_regions);
+            }
             self.events
                 .push(RasterConvergenceEvent::PreparationDiscarded {
                     revision,
@@ -3420,6 +3712,7 @@ fn derive_convergence_target(
     target: &RasterPreparationTarget,
     cancellation: &AtomicBool,
     cpu_barrier: Option<&RasterConvergenceCpuBarrierShared>,
+    counters: &RasterPreparationCounters,
 ) -> RasterPreparationCompletion {
     let mut regions = Vec::new();
     let mut failed_region_identity = None;
@@ -3438,8 +3731,17 @@ fn derive_convergence_target(
                 RasterPreparationTargetScope::FullRebuild => true,
             };
             if should_derive {
-                match derive_raster_region(&target.view, metadata, core) {
+                saturating_add_atomic(&counters.scheduled_regions, 1);
+                let derivation_started_at = Instant::now();
+                let derivation = derive_raster_region(&target.view, metadata, core);
+                let elapsed_nanoseconds = derivation_started_at
+                    .elapsed()
+                    .as_nanos()
+                    .min(u128::from(u64::MAX)) as u64;
+                saturating_add_atomic(&counters.cpu_derivation_nanoseconds, elapsed_nanoseconds);
+                match derivation {
                     Ok(region) => {
+                        saturating_add_atomic(&counters.completed_regions, 1);
                         regions.push(region);
                         if cpu_barrier.is_some_and(|barrier| {
                             barrier.schedule_and_wait(target.view.revision()).is_err()
@@ -3476,6 +3778,17 @@ fn derive_convergence_target(
         return RasterPreparationCompletion::SynchronizationFailed;
     }
     completion
+}
+
+fn saturating_add_atomic(value: &AtomicU64, addend: u64) {
+    let mut current = value.load(Ordering::Relaxed);
+    loop {
+        let next = current.saturating_add(addend);
+        match value.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return,
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 fn raster_region_origin(
@@ -4384,6 +4697,7 @@ impl RasterRenderPath {
             }
         }
         self.observe_live_gpu_resources(self.region_resources.iter())?;
+        self.observe_installed_gpu_resources(self.region_resources.iter())?;
         self.create_depth_resources(device, target.extent())?;
         self.create_render_pass(device, target.format())?;
         self.create_graphics_pipeline(device, target.extent())?;
@@ -5246,6 +5560,47 @@ mod convergence_tests {
                 resources: 2,
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn lifecycle_characterization_starts_from_the_installed_resources_and_resets_samples()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(1, 1)?;
+        let identity = render_path(&frontend)?
+            .installed_regions()
+            .first()
+            .ok_or("canonical artifact has no Raster Regions")?
+            .identity()
+            .clone();
+        let mut render_path = RasterRenderPath::new();
+        let controller = render_path.enable_lifecycle_control(false);
+        let mut resources = fake_resources(identity, 1);
+        resources.vertex_buffer_bytes = 400;
+        resources.index_buffer_bytes = 200;
+        render_path.observe_installed_gpu_resources([&resources])?;
+
+        controller.begin_characterization()?;
+        let first = controller
+            .characterization()?
+            .ok_or("characterization did not start")?;
+        assert_eq!(
+            first.installed,
+            RasterGpuResourceUsage {
+                bytes: 600,
+                resources: 2,
+            }
+        );
+        assert_eq!(first.peak, first.installed);
+
+        controller.begin_characterization()?;
+        let reset = controller
+            .characterization()?
+            .ok_or("characterization did not restart")?;
+        assert_eq!(reset.phases, RasterConvergencePhaseTimings::default());
+        assert_eq!(reset.work, RasterRegionWorkDisposition::default());
+        assert!(reset.cancellation_observations.is_empty());
+        assert!(reset.safe_retirements.is_empty());
         Ok(())
     }
 

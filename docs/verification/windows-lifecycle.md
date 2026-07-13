@@ -44,6 +44,17 @@ pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 `
 
 The runner uses one locked build and the same canonical 256×128×256 Voxel Volume, camera, three keypress-owned commands, CPU and post-upload barriers, validation layer, and machine context for 16³, 32³, and 64³. Each candidate completes one full lifecycle qualification and five fresh timing runs. Timing begins when the Space keypress is accepted and ends when revision four is observed as the complete Visible Voxel Scene Revision. Peak Raster Region GPU bytes and live vertex/index buffer counts include the installed collection, a hidden candidate, and resources awaiting safe retirement. `selection-input.json` retains the raw samples and qualification gates; `selection.json` applies median latency, nearest-rank p95 latency, peak live GPU bytes, then peak live GPU resource count. An exact tie across all four inputs is rejected instead of resolved subjectively. The results describe only the recorded machine and create no performance budget or cross-machine claim.
 
+To characterize that machine-readable selected extent at all three canonical scales, run:
+
+```powershell
+pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 `
+    -EvidenceDirectory artifacts/raster-region-scale-characterization `
+    -SelectionManifest artifacts/raster-region-extent-selection/manifest.json `
+    -SampleCount 5
+```
+
+The runner cross-checks the selected extent in the qualification manifest and selection report, builds the desktop demo once, and rejects any sample whose revision or executable hash changes. Five fresh samples at 64×32×64, 128×64×128, and 256×128×256 retain submission/bookkeeping, queued wait, CPU derivation, upload, frame-boundary commit, and keypress-to-final-visible timings. Each sample also retains scheduled, completed, cancelled, and stale Raster Region counts; installed, hidden, retired, and peak GPU buffer counts and bytes; the cancellation observation; and every frame-fence-safe retirement event. `raw-distributions.json` keeps the unaggregated arrays and sample manifest links. These distributions describe only the manifest's Windows machine and build; they are not a production budget, performance gate, or cross-machine comparison.
+
 To retain the canonical overview lifecycle plus stable paired captures for the cavity/material close-up, finite-boundary cutaway, and deterministic move midpoint, add `-CaptureCanonicalInspectionSet`:
 
 ```powershell

@@ -8,8 +8,9 @@ use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionI
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
-    RasterCameraController, RasterConvergenceStatus, RasterLifecycleController,
-    RasterPreparationBarrier, RasterPreparationBarrierRelease, RasterRenderPath,
+    RasterCameraController, RasterConvergenceCharacterization, RasterConvergenceStatus,
+    RasterLifecycleController, RasterPreparationBarrier, RasterPreparationBarrierRelease,
+    RasterRenderPath, RasterSafeRetirementDisposition,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -555,6 +556,63 @@ fn format_convergence_overlay(
 }
 
 #[cfg(target_os = "windows")]
+fn format_convergence_characterization(
+    characterization: &RasterConvergenceCharacterization,
+) -> String {
+    let cancellation_events = characterization
+        .cancellation_observations
+        .iter()
+        .map(|observation| {
+            format!(
+                "{}:{}:{}:{}",
+                observation.revision,
+                observation.scheduled_regions,
+                observation.completed_regions,
+                observation.cancelled_regions
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    let safe_retirement_events = characterization
+        .safe_retirements
+        .iter()
+        .map(|event| {
+            let disposition = match event.disposition {
+                RasterSafeRetirementDisposition::StaleCandidate => "stale-candidate",
+                RasterSafeRetirementDisposition::ReplacedInstallation => "replaced-installation",
+            };
+            format!(
+                "{}:{disposition}:{}:{}",
+                event.revision, event.resources.bytes, event.resources.resources
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|");
+    format!(
+        "submission_bookkeeping_ms={:.6} queued_wait_ms={:.6} cpu_derivation_ms={:.6} upload_ms={:.6} frame_boundary_commit_ms={:.6} scheduled_regions={} completed_regions={} cancelled_regions={} stale_regions={} installed_bytes={} installed_resources={} hidden_bytes={} hidden_resources={} retired_bytes={} retired_resources={} peak_bytes={} peak_resources={} cancellation_events={} safe_retirement_events={}",
+        characterization.phases.submission_bookkeeping_milliseconds,
+        characterization.phases.queued_wait_milliseconds,
+        characterization.phases.cpu_derivation_milliseconds,
+        characterization.phases.upload_milliseconds,
+        characterization.phases.frame_boundary_commit_milliseconds,
+        characterization.work.scheduled,
+        characterization.work.completed,
+        characterization.work.cancelled,
+        characterization.work.stale,
+        characterization.installed.bytes,
+        characterization.installed.resources,
+        characterization.hidden.bytes,
+        characterization.hidden.resources,
+        characterization.retired.bytes,
+        characterization.retired.resources,
+        characterization.peak.bytes,
+        characterization.peak.resources,
+        cancellation_events,
+        safe_retirement_events,
+    )
+}
+
+#[cfg(target_os = "windows")]
 fn should_start_edit_burst(
     edit_burst_demo: bool,
     awaiting_key: bool,
@@ -583,10 +641,28 @@ fn fixed_edit_burst(
     raster_region_extent: u32,
 ) -> Result<EditBurstPlan, String> {
     let volume_identity = VoxelVolumeId::new("canonical-volume");
+    let volume_width = view
+        .volumes()
+        .iter()
+        .find(|metadata| metadata.identity() == &volume_identity)
+        .ok_or_else(|| "the canonical edit-burst volume metadata is unavailable".to_owned())?
+        .extent()
+        .dimensions()[0];
+    let command_spacing = 40.min(volume_width / 3);
+    if command_spacing == 0 {
+        return Err("the canonical edit-burst volume is too narrow for three commands".to_owned());
+    }
+    let third_coordinate = command_spacing
+        .checked_mul(2)
+        .ok_or_else(|| "the canonical edit-burst command coordinate overflowed".to_owned())?;
+    let second_coordinate = i32::try_from(command_spacing)
+        .map_err(|_| "the canonical edit-burst command coordinate is out of range".to_owned())?;
+    let third_coordinate = i32::try_from(third_coordinate)
+        .map_err(|_| "the canonical edit-burst command coordinate is out of range".to_owned())?;
     let coordinates = [
         VoxelCoordinate::new(0, 0, 0),
-        VoxelCoordinate::new(40, 0, 0),
-        VoxelCoordinate::new(80, 0, 0),
+        VoxelCoordinate::new(second_coordinate, 0, 0),
+        VoxelCoordinate::new(third_coordinate, 0, 0),
     ];
     let mut commands = VecDeque::new();
     for (index, coordinate) in coordinates.into_iter().enumerate() {
@@ -943,6 +1019,19 @@ impl DesktopApplication {
             self.fail(event_loop, error);
             return;
         }
+        if let Err(error) = self
+            .lifecycle_controller
+            .as_ref()
+            .ok_or_else(|| "the edit burst lifecycle controller is unavailable".to_owned())
+            .and_then(|controller| {
+                controller
+                    .begin_characterization()
+                    .map_err(|error| error.to_string())
+            })
+        {
+            self.fail(event_loop, error);
+            return;
+        }
         self.edit_burst_started_at = Some(Instant::now());
         if let Err(error) = self.publish_next_burst_command(&mut plan) {
             self.fail(event_loop, error);
@@ -1142,6 +1231,20 @@ impl DesktopApplication {
                             return;
                         }
                     };
+                    let characterization = match controller.characterization() {
+                        Ok(Some(characterization)) => characterization,
+                        Ok(None) => {
+                            self.fail(
+                                event_loop,
+                                "Raster Convergence characterization did not start",
+                            );
+                            return;
+                        }
+                        Err(error) => {
+                            self.fail(event_loop, error);
+                            return;
+                        }
+                    };
                     println!(
                         "Edit burst converged atomically: visible_revision={} expected_final_revision={}",
                         plan.expected_final_revision, plan.expected_final_revision
@@ -1149,6 +1252,10 @@ impl DesktopApplication {
                     println!(
                         "Edit burst final-visible measurement: elapsed_ms={latency_milliseconds:.6} peak_live_gpu_bytes={} peak_live_gpu_resources={}",
                         resource_peak.bytes, resource_peak.resources
+                    );
+                    println!(
+                        "Raster Convergence characterization: {}",
+                        format_convergence_characterization(&characterization)
                     );
                     EditBurstStage::Complete
                 } else {
@@ -2570,7 +2677,8 @@ fn main() -> ExitCode {
 mod measurement_tests {
     use super::{
         CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst,
-        format_convergence_overlay, parse_render_configuration, should_start_edit_burst,
+        format_convergence_characterization, format_convergence_overlay,
+        parse_render_configuration, should_start_edit_burst,
     };
 
     #[test]
@@ -2591,8 +2699,80 @@ mod measurement_tests {
         assert!(!report_only);
         Ok(())
     }
+
+    #[test]
+    fn characterization_line_retains_every_phase_disposition_and_lifecycle_event() {
+        let report = format_convergence_characterization(&RasterConvergenceCharacterization {
+            phases: RasterConvergencePhaseTimings {
+                submission_bookkeeping_milliseconds: 1.0,
+                queued_wait_milliseconds: 2.0,
+                cpu_derivation_milliseconds: 3.0,
+                upload_milliseconds: 4.0,
+                frame_boundary_commit_milliseconds: 5.0,
+            },
+            work: RasterRegionWorkDisposition {
+                scheduled: 6,
+                completed: 7,
+                cancelled: 8,
+                stale: 9,
+            },
+            installed: RasterGpuResourceUsage {
+                bytes: 10,
+                resources: 11,
+            },
+            hidden: RasterGpuResourceUsage {
+                bytes: 12,
+                resources: 13,
+            },
+            retired: RasterGpuResourceUsage {
+                bytes: 14,
+                resources: 15,
+            },
+            peak: RasterGpuResourceUsage {
+                bytes: 16,
+                resources: 17,
+            },
+            cancellation_observations: vec![RasterCancellationObservation {
+                revision: VoxelSceneRevision::new(2),
+                scheduled_regions: 18,
+                completed_regions: 19,
+                cancelled_regions: 20,
+            }],
+            safe_retirements: vec![RasterSafeRetirementEvent {
+                revision: VoxelSceneRevision::new(3),
+                disposition: RasterSafeRetirementDisposition::StaleCandidate,
+                resources: RasterGpuResourceUsage {
+                    bytes: 21,
+                    resources: 22,
+                },
+            }],
+        });
+
+        for required in [
+            "submission_bookkeeping_ms=1.000000",
+            "queued_wait_ms=2.000000",
+            "cpu_derivation_ms=3.000000",
+            "upload_ms=4.000000",
+            "frame_boundary_commit_ms=5.000000",
+            "scheduled_regions=6 completed_regions=7 cancelled_regions=8 stale_regions=9",
+            "installed_bytes=10 installed_resources=11 hidden_bytes=12 hidden_resources=13",
+            "retired_bytes=14 retired_resources=15 peak_bytes=16 peak_resources=17",
+            "cancellation_events=2:18:19:20",
+            "safe_retirement_events=3:stale-candidate:21:22",
+        ] {
+            assert!(
+                report.contains(required),
+                "missing {required:?} from {report}"
+            );
+        }
+    }
+
     use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
-    use raster_render_path::RasterConvergenceStatus;
+    use raster_render_path::{
+        RasterCancellationObservation, RasterConvergenceCharacterization,
+        RasterConvergencePhaseTimings, RasterConvergenceStatus, RasterGpuResourceUsage,
+        RasterRegionWorkDisposition, RasterSafeRetirementDisposition, RasterSafeRetirementEvent,
+    };
     use render_backend::FrameObservation;
     use std::time::{Duration, Instant};
     use voxel_frontend::{VoxelEditOutcome, VoxelFrontend, VoxelSceneRevision};
@@ -2661,21 +2841,26 @@ mod measurement_tests {
     #[test]
     fn fixed_edit_burst_has_three_ordered_value_changing_commands_and_checked_final_revision()
     -> Result<(), Box<dyn std::error::Error>> {
-        let frontend = VoxelFrontend::new();
-        let view =
-            frontend.publish(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
-        let mut plan = fixed_edit_burst(&view, 32)?;
-        assert_eq!(plan.commands.len(), 3);
-        assert_eq!(plan.expected_final_revision, VoxelSceneRevision::new(4));
-        assert!(plan.take_next_owned_command().is_err());
-        plan.claim_space_keypress()?;
-        for expected_revision in 2..=4 {
-            let command = plan.take_next_owned_command()?;
-            let outcome = frontend.edit(command)?;
-            let VoxelEditOutcome::Changed { view, .. } = outcome else {
-                return Err("fixed command did not change its Voxel Value".into());
-            };
-            assert_eq!(view.revision(), VoxelSceneRevision::new(expected_revision));
+        for scale in [
+            CanonicalSceneScale::Small,
+            CanonicalSceneScale::Medium,
+            CanonicalSceneScale::Large,
+        ] {
+            let frontend = VoxelFrontend::new();
+            let view = frontend.publish(generate_canonical_scene(scale)?.into_scene())?;
+            let mut plan = fixed_edit_burst(&view, 16)?;
+            assert_eq!(plan.commands.len(), 3);
+            assert_eq!(plan.expected_final_revision, VoxelSceneRevision::new(4));
+            assert!(plan.take_next_owned_command().is_err());
+            plan.claim_space_keypress()?;
+            for expected_revision in 2..=4 {
+                let command = plan.take_next_owned_command()?;
+                let outcome = frontend.edit(command)?;
+                let VoxelEditOutcome::Changed { view, .. } = outcome else {
+                    return Err("fixed command did not change its Voxel Value".into());
+                };
+                assert_eq!(view.revision(), VoxelSceneRevision::new(expected_revision));
+            }
         }
         Ok(())
     }

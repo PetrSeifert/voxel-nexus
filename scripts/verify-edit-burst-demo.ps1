@@ -4,6 +4,8 @@ param(
     [string]$EvidenceDirectory,
     [ValidateSet(16, 32, 64)]
     [int]$RasterRegionExtent = 32,
+    [ValidateSet(64, 128, 256)]
+    [int]$SceneScale = 256,
     [switch]$TimingOnly,
     [switch]$SkipBuild
 )
@@ -21,6 +23,14 @@ if ([System.IO.Directory]::Exists($evidencePath) -and [System.IO.Directory]::Enu
     throw "The evidence directory must be new or empty: $evidencePath"
 }
 [System.IO.Directory]::CreateDirectory($evidencePath) | Out-Null
+
+$sceneDimensions = switch ($SceneScale) {
+    64 { @(64, 32, 64) }
+    128 { @(128, 64, 128) }
+    256 { @(256, 128, 256) }
+}
+$commandSpacing = [Math]::Min(40, [Math]::Floor($sceneDimensions[0] / 3))
+$commandCoordinates = @(0, $commandSpacing, $commandSpacing * 2)
 
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
@@ -341,7 +351,7 @@ try {
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($argument in @("--scene-scale", "256", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")) {
+    foreach ($argument in @("--scene-scale", "$SceneScale", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")) {
         $startInfo.ArgumentList.Add($argument)
     }
     $process = [System.Diagnostics.Process]::new()
@@ -350,7 +360,11 @@ try {
     $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
     $standardErrorTask = $process.StandardError.ReadToEndAsync()
     $window = Wait-ForWindow -Process $process
-    $totalRegionCount = (256 / $RasterRegionExtent) * (128 / $RasterRegionExtent) * (256 / $RasterRegionExtent)
+    $totalRegionCount = [int](
+        [Math]::Ceiling($sceneDimensions[0] / $RasterRegionExtent) *
+        [Math]::Ceiling($sceneDimensions[1] / $RasterRegionExtent) *
+        [Math]::Ceiling($sceneDimensions[2] / $RasterRegionExtent)
+    )
     $secondRequirementAffectedCount = if ($RasterRegionExtent -eq 64) { 1 } else { 2 }
     $finalAffectedCount = switch ($RasterRegionExtent) {
         16 { 4 }
@@ -428,15 +442,66 @@ try {
     if ($latencyMilliseconds -lt 0 -or $peakLiveGpuBytes -eq 0 -or $peakLiveGpuResources -eq 0) {
         throw "The edit-burst measurement reported invalid latency or GPU resource values."
     }
+    $characterization = [Regex]::Match(
+        $standardOutput,
+        "Raster Convergence characterization: submission_bookkeeping_ms=(?<Submission>[0-9]+(?:\.[0-9]+)?) queued_wait_ms=(?<Queued>[0-9]+(?:\.[0-9]+)?) cpu_derivation_ms=(?<Cpu>[0-9]+(?:\.[0-9]+)?) upload_ms=(?<Upload>[0-9]+(?:\.[0-9]+)?) frame_boundary_commit_ms=(?<Commit>[0-9]+(?:\.[0-9]+)?) scheduled_regions=(?<Scheduled>\d+) completed_regions=(?<Completed>\d+) cancelled_regions=(?<Cancelled>\d+) stale_regions=(?<Stale>\d+) installed_bytes=(?<InstalledBytes>\d+) installed_resources=(?<InstalledResources>\d+) hidden_bytes=(?<HiddenBytes>\d+) hidden_resources=(?<HiddenResources>\d+) retired_bytes=(?<RetiredBytes>\d+) retired_resources=(?<RetiredResources>\d+) peak_bytes=(?<PeakBytes>\d+) peak_resources=(?<PeakResources>\d+) cancellation_events=(?<CancellationEvents>\S*) safe_retirement_events=(?<SafeRetirementEvents>[^\r\n]*)"
+    )
+    if (-not $characterization.Success) {
+        throw "The edit-burst proof did not report the complete Raster Convergence characterization."
+    }
+    $phaseTimings = [ordered]@{
+        SubmissionBookkeepingMilliseconds = [double]::Parse($characterization.Groups["Submission"].Value, [Globalization.CultureInfo]::InvariantCulture)
+        QueuedWaitMilliseconds = [double]::Parse($characterization.Groups["Queued"].Value, [Globalization.CultureInfo]::InvariantCulture)
+        CpuDerivationMilliseconds = [double]::Parse($characterization.Groups["Cpu"].Value, [Globalization.CultureInfo]::InvariantCulture)
+        UploadMilliseconds = [double]::Parse($characterization.Groups["Upload"].Value, [Globalization.CultureInfo]::InvariantCulture)
+        FrameBoundaryCommitMilliseconds = [double]::Parse($characterization.Groups["Commit"].Value, [Globalization.CultureInfo]::InvariantCulture)
+    }
+    $workDisposition = [ordered]@{
+        ScheduledRegions = [uint64]$characterization.Groups["Scheduled"].Value
+        CompletedRegions = [uint64]$characterization.Groups["Completed"].Value
+        CancelledRegions = [uint64]$characterization.Groups["Cancelled"].Value
+        StaleRegions = [uint64]$characterization.Groups["Stale"].Value
+    }
+    $resourceDisposition = [ordered]@{
+        Installed = [ordered]@{ Bytes = [uint64]$characterization.Groups["InstalledBytes"].Value; Resources = [uint64]$characterization.Groups["InstalledResources"].Value }
+        Hidden = [ordered]@{ Bytes = [uint64]$characterization.Groups["HiddenBytes"].Value; Resources = [uint64]$characterization.Groups["HiddenResources"].Value }
+        Retired = [ordered]@{ Bytes = [uint64]$characterization.Groups["RetiredBytes"].Value; Resources = [uint64]$characterization.Groups["RetiredResources"].Value }
+        Peak = [ordered]@{ Bytes = [uint64]$characterization.Groups["PeakBytes"].Value; Resources = [uint64]$characterization.Groups["PeakResources"].Value }
+    }
+    $cancellationEvents = @($characterization.Groups["CancellationEvents"].Value.Split("|", [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object {
+        $fields = $_.Split(":")
+        if ($fields.Count -ne 4) { throw "Malformed cancellation observation: $_" }
+        [ordered]@{ Revision = [uint64]$fields[0]; ScheduledRegions = [uint64]$fields[1]; CompletedRegions = [uint64]$fields[2]; CancelledRegions = [uint64]$fields[3] }
+    })
+    $safeRetirementEvents = @($characterization.Groups["SafeRetirementEvents"].Value.Split("|", [StringSplitOptions]::RemoveEmptyEntries) | ForEach-Object {
+        $fields = $_.Split(":")
+        if ($fields.Count -ne 4) { throw "Malformed safe-retirement event: $_" }
+        [ordered]@{ Revision = [uint64]$fields[0]; Disposition = $fields[1]; Bytes = [uint64]$fields[2]; Resources = [uint64]$fields[3] }
+    })
+    if ($workDisposition.ScheduledRegions -lt $workDisposition.CompletedRegions) {
+        throw "The characterization completed more Raster Regions than it scheduled."
+    }
+    if ($resourceDisposition.Installed.Resources -eq 0 -or $resourceDisposition.Hidden.Resources -eq 0 -or $resourceDisposition.Retired.Resources -eq 0) {
+        throw "The characterization omitted installed, hidden, or retired GPU resources."
+    }
+    if ($resourceDisposition.Peak.Bytes -ne $peakLiveGpuBytes -or $resourceDisposition.Peak.Resources -ne $peakLiveGpuResources) {
+        throw "The characterization peak does not match the final-visible measurement."
+    }
+    if ($cancellationEvents.Count -eq 0 -or $safeRetirementEvents.Count -eq 0) {
+        throw "The characterization omitted cancellation or safe-retirement events."
+    }
     foreach ($title in @($cpuHeldTitle, $postUploadHeldTitle, $finalTitle)) {
         if ($title -notmatch "Affected=(?<Affected>\d+) Unaffected=(?<Unaffected>\d+)") {
             throw "The edit-burst title did not report localization counts: $title"
         }
+        if ([int]$Matches.Affected + [int]$Matches.Unaffected -ne $totalRegionCount) {
+            throw "The edit-burst localization counts do not cover the complete canonical scale: $title"
+        }
     }
-    if ($cpuHeldTitle -notmatch "Affected=$secondRequirementAffectedCount Unaffected=$($totalRegionCount - $secondRequirementAffectedCount)") {
+    if ($SceneScale -eq 256 -and $cpuHeldTitle -notmatch "Affected=$secondRequirementAffectedCount Unaffected=$($totalRegionCount - $secondRequirementAffectedCount)") {
         throw "The second requirement localization counts do not match extent $RasterRegionExtent."
     }
-    if ($finalTitle -notmatch "Affected=$finalAffectedCount Unaffected=$($totalRegionCount - $finalAffectedCount)") {
+    if ($SceneScale -eq 256 -and $finalTitle -notmatch "Affected=$finalAffectedCount Unaffected=$($totalRegionCount - $finalAffectedCount)") {
         throw "The final requirement localization counts do not match extent $RasterRegionExtent."
     }
     $validationWarnings = ([Regex]::Matches($standardError, "(?m)^Vulkan validation WARNING")).Count
@@ -448,7 +513,7 @@ try {
     $shutdownQualification = $null
     if (-not $TimingOnly) {
         $commonArguments = @(
-            "--scene-scale", "256", "--camera-pose", "overview",
+            "--scene-scale", "$SceneScale", "--camera-pose", "overview",
             "--raster-region-extent", "$RasterRegionExtent"
         )
         $activeCpuClose = Invoke-InFlightCloseQualification `
@@ -476,7 +541,7 @@ try {
         RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
         RepositoryRevision = ($repositoryRevision -join "`n").Trim()
         BuildCommand = "cargo build --locked --package desktop-demo"
-        RunArguments = @("--scene-scale", "256", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")
+        RunArguments = @("--scene-scale", "$SceneScale", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")
         TimingOnly = [bool]$TimingOnly
         Input = [ordered]@{ Key = "Space"; KeyDownMessage = "WM_KEYDOWN"; KeyUpMessage = "WM_KEYUP"; CommandPublicationOwner = "single Space keypress" }
         ProcessExitCode = $process.ExitCode
@@ -485,8 +550,8 @@ try {
             Scene = "canonical-dense-scene"
             Generator = "voxel-nexus-canonical-dense"
             GeneratorVersion = 1
-            Scale = 256
-            Dimensions = @(256, 128, 256)
+            Scale = $SceneScale
+            Dimensions = $sceneDimensions
             InitialRevision = 1
             RasterRegionExtent = @($RasterRegionExtent, $RasterRegionExtent, $RasterRegionExtent)
             Camera = "overview"
@@ -496,12 +561,21 @@ try {
         }
         Commands = @(
             [ordered]@{ Order = 1; Coordinate = @(0, 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 2 },
-            [ordered]@{ Order = 2; Coordinate = @(40, 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 3 },
-            [ordered]@{ Order = 3; Coordinate = @(80, 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 4 }
+            [ordered]@{ Order = 2; Coordinate = @($commandCoordinates[1], 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 3 },
+            [ordered]@{ Order = 3; Coordinate = @($commandCoordinates[2], 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 4 }
         )
         CpuBarrier = [ordered]@{ ObsoleteRevision = 2; ScheduledBeforeHold = 1; ScheduledTotal = 1; Cancelled = $true }
         PostUploadBarrier = [ordered]@{ SupersededRevision = 3; RejectedAtCommit = $true; RetiredGpuResourceCount = [int]$retirement.Groups["Count"].Value }
-        Measurement = [ordered]@{ KeypressToFinalVisibleMilliseconds = $latencyMilliseconds; PeakLiveGpuBytes = $peakLiveGpuBytes; PeakLiveGpuResources = $peakLiveGpuResources }
+        Measurement = [ordered]@{
+            KeypressToFinalVisibleMilliseconds = $latencyMilliseconds
+            Phases = $phaseTimings
+            WorkDisposition = $workDisposition
+            Resources = $resourceDisposition
+            CancellationObservations = $cancellationEvents
+            SafeRetirementEvents = $safeRetirementEvents
+            PeakLiveGpuBytes = $peakLiveGpuBytes
+            PeakLiveGpuResources = $peakLiveGpuResources
+        }
         Qualification = [ordered]@{ SemanticCorrectness = $true; Localization = $true; FailureRetry = $true; Lifecycle = (-not $TimingOnly); Shutdown = $true; ResourceRetirement = $true; Validation = $true }
         ShutdownQualification = $shutdownQualification
         Visibility = [ordered]@{ InitialTitle = $initialTitle; CpuHeldTitle = $cpuHeldTitle; PostUploadHeldTitle = $postUploadHeldTitle; FinalTitle = $finalTitle; IntermediateRevisionVisible = $false }
