@@ -95,6 +95,22 @@ pub enum EvidenceError {
     DuplicateScale { scale: u32 },
     #[error("the aggregation contains {actual} scales instead of exactly three")]
     UnexpectedScaleCount { actual: usize },
+    #[error("extent selection schema version {actual} is unsupported; expected 1")]
+    UnsupportedExtentSelectionSchema { actual: u32 },
+    #[error("required Raster Region extent {extent} is missing")]
+    MissingRasterRegionExtent { extent: u32 },
+    #[error("Raster Region extent {extent} occurs more than once")]
+    DuplicateRasterRegionExtent { extent: u32 },
+    #[error("unexpected Raster Region extent {extent}; expected 16, 32, or 64")]
+    UnexpectedRasterRegionExtent { extent: u32 },
+    #[error("Raster Region extent {extent} did not pass every qualification gate")]
+    UnqualifiedExtent { extent: u32 },
+    #[error("Raster Region extent {extent} must retain at least two latency samples")]
+    InsufficientExtentLatencySamples { extent: u32 },
+    #[error(
+        "Raster Region extent selection is ambiguous because extents {first} and {second} have identical selection inputs"
+    )]
+    AmbiguousRasterRegionExtentSelection { first: u32, second: u32 },
 }
 
 pub fn summarize(samples: &[f64]) -> Result<DistributionSummary, EvidenceError> {
@@ -217,4 +233,153 @@ pub fn aggregate_scales(
             })
         })
         .collect()
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct ExtentQualificationGates {
+    pub semantic_correctness: bool,
+    pub localization: bool,
+    pub failure_retry: bool,
+    pub lifecycle: bool,
+    pub shutdown: bool,
+    pub resource_retirement: bool,
+    pub validation: bool,
+}
+
+impl ExtentQualificationGates {
+    fn all_passed(&self) -> bool {
+        self.semantic_correctness
+            && self.localization
+            && self.failure_retry
+            && self.lifecycle
+            && self.shutdown
+            && self.resource_retirement
+            && self.validation
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ExtentCandidateInput {
+    pub extent: u32,
+    pub qualification: ExtentQualificationGates,
+    pub latency_samples_milliseconds: Vec<f64>,
+    pub peak_live_gpu_bytes: u64,
+    pub peak_live_gpu_resources: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ExtentSelectionInput {
+    pub schema_version: u32,
+    pub candidates: Vec<ExtentCandidateInput>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ExtentCandidateReport {
+    pub extent: u32,
+    pub qualification: ExtentQualificationGates,
+    pub latency_samples_milliseconds: Vec<f64>,
+    pub latency_milliseconds: DistributionSummary,
+    pub peak_live_gpu_bytes: u64,
+    pub peak_live_gpu_resources: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ExtentSelectionReport {
+    pub schema_version: u32,
+    pub scope: &'static str,
+    pub selection_rule: [&'static str; 4],
+    pub candidates: Vec<ExtentCandidateReport>,
+    pub selected_extent: u32,
+}
+
+fn compare_extent_candidates(
+    left: &ExtentCandidateReport,
+    right: &ExtentCandidateReport,
+) -> std::cmp::Ordering {
+    left.latency_milliseconds
+        .median
+        .total_cmp(&right.latency_milliseconds.median)
+        .then_with(|| {
+            left.latency_milliseconds
+                .ninety_fifth_percentile
+                .total_cmp(&right.latency_milliseconds.ninety_fifth_percentile)
+        })
+        .then_with(|| left.peak_live_gpu_bytes.cmp(&right.peak_live_gpu_bytes))
+        .then_with(|| {
+            left.peak_live_gpu_resources
+                .cmp(&right.peak_live_gpu_resources)
+        })
+}
+
+pub fn select_raster_region_extent(
+    input: ExtentSelectionInput,
+) -> Result<ExtentSelectionReport, EvidenceError> {
+    if input.schema_version != 1 {
+        return Err(EvidenceError::UnsupportedExtentSelectionSchema {
+            actual: input.schema_version,
+        });
+    }
+    let mut candidates_by_extent = BTreeMap::new();
+    for candidate in input.candidates {
+        if ![16, 32, 64].contains(&candidate.extent) {
+            return Err(EvidenceError::UnexpectedRasterRegionExtent {
+                extent: candidate.extent,
+            });
+        }
+        let extent = candidate.extent;
+        if candidates_by_extent.insert(extent, candidate).is_some() {
+            return Err(EvidenceError::DuplicateRasterRegionExtent { extent });
+        }
+    }
+    for extent in [16, 32, 64] {
+        if !candidates_by_extent.contains_key(&extent) {
+            return Err(EvidenceError::MissingRasterRegionExtent { extent });
+        }
+    }
+    let mut candidates = Vec::with_capacity(candidates_by_extent.len());
+    for candidate in candidates_by_extent.into_values() {
+        if !candidate.qualification.all_passed() {
+            return Err(EvidenceError::UnqualifiedExtent {
+                extent: candidate.extent,
+            });
+        }
+        if candidate.latency_samples_milliseconds.len() < 2 {
+            return Err(EvidenceError::InsufficientExtentLatencySamples {
+                extent: candidate.extent,
+            });
+        }
+        candidates.push(ExtentCandidateReport {
+            extent: candidate.extent,
+            qualification: candidate.qualification,
+            latency_milliseconds: summarize(&candidate.latency_samples_milliseconds)?,
+            latency_samples_milliseconds: candidate.latency_samples_milliseconds,
+            peak_live_gpu_bytes: candidate.peak_live_gpu_bytes,
+            peak_live_gpu_resources: candidate.peak_live_gpu_resources,
+        });
+    }
+    let selected = candidates
+        .iter()
+        .min_by(|left, right| compare_extent_candidates(left, right))
+        .ok_or(EvidenceError::MissingRasterRegionExtent { extent: 16 })?;
+    if let Some(tied) = candidates.iter().find(|candidate| {
+        candidate.extent != selected.extent
+            && compare_extent_candidates(candidate, selected).is_eq()
+    }) {
+        return Err(EvidenceError::AmbiguousRasterRegionExtentSelection {
+            first: selected.extent.min(tied.extent),
+            second: selected.extent.max(tied.extent),
+        });
+    }
+    Ok(ExtentSelectionReport {
+        schema_version: 1,
+        scope: "Descriptive comparison for the recorded development machine only.",
+        selection_rule: [
+            "median_latency_milliseconds",
+            "p95_latency_milliseconds",
+            "peak_live_gpu_bytes",
+            "peak_live_gpu_resources",
+        ],
+        selected_extent: selected.extent,
+        candidates,
+    })
 }

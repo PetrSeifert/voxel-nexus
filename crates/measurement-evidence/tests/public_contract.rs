@@ -1,6 +1,7 @@
 use measurement_evidence::{
-    EvidenceError, FirstCorrectFramePhases, MeasurementEvent, ResourceCounts,
-    ScaleAggregationInput, VoxelSceneRevisionIdentity, aggregate_scales, summarize,
+    EvidenceError, ExtentCandidateInput, ExtentQualificationGates, ExtentSelectionInput,
+    FirstCorrectFramePhases, MeasurementEvent, ResourceCounts, ScaleAggregationInput,
+    VoxelSceneRevisionIdentity, aggregate_scales, select_raster_region_extent, summarize,
 };
 
 #[test]
@@ -92,5 +93,136 @@ fn manifest_aggregation_rejects_missing_fresh_runs() {
             expected: 10,
             actual: 1,
         }
+    );
+}
+
+fn qualified_extent(
+    extent: u32,
+    latency_samples_milliseconds: Vec<f64>,
+    peak_live_gpu_bytes: u64,
+    peak_live_gpu_resources: u64,
+) -> ExtentCandidateInput {
+    ExtentCandidateInput {
+        extent,
+        qualification: ExtentQualificationGates {
+            semantic_correctness: true,
+            localization: true,
+            failure_retry: true,
+            lifecycle: true,
+            shutdown: true,
+            resource_retirement: true,
+            validation: true,
+        },
+        latency_samples_milliseconds,
+        peak_live_gpu_bytes,
+        peak_live_gpu_resources,
+    }
+}
+
+#[test]
+fn extent_selection_uses_the_resolved_lexicographic_rule() -> Result<(), Box<dyn std::error::Error>>
+{
+    let report = select_raster_region_extent(ExtentSelectionInput {
+        schema_version: 1,
+        candidates: vec![
+            qualified_extent(64, vec![8.0, 10.0], 1_000, 10),
+            qualified_extent(16, vec![8.0, 10.0], 900, 20),
+            qualified_extent(32, vec![8.0, 10.0], 900, 10),
+        ],
+    })?;
+
+    assert_eq!(report.selected_extent, 32);
+    assert_eq!(report.candidates[0].extent, 16);
+    assert_eq!(report.candidates[1].latency_milliseconds.median, 9.0);
+    assert_eq!(
+        report.selection_rule,
+        [
+            "median_latency_milliseconds",
+            "p95_latency_milliseconds",
+            "peak_live_gpu_bytes",
+            "peak_live_gpu_resources",
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn extent_selection_prioritizes_median_then_ninety_fifth_percentile()
+-> Result<(), Box<dyn std::error::Error>> {
+    let median_report = select_raster_region_extent(ExtentSelectionInput {
+        schema_version: 1,
+        candidates: vec![
+            qualified_extent(16, vec![1.0, 9.0, 9.0], 1, 1),
+            qualified_extent(32, vec![8.0, 8.0, 100.0], u64::MAX, u64::MAX),
+            qualified_extent(64, vec![10.0, 10.0, 10.0], 1, 1),
+        ],
+    })?;
+    assert_eq!(median_report.selected_extent, 32);
+
+    let p95_report = select_raster_region_extent(ExtentSelectionInput {
+        schema_version: 1,
+        candidates: vec![
+            qualified_extent(16, vec![1.0, 5.0, 9.0], 1, 1),
+            qualified_extent(32, vec![4.0, 5.0, 6.0], u64::MAX, u64::MAX),
+            qualified_extent(64, vec![5.0, 5.0, 10.0], 1, 1),
+        ],
+    })?;
+    assert_eq!(p95_report.selected_extent, 32);
+    Ok(())
+}
+
+#[test]
+fn extent_selection_rejects_identical_selection_inputs() {
+    let error = select_raster_region_extent(ExtentSelectionInput {
+        schema_version: 1,
+        candidates: vec![
+            qualified_extent(16, vec![1.0, 2.0], 100, 10),
+            qualified_extent(32, vec![1.0, 2.0], 100, 10),
+            qualified_extent(64, vec![3.0, 4.0], 100, 10),
+        ],
+    })
+    .expect_err("fully tied resolved inputs cannot select subjectively");
+
+    assert_eq!(
+        error,
+        EvidenceError::AmbiguousRasterRegionExtentSelection {
+            first: 16,
+            second: 32,
+        }
+    );
+}
+
+#[test]
+fn extent_selection_rejects_a_candidate_that_failed_qualification() {
+    let mut failed = qualified_extent(16, vec![1.0, 2.0], 1_000, 10);
+    failed.qualification.failure_retry = false;
+
+    let error = select_raster_region_extent(ExtentSelectionInput {
+        schema_version: 1,
+        candidates: vec![
+            failed,
+            qualified_extent(32, vec![1.0, 2.0], 1_000, 10),
+            qualified_extent(64, vec![1.0, 2.0], 1_000, 10),
+        ],
+    })
+    .expect_err("an unqualified extent must not enter selection");
+
+    assert_eq!(error, EvidenceError::UnqualifiedExtent { extent: 16 });
+}
+
+#[test]
+fn extent_selection_requires_exactly_the_fixed_candidate_set() {
+    let error = select_raster_region_extent(ExtentSelectionInput {
+        schema_version: 1,
+        candidates: vec![
+            qualified_extent(16, vec![1.0, 2.0], 1_000, 10),
+            qualified_extent(32, vec![1.0, 2.0], 1_000, 10),
+        ],
+    })
+    .expect_err("all fixed candidates are required");
+
+    assert_eq!(
+        error,
+        EvidenceError::MissingRasterRegionExtent { extent: 64 }
     );
 }

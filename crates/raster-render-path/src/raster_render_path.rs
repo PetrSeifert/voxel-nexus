@@ -543,6 +543,8 @@ struct RasterLifecycleControlState {
     cpu_barrier: Option<Arc<RasterConvergenceCpuBarrierShared>>,
     status: Option<RasterConvergenceStatus>,
     rejected_candidate: Option<RasterRejectedCandidate>,
+    peak_live_gpu_bytes: u64,
+    peak_live_gpu_resources: usize,
 }
 
 #[derive(Clone)]
@@ -570,6 +572,12 @@ pub struct RasterConvergenceCpuBarrierObservation {
 pub struct RasterRejectedCandidate {
     pub revision: VoxelSceneRevision,
     pub retired_resource_count: usize,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RasterGpuResourcePeak {
+    pub bytes: u64,
+    pub resources: usize,
 }
 
 #[derive(Default)]
@@ -758,6 +766,16 @@ impl RasterLifecycleController {
         self.state
             .lock()
             .map(|state| state.shutdown_owned_resource_count)
+            .map_err(|_| RasterLifecycleControlError)
+    }
+
+    pub fn gpu_resource_peak(&self) -> Result<RasterGpuResourcePeak, RasterLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|state| RasterGpuResourcePeak {
+                bytes: state.peak_live_gpu_bytes,
+                resources: state.peak_live_gpu_resources,
+            })
             .map_err(|_| RasterLifecycleControlError)
     }
 }
@@ -1009,10 +1027,42 @@ impl RasterRenderPath {
                 cpu_barrier: None,
                 status: None,
                 rejected_candidate: None,
+                peak_live_gpu_bytes: 0,
+                peak_live_gpu_resources: 0,
             })),
         };
         self.lifecycle_control = Some(controller.clone());
         controller
+    }
+
+    fn observe_live_gpu_resources<'resources>(
+        &self,
+        resources: impl IntoIterator<Item = &'resources RasterRegionGpuResources>,
+    ) -> Result<(), RasterLifecycleControlError> {
+        let Some(controller) = &self.lifecycle_control else {
+            return Ok(());
+        };
+        let mut bytes = 0_u64;
+        let mut resource_count = 0_usize;
+        for resources in resources {
+            bytes = bytes
+                .checked_add(resources.vertex_buffer_bytes)
+                .and_then(|bytes| bytes.checked_add(resources.index_buffer_bytes))
+                .ok_or(RasterLifecycleControlError)?;
+            resource_count = resource_count
+                .checked_add(usize::from(resources.vertex_buffer != vk::Buffer::null()))
+                .and_then(|count| {
+                    count.checked_add(usize::from(resources.index_buffer != vk::Buffer::null()))
+                })
+                .ok_or(RasterLifecycleControlError)?;
+        }
+        let mut state = controller
+            .state
+            .lock()
+            .map_err(|_| RasterLifecycleControlError)?;
+        state.peak_live_gpu_bytes = state.peak_live_gpu_bytes.max(bytes);
+        state.peak_live_gpu_resources = state.peak_live_gpu_resources.max(resource_count);
+        Ok(())
     }
 
     pub fn install_artifact(&mut self, artifact: RasterArtifact) {
@@ -1123,6 +1173,14 @@ impl RasterRenderPath {
         let mut rejected_candidate = None;
         let result = (|| {
             let upload = convergence.upload_ready_with_optional_device(device, self)?;
+            if let Some(candidate) = &convergence.hidden_candidate {
+                self.observe_live_gpu_resources(
+                    self.region_resources
+                        .iter()
+                        .chain(candidate.successor_gpu_resources.iter()),
+                )
+                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+            }
             if matches!(
                 upload,
                 RasterConvergenceUpload::Uploaded { .. }
@@ -1157,6 +1215,12 @@ impl RasterRenderPath {
                 RasterConvergenceCommit::Failed { retirement, .. }
                 | RasterConvergenceCommit::Committed { retirement, .. } => retirement,
             };
+            self.observe_live_gpu_resources(
+                self.region_resources
+                    .iter()
+                    .chain(retirement.resources.iter()),
+            )
+            .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             if retirement.resource_count() == 0 {
                 return Ok(());
             }
@@ -4017,6 +4081,8 @@ enum RasterResourceError {
     ArtifactGate(#[from] RasterArtifactInstallerError),
     #[error(transparent)]
     CameraControl(#[from] RasterCameraControlError),
+    #[error(transparent)]
+    LifecycleControl(#[from] RasterLifecycleControlError),
     #[error("injected GPU upload failure")]
     InjectedUploadFailure,
     #[error("the raster artifact index count cannot be represented for indexed drawing")]
@@ -4084,6 +4150,8 @@ struct RasterRegionGpuResources {
     index_buffer: vk::Buffer,
     index_memory: vk::DeviceMemory,
     index_count: u32,
+    vertex_buffer_bytes: u64,
+    index_buffer_bytes: u64,
 }
 
 impl RasterResourceError {
@@ -4097,6 +4165,7 @@ impl RasterResourceError {
             | Self::IndexCount
             | Self::VertexStride
             | Self::BufferSize(_) => RasterArtifactInstallationPhase::Upload,
+            Self::LifecycleControl(_) => RasterArtifactInstallationPhase::Upload,
             Self::ArtifactGate(_) => RasterArtifactInstallationPhase::Upload,
             Self::InjectedUploadFailure => RasterArtifactInstallationPhase::Upload,
             Self::CameraControl(_) => RasterArtifactInstallationPhase::Record,
@@ -4314,6 +4383,7 @@ impl RasterRenderPath {
                     .push(upload_raster_region_resources(device, region)?);
             }
         }
+        self.observe_live_gpu_resources(self.region_resources.iter())?;
         self.create_depth_resources(device, target.extent())?;
         self.create_render_pass(device, target.format())?;
         self.create_graphics_pipeline(device, target.extent())?;
@@ -4707,22 +4777,28 @@ fn upload_raster_region_resources(
 ) -> Result<RasterRegionGpuResources, RasterResourceError> {
     let index_count =
         u32::try_from(region.indices().len()).map_err(|_| RasterResourceError::IndexCount)?;
-    let vertex = if region.vertices().is_empty() {
+    let vertex_bytes = raster_vertex_bytes(region.vertices());
+    let vertex_buffer_bytes =
+        u64::try_from(vertex_bytes.len()).map_err(|_| RasterResourceError::BufferSize("vertex"))?;
+    let vertex = if vertex_bytes.is_empty() {
         None
     } else {
         Some(create_static_buffer(
             device,
-            raster_vertex_bytes(region.vertices()),
+            vertex_bytes,
             vk::BufferUsageFlags::VERTEX_BUFFER,
             "vertex",
         )?)
     };
-    let index = if region.indices().is_empty() {
+    let index_bytes = u32_bytes(region.indices());
+    let index_buffer_bytes =
+        u64::try_from(index_bytes.len()).map_err(|_| RasterResourceError::BufferSize("index"))?;
+    let index = if index_bytes.is_empty() {
         None
     } else {
         match create_static_buffer(
             device,
-            u32_bytes(region.indices()),
+            index_bytes,
             vk::BufferUsageFlags::INDEX_BUFFER,
             "index",
         ) {
@@ -4753,6 +4829,8 @@ fn upload_raster_region_resources(
             .as_ref()
             .map_or(vk::DeviceMemory::null(), |index| index.memory),
         index_count,
+        vertex_buffer_bytes,
+        index_buffer_bytes,
     })
 }
 
@@ -5103,7 +5181,37 @@ mod convergence_tests {
             index_buffer: vk::Buffer::from_raw(raw_identity + 2_000),
             index_memory: vk::DeviceMemory::from_raw(raw_identity + 3_000),
             index_count: 6,
+            vertex_buffer_bytes: 0,
+            index_buffer_bytes: 0,
         }
+    }
+
+    #[test]
+    fn lifecycle_controller_reports_peak_live_raster_gpu_bytes_and_buffers()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(1, 1)?;
+        let identity = render_path(&frontend)?
+            .installed_regions()
+            .first()
+            .ok_or("missing installed Raster Region")?
+            .identity()
+            .clone();
+        let mut render_path = RasterRenderPath::new();
+        let controller = render_path.enable_lifecycle_control(false);
+        let mut resources = fake_resources(identity, 1);
+        resources.vertex_buffer_bytes = 400;
+        resources.index_buffer_bytes = 200;
+
+        render_path.observe_live_gpu_resources([&resources])?;
+
+        assert_eq!(
+            controller.gpu_resource_peak()?,
+            RasterGpuResourcePeak {
+                bytes: 600,
+                resources: 2,
+            }
+        );
+        Ok(())
     }
 
     #[derive(Default)]

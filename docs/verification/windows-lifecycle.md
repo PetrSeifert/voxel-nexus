@@ -34,6 +34,16 @@ The edit-burst runner keeps one validation-enabled process alive from its comple
 
 The native in-client overlay is a child of the Vulkan window and remains visibly layered over the scene. It reports the edit-burst stage, Required and Visible Voxel Scene Revisions, affected and unaffected Raster Region counts, and last acknowledged camera without introducing a separate text-rendering path. Whole-window PNG captures retain that overlay with the scene. The versioned JSON manifest records the real Space key input, canonical generator and scene inputs, all three keypress-owned commands with old and requested values, checked revisions, fixed 32³ Raster Region extent, barrier results, lifecycle sequence, capture hashes, validation counts, and process exit. These artifacts are descriptive inputs for later extent qualification and evidence assembly, not a selected extent or performance claim.
 
+To qualify and select among the fixed cubic Raster Region extents on one Windows machine, run:
+
+```powershell
+pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 `
+    -EvidenceDirectory artifacts/raster-region-extent-selection `
+    -SampleCount 5
+```
+
+The runner uses one locked build and the same canonical 256×128×256 Voxel Volume, camera, three keypress-owned commands, CPU and post-upload barriers, validation layer, and machine context for 16³, 32³, and 64³. Each candidate completes one full lifecycle qualification and five fresh timing runs. Timing begins when the Space keypress is accepted and ends when revision four is observed as the complete Visible Voxel Scene Revision. Peak Raster Region GPU bytes and live vertex/index buffer counts include the installed collection, a hidden candidate, and resources awaiting safe retirement. `selection-input.json` retains the raw samples and qualification gates; `selection.json` applies median latency, nearest-rank p95 latency, peak live GPU bytes, then peak live GPU resource count. An exact tie across all four inputs is rejected instead of resolved subjectively. The results describe only the recorded machine and create no performance budget or cross-machine claim.
+
 To retain the canonical overview lifecycle plus stable paired captures for the cavity/material close-up, finite-boundary cutaway, and deterministic move midpoint, add `-CaptureCanonicalInspectionSet`:
 
 ```powershell

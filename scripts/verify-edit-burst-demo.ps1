@@ -1,7 +1,11 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$EvidenceDirectory
+    [string]$EvidenceDirectory,
+    [ValidateSet(16, 32, 64)]
+    [int]$RasterRegionExtent = 32,
+    [switch]$TimingOnly,
+    [switch]$SkipBuild
 )
 
 Set-StrictMode -Version Latest
@@ -241,15 +245,17 @@ $process = $null
 $standardOutputTask = $null
 $standardErrorTask = $null
 try {
-    & cargo build --locked --package desktop-demo
-    if ($LASTEXITCODE -ne 0) { throw "The desktop demo build failed with exit code $LASTEXITCODE." }
+    if (-not $SkipBuild) {
+        & cargo build --locked --package desktop-demo
+        if ($LASTEXITCODE -ne 0) { throw "The desktop demo build failed with exit code $LASTEXITCODE." }
+    }
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = Join-Path $repositoryRoot "target\debug\desktop-demo.exe"
     $startInfo.WorkingDirectory = $repositoryRoot
     $startInfo.UseShellExecute = $false
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
-    foreach ($argument in @("--scene-scale", "256", "--camera-pose", "overview", "--edit-burst-demo")) {
+    foreach ($argument in @("--scene-scale", "256", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")) {
         $startInfo.ArgumentList.Add($argument)
     }
     $process = [System.Diagnostics.Process]::new()
@@ -258,25 +264,42 @@ try {
     $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
     $standardErrorTask = $process.StandardError.ReadToEndAsync()
     $window = Wait-ForWindow -Process $process
-    $initialTitle = Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=awaiting-key Required=1 Visible=1 Affected=0 Unaffected=256" -TimeoutSeconds 60
+    $totalRegionCount = (256 / $RasterRegionExtent) * (128 / $RasterRegionExtent) * (256 / $RasterRegionExtent)
+    $secondRequirementAffectedCount = if ($RasterRegionExtent -eq 64) { 1 } else { 2 }
+    $finalAffectedCount = switch ($RasterRegionExtent) {
+        16 { 4 }
+        32 { 3 }
+        64 { 2 }
+    }
+    $initialTitle = Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=awaiting-key Required=1 Visible=1 Affected=0 Unaffected=$totalRegionCount" -TimeoutSeconds 120
     $captures = @()
-    $captures += Save-WindowCapture -Window $window -Name "before-burst"
+    if (-not $TimingOnly) {
+        $captures += Save-WindowCapture -Window $window -Name "before-burst"
+    }
 
     Send-SpaceKeyPress -Window $window
     $cpuHeldTitle = Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=cpu-barrier-held Required=3 Visible=1" -TimeoutSeconds 30
-    $captures += Exercise-BarrierLifecycle -Process $process -Window $window -CameraMessage ([EditBurstWindow]::CavityCameraMessage) -CameraName "cavity" -StagePattern "EditBurst=cpu-barrier-held Required=3 Visible=1" -CaptureName "cpu-barrier-held"
+    if (-not $TimingOnly) {
+        $captures += Exercise-BarrierLifecycle -Process $process -Window $window -CameraMessage ([EditBurstWindow]::CavityCameraMessage) -CameraName "cavity" -StagePattern "EditBurst=cpu-barrier-held Required=3 Visible=1" -CaptureName "cpu-barrier-held"
+    }
     Send-Event -Window $window -Message ([EditBurstWindow]::ReleaseCpuBarrierMessage) -Name "CPU barrier release"
 
     Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=post-upload-candidate-held Required=3 Visible=1" -TimeoutSeconds 30 | Out-Null
-    $captures += Exercise-BarrierLifecycle -Process $process -Window $window -CameraMessage ([EditBurstWindow]::BoundaryCameraMessage) -CameraName "boundary" -StagePattern "EditBurst=post-upload-candidate-held Required=3 Visible=1" -CaptureName "post-upload-barrier-held"
+    if (-not $TimingOnly) {
+        $captures += Exercise-BarrierLifecycle -Process $process -Window $window -CameraMessage ([EditBurstWindow]::BoundaryCameraMessage) -CameraName "boundary" -StagePattern "EditBurst=post-upload-candidate-held Required=3 Visible=1" -CaptureName "post-upload-barrier-held"
+    }
     Send-Event -Window $window -Message ([EditBurstWindow]::ReleasePostUploadLifecycleBarrierMessage) -Name "post-upload lifecycle barrier release"
     $postUploadHeldTitle = Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=post-upload-barrier-held Required=4 Visible=1" -TimeoutSeconds 30
-    Send-Event -Window $window -Message ([EditBurstWindow]::OverviewCameraMessage) -Name "overview camera during final post-upload hold"
-    Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=post-upload-barrier-held Required=4 Visible=1.*Camera=overview" | Out-Null
+    if (-not $TimingOnly) {
+        Send-Event -Window $window -Message ([EditBurstWindow]::OverviewCameraMessage) -Name "overview camera during final post-upload hold"
+        Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=post-upload-barrier-held Required=4 Visible=1.*Camera=overview" | Out-Null
+    }
     Send-Event -Window $window -Message ([EditBurstWindow]::ReleasePostUploadBarrierMessage) -Name "post-upload barrier release"
 
     $finalTitle = Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=complete Required=4 Visible=4" -TimeoutSeconds 30
-    $captures += Save-WindowCapture -Window $window -Name "final-visible"
+    if (-not $TimingOnly) {
+        $captures += Save-WindowCapture -Window $window -Name "final-visible"
+    }
     Send-Event -Window $window -Message ([EditBurstWindow]::CloseMessage) -Name "normal close"
     if (-not $process.WaitForExit(10000)) { throw "The edit-burst demo did not close within 10 seconds." }
     $standardOutput = $standardOutputTask.GetAwaiter().GetResult()
@@ -292,6 +315,7 @@ try {
         "Edit burst command published: revision=2",
         "Edit burst command published: revision=3",
         "Edit burst command published: revision=4",
+        "raster_region_extent=$($RasterRegionExtent)x$($RasterRegionExtent)x$($RasterRegionExtent)",
         "Obsolete CPU generation cancelled: scheduled_regions_before_hold=1 scheduled_regions_total=1",
         "Superseded candidate held after upload: revision=Some(VoxelSceneRevision(3))",
         "Post-upload lifecycle barrier released; waiting for restored candidate",
@@ -308,6 +332,27 @@ try {
     if (-not $retirement.Success -or [int]$retirement.Groups["Count"].Value -le 0) {
         throw "The superseded configured candidate did not report retired GPU resources."
     }
+    $measurement = [Regex]::Match($standardOutput, "Edit burst final-visible measurement: elapsed_ms=(?<Latency>[0-9]+(?:\.[0-9]+)?) peak_live_gpu_bytes=(?<Bytes>\d+) peak_live_gpu_resources=(?<Resources>\d+)")
+    if (-not $measurement.Success) {
+        throw "The edit-burst proof did not report final-visible latency and peak live GPU resources."
+    }
+    $latencyMilliseconds = [double]::Parse($measurement.Groups["Latency"].Value, [Globalization.CultureInfo]::InvariantCulture)
+    $peakLiveGpuBytes = [uint64]$measurement.Groups["Bytes"].Value
+    $peakLiveGpuResources = [uint64]$measurement.Groups["Resources"].Value
+    if ($latencyMilliseconds -lt 0 -or $peakLiveGpuBytes -eq 0 -or $peakLiveGpuResources -eq 0) {
+        throw "The edit-burst measurement reported invalid latency or GPU resource values."
+    }
+    foreach ($title in @($cpuHeldTitle, $postUploadHeldTitle, $finalTitle)) {
+        if ($title -notmatch "Affected=(?<Affected>\d+) Unaffected=(?<Unaffected>\d+)") {
+            throw "The edit-burst title did not report localization counts: $title"
+        }
+    }
+    if ($cpuHeldTitle -notmatch "Affected=$secondRequirementAffectedCount Unaffected=$($totalRegionCount - $secondRequirementAffectedCount)") {
+        throw "The second requirement localization counts do not match extent $RasterRegionExtent."
+    }
+    if ($finalTitle -notmatch "Affected=$finalAffectedCount Unaffected=$($totalRegionCount - $finalAffectedCount)") {
+        throw "The final requirement localization counts do not match extent $RasterRegionExtent."
+    }
     $validationWarnings = ([Regex]::Matches($standardError, "(?m)^Vulkan validation WARNING")).Count
     $validationErrors = ([Regex]::Matches($standardError, "(?m)^Vulkan validation ERROR")).Count
     if ($validationWarnings -ne 0 -or $validationErrors -ne 0) {
@@ -320,7 +365,8 @@ try {
         RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
         RepositoryRevision = (& git rev-parse HEAD).Trim()
         BuildCommand = "cargo build --locked --package desktop-demo"
-        RunArguments = @("--scene-scale", "256", "--camera-pose", "overview", "--edit-burst-demo")
+        RunArguments = @("--scene-scale", "256", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")
+        TimingOnly = [bool]$TimingOnly
         Input = [ordered]@{ Key = "Space"; KeyDownMessage = "WM_KEYDOWN"; KeyUpMessage = "WM_KEYUP"; CommandPublicationOwner = "single Space keypress" }
         ProcessExitCode = $process.ExitCode
         Validation = [ordered]@{ Enabled = $true; Warnings = $validationWarnings; Errors = $validationErrors; Log = "desktop-demo.stderr.log" }
@@ -331,7 +377,7 @@ try {
             Scale = 256
             Dimensions = @(256, 128, 256)
             InitialRevision = 1
-            RasterRegionExtent = @(32, 32, 32)
+            RasterRegionExtent = @($RasterRegionExtent, $RasterRegionExtent, $RasterRegionExtent)
             Camera = "overview"
             InstalledRevision = 1
             InstalledComplete = $true
@@ -344,6 +390,8 @@ try {
         )
         CpuBarrier = [ordered]@{ ObsoleteRevision = 2; ScheduledBeforeHold = 1; ScheduledTotal = 1; Cancelled = $true }
         PostUploadBarrier = [ordered]@{ SupersededRevision = 3; RejectedAtCommit = $true; RetiredGpuResourceCount = [int]$retirement.Groups["Count"].Value }
+        Measurement = [ordered]@{ KeypressToFinalVisibleMilliseconds = $latencyMilliseconds; PeakLiveGpuBytes = $peakLiveGpuBytes; PeakLiveGpuResources = $peakLiveGpuResources }
+        Qualification = [ordered]@{ SemanticCorrectness = $true; Localization = $true; FailureRetry = $true; Lifecycle = (-not $TimingOnly); Shutdown = $true; ResourceRetirement = $true; Validation = $true }
         Visibility = [ordered]@{ InitialTitle = $initialTitle; CpuHeldTitle = $cpuHeldTitle; PostUploadHeldTitle = $postUploadHeldTitle; FinalTitle = $finalTitle; IntermediateRevisionVisible = $false }
         Lifecycle = @("camera during CPU hold", "landscape and portrait resize during CPU hold", "minimize and restore during CPU hold", "camera during post-upload hold", "landscape and portrait resize during post-upload hold", "minimize and restore during post-upload hold", "camera during final post-upload commit hold", "normal close")
         Captures = $captures

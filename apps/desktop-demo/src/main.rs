@@ -90,6 +90,7 @@ enum DesktopSceneSelection {
 struct DesktopRenderConfiguration {
     scene: DesktopSceneSelection,
     camera: DesktopCameraSelection,
+    raster_region_extent: u32,
     hold_background_preparation: bool,
     hold_post_upload_candidate: bool,
     inject_raster_upload_failure: bool,
@@ -144,6 +145,7 @@ fn parse_render_configuration(
     let mut hold_post_upload_candidate = false;
     let mut inject_raster_upload_failure = false;
     let mut edit_burst_demo = false;
+    let mut raster_region_extent = 32;
     let mut measurement_mode = None;
     let mut measurement_output = None;
     while let Some(argument) = arguments.next() {
@@ -153,6 +155,19 @@ fn parse_render_configuration(
             "--hold-post-upload-candidate" => hold_post_upload_candidate = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
             "--edit-burst-demo" => edit_burst_demo = true,
+            "--raster-region-extent" => {
+                raster_region_extent = match arguments.next().as_deref() {
+                    Some("16") => 16,
+                    Some("32") => 32,
+                    Some("64") => 64,
+                    Some(value) => {
+                        return Err(format!(
+                            "unknown Raster Region extent {value:?}; expected 16, 32, or 64"
+                        ));
+                    }
+                    None => return Err("missing Raster Region extent".to_owned()),
+                };
+            }
             "--winding-diagnostic" => {
                 if scene_was_selected {
                     return Err(
@@ -276,6 +291,7 @@ fn parse_render_configuration(
         DesktopRenderConfiguration {
             scene,
             camera,
+            raster_region_extent,
             hold_background_preparation,
             hold_post_upload_candidate,
             inject_raster_upload_failure,
@@ -562,7 +578,10 @@ fn voxel_value_identity(value: &VoxelValue) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn fixed_edit_burst(view: &voxel_frontend::VoxelSceneView) -> Result<EditBurstPlan, String> {
+fn fixed_edit_burst(
+    view: &voxel_frontend::VoxelSceneView,
+    raster_region_extent: u32,
+) -> Result<EditBurstPlan, String> {
     let volume_identity = VoxelVolumeId::new("canonical-volume");
     let coordinates = [
         VoxelCoordinate::new(0, 0, 0),
@@ -605,7 +624,7 @@ fn fixed_edit_burst(view: &voxel_frontend::VoxelSceneView) -> Result<EditBurstPl
             })
         })?;
     println!(
-        "Edit burst inputs: scene={:?} generator=voxel-nexus-canonical-dense generator_version=1 initial_revision={} raster_region_extent=32x32x32 camera=overview installed_revision={} installed_complete=true expected_final_revision={expected_final_revision}",
+        "Edit burst inputs: scene={:?} generator=voxel-nexus-canonical-dense generator_version=1 initial_revision={} raster_region_extent={raster_region_extent}x{raster_region_extent}x{raster_region_extent} camera=overview installed_revision={} installed_complete=true expected_final_revision={expected_final_revision}",
         view.scene_id(),
         view.revision(),
         view.revision()
@@ -808,6 +827,7 @@ struct DesktopApplication {
     edit_burst_stage: Option<EditBurstStage>,
     raster_region_count: usize,
     last_overlay_report: Option<String>,
+    edit_burst_started_at: Option<Instant>,
 }
 
 #[cfg(target_os = "windows")]
@@ -858,6 +878,7 @@ impl DesktopApplication {
             edit_burst_stage: None,
             raster_region_count: 0,
             last_overlay_report: None,
+            edit_burst_started_at: None,
         })
     }
 
@@ -922,6 +943,7 @@ impl DesktopApplication {
             self.fail(event_loop, error);
             return;
         }
+        self.edit_burst_started_at = Some(Instant::now());
         if let Err(error) = self.publish_next_burst_command(&mut plan) {
             self.fail(event_loop, error);
             return;
@@ -1106,9 +1128,27 @@ impl DesktopApplication {
                     status.required_revision == plan.expected_final_revision
                         && status.visible_revision == plan.expected_final_revision
                 }) {
+                    let latency_milliseconds = match self.edit_burst_started_at.take() {
+                        Some(started_at) => started_at.elapsed().as_secs_f64() * 1_000.0,
+                        None => {
+                            self.fail(event_loop, "the edit burst keypress timestamp is missing");
+                            return;
+                        }
+                    };
+                    let resource_peak = match controller.gpu_resource_peak() {
+                        Ok(resource_peak) => resource_peak,
+                        Err(error) => {
+                            self.fail(event_loop, error);
+                            return;
+                        }
+                    };
                     println!(
                         "Edit burst converged atomically: visible_revision={} expected_final_revision={}",
                         plan.expected_final_revision, plan.expected_final_revision
+                    );
+                    println!(
+                        "Edit burst final-visible measurement: elapsed_ms={latency_milliseconds:.6} peak_live_gpu_bytes={} peak_live_gpu_resources={}",
+                        resource_peak.bytes, resource_peak.resources
                     );
                     EditBurstStage::Complete
                 } else {
@@ -1409,8 +1449,9 @@ impl DesktopApplication {
                 .as_ref()
                 .ok_or_else(|| "the edit burst Voxel Frontend is unavailable".to_owned())
                 .and_then(|frontend| frontend.scene_view().map_err(|error| error.to_string()))
-                .and_then(|view| fixed_edit_burst(&view))
-            {
+                .and_then(|view| {
+                    fixed_edit_burst(&view, self.render_configuration.raster_region_extent)
+                }) {
                 Ok(plan) => plan,
                 Err(error) => {
                     self.fail(event_loop, error);
@@ -1778,7 +1819,11 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         let event_proxy = self.event_proxy.clone();
         let preparation = match RasterArtifactPreparation::start_regions(
             view,
-            VoxelExtent::new(32, 32, 32),
+            VoxelExtent::new(
+                self.render_configuration.raster_region_extent,
+                self.render_configuration.raster_region_extent,
+                self.render_configuration.raster_region_extent,
+            ),
             barrier,
             move |event| {
                 if event_proxy
@@ -2523,8 +2568,27 @@ fn main() -> ExitCode {
 mod measurement_tests {
     use super::{
         CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst,
-        format_convergence_overlay, should_start_edit_burst,
+        format_convergence_overlay, parse_render_configuration, should_start_edit_burst,
     };
+
+    #[test]
+    fn fixed_candidate_raster_region_extent_is_explicitly_configurable() -> Result<(), String> {
+        let (configuration, report_only) = parse_render_configuration(
+            [
+                "--scene-scale",
+                "256",
+                "--raster-region-extent",
+                "64",
+                "--edit-burst-demo",
+            ]
+            .into_iter()
+            .map(str::to_owned),
+        )?;
+
+        assert_eq!(configuration.raster_region_extent, 64);
+        assert!(!report_only);
+        Ok(())
+    }
     use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
     use raster_render_path::RasterConvergenceStatus;
     use render_backend::FrameObservation;
@@ -2598,7 +2662,7 @@ mod measurement_tests {
         let frontend = VoxelFrontend::new();
         let view =
             frontend.publish(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
-        let mut plan = fixed_edit_burst(&view)?;
+        let mut plan = fixed_edit_burst(&view, 32)?;
         assert_eq!(plan.commands.len(), 3);
         assert_eq!(plan.expected_final_revision, VoxelSceneRevision::new(4));
         assert!(plan.take_next_owned_command().is_err());
