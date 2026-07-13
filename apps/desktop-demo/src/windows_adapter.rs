@@ -4,6 +4,80 @@ use render_backend::PresentationAdapter;
 use std::ffi::CString;
 use winit::window::Window;
 
+pub struct WindowsTextOverlay {
+    window: windows_sys::Win32::Foundation::HWND,
+}
+
+impl WindowsTextOverlay {
+    pub fn new(parent: &Window) -> Result<Self, String> {
+        let window_handle = parent.window_handle().map_err(|error| error.to_string())?;
+        let RawWindowHandle::Win32(window_handle) = window_handle.as_raw() else {
+            return Err("the Windows overlay parent has no Win32 handle".to_owned());
+        };
+        let parent = window_handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+        let class_name = "STATIC\0".encode_utf16().collect::<Vec<_>>();
+        let initial_text = "Voxel raster convergence\0"
+            .encode_utf16()
+            .collect::<Vec<_>>();
+        let window = unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::CreateWindowExW(
+                0,
+                class_name.as_ptr(),
+                initial_text.as_ptr(),
+                windows_sys::Win32::UI::WindowsAndMessaging::WS_CHILD
+                    | windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE
+                    | windows_sys::Win32::UI::WindowsAndMessaging::WS_BORDER,
+                12,
+                12,
+                1120,
+                28,
+                parent,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null(),
+            )
+        };
+        if window.is_null() {
+            return Err(format!(
+                "could not create the in-client convergence overlay: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        println!("In-client convergence overlay created");
+        Ok(Self { window })
+    }
+
+    pub fn set_text(&self, text: &str) -> Result<(), String> {
+        let text = text
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let result = unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::SetWindowTextW(self.window, text.as_ptr())
+        };
+        if result == 0 {
+            return Err(format!(
+                "could not update the in-client convergence overlay: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for WindowsTextOverlay {
+    fn drop(&mut self) {
+        let result =
+            unsafe { windows_sys::Win32::UI::WindowsAndMessaging::DestroyWindow(self.window) };
+        if result == 0 {
+            eprintln!(
+                "could not destroy the in-client convergence overlay: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+}
+
 pub struct WindowsPresentationAdapter<'window> {
     window: &'window Window,
 }

@@ -587,6 +587,79 @@ struct RasterConvergenceCpuBarrierShared {
     released: Condvar,
 }
 
+#[derive(Clone, Copy)]
+struct RasterConvergenceCpuBarrierError;
+
+impl RasterConvergenceCpuBarrierShared {
+    fn observation(
+        &self,
+    ) -> Result<RasterConvergenceCpuBarrierObservation, RasterConvergenceCpuBarrierError> {
+        self.state
+            .lock()
+            .map(|state| RasterConvergenceCpuBarrierObservation {
+                reached_revision: state.reached_revision,
+                scheduled_region_count: state.scheduled_region_count,
+                finished: state.finished,
+                cancelled: state.cancelled,
+            })
+            .map_err(|_| RasterConvergenceCpuBarrierError)
+    }
+
+    fn schedule_and_wait(
+        &self,
+        revision: VoxelSceneRevision,
+    ) -> Result<(), RasterConvergenceCpuBarrierError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterConvergenceCpuBarrierError)?;
+        if state.reached_revision.is_some() {
+            return Ok(());
+        }
+        state.scheduled_region_count = state
+            .scheduled_region_count
+            .checked_add(1)
+            .ok_or(RasterConvergenceCpuBarrierError)?;
+        if state.scheduled_region_count != self.hold_after_scheduled_regions {
+            return Ok(());
+        }
+        state.reached_revision = Some(revision);
+        while !state.released {
+            state = self
+                .released
+                .wait(state)
+                .map_err(|_| RasterConvergenceCpuBarrierError)?;
+        }
+        Ok(())
+    }
+
+    fn finish(
+        &self,
+        revision: VoxelSceneRevision,
+        cancelled: bool,
+    ) -> Result<(), RasterConvergenceCpuBarrierError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterConvergenceCpuBarrierError)?;
+        if state.reached_revision == Some(revision) {
+            state.finished = true;
+            state.cancelled = cancelled;
+        }
+        Ok(())
+    }
+
+    fn release(&self) -> Result<(), RasterConvergenceCpuBarrierError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterConvergenceCpuBarrierError)?;
+        state.released = true;
+        self.released.notify_all();
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 #[error("the raster lifecycle control state is unavailable")]
 pub struct RasterLifecycleControlError;
@@ -644,14 +717,7 @@ impl RasterLifecycleController {
         barrier
             .map(|barrier| {
                 barrier
-                    .state
-                    .lock()
-                    .map(|state| RasterConvergenceCpuBarrierObservation {
-                        reached_revision: state.reached_revision,
-                        scheduled_region_count: state.scheduled_region_count,
-                        finished: state.finished,
-                        cancelled: state.cancelled,
-                    })
+                    .observation()
                     .map_err(|_| RasterLifecycleControlError)
             })
             .transpose()
@@ -665,13 +731,7 @@ impl RasterLifecycleController {
             .cpu_barrier
             .clone()
             .ok_or(RasterLifecycleControlError)?;
-        let mut state = barrier
-            .state
-            .lock()
-            .map_err(|_| RasterLifecycleControlError)?;
-        state.released = true;
-        barrier.released.notify_one();
-        Ok(())
+        barrier.release().map_err(|_| RasterLifecycleControlError)
     }
 
     pub fn convergence_status(
@@ -3023,17 +3083,12 @@ impl RasterConvergence {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
-        let barrier_error =
-            self.cpu_barrier
-                .as_ref()
-                .and_then(|barrier| match barrier.state.lock() {
-                    Ok(mut state) => {
-                        state.released = true;
-                        barrier.released.notify_all();
-                        None
-                    }
-                    Err(_) => Some(RasterConvergenceError::CpuBarrierSynchronization),
-                });
+        let barrier_error = self.cpu_barrier.as_ref().and_then(|barrier| {
+            barrier
+                .release()
+                .err()
+                .map(|_| RasterConvergenceError::CpuBarrierSynchronization)
+        });
         let active = self.active.take();
         self.pending = None;
         self.paused = None;
@@ -3280,16 +3335,10 @@ impl Drop for RasterConvergence {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
-        if let Some(barrier) = &self.cpu_barrier {
-            match barrier.state.lock() {
-                Ok(mut state) => {
-                    state.released = true;
-                    barrier.released.notify_all();
-                }
-                Err(_) => {
-                    eprintln!("Raster Convergence CPU barrier state was unavailable during drop")
-                }
-            }
+        if let Some(barrier) = &self.cpu_barrier
+            && barrier.release().is_err()
+        {
+            eprintln!("Raster Convergence CPU barrier state was unavailable during drop");
         }
         if let Some(mut active) = self.active.take()
             && let Some(worker) = active.worker.take()
@@ -3328,38 +3377,11 @@ fn derive_convergence_target(
                 match derive_raster_region(&target.view, metadata, core) {
                     Ok(region) => {
                         regions.push(region);
-                        if let Some(barrier) = cpu_barrier {
-                            let mut state = match barrier.state.lock() {
-                                Ok(state) => state,
-                                Err(_) => {
-                                    synchronization_failed = true;
-                                    return Ok(false);
-                                }
-                            };
-                            if state.reached_revision.is_none() {
-                                state.scheduled_region_count =
-                                    match state.scheduled_region_count.checked_add(1) {
-                                        Some(count) => count,
-                                        None => {
-                                            synchronization_failed = true;
-                                            return Ok(false);
-                                        }
-                                    };
-                                if state.scheduled_region_count
-                                    == barrier.hold_after_scheduled_regions
-                                {
-                                    state.reached_revision = Some(target.view.revision());
-                                    while !state.released {
-                                        state = match barrier.released.wait(state) {
-                                            Ok(state) => state,
-                                            Err(_) => {
-                                                synchronization_failed = true;
-                                                return Ok(false);
-                                            }
-                                        };
-                                    }
-                                }
-                            }
+                        if cpu_barrier.is_some_and(|barrier| {
+                            barrier.schedule_and_wait(target.view.revision()).is_err()
+                        }) {
+                            synchronization_failed = true;
+                            return Ok(false);
                         }
                     }
                     Err(source) => {
@@ -3379,15 +3401,15 @@ fn derive_convergence_target(
             source,
         })),
     };
-    if let Some(barrier) = cpu_barrier {
-        let mut state = match barrier.state.lock() {
-            Ok(state) => state,
-            Err(_) => return RasterPreparationCompletion::SynchronizationFailed,
-        };
-        if state.reached_revision == Some(target.view.revision()) {
-            state.finished = true;
-            state.cancelled = matches!(completion, RasterPreparationCompletion::Cancelled);
-        }
+    if cpu_barrier.is_some_and(|barrier| {
+        barrier
+            .finish(
+                target.view.revision(),
+                matches!(completion, RasterPreparationCompletion::Cancelled),
+            )
+            .is_err()
+    }) {
+        return RasterPreparationCompletion::SynchronizationFailed;
     }
     completion
 }

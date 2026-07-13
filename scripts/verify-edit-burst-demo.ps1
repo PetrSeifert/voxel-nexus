@@ -31,10 +31,12 @@ public static class EditBurstWindow {
     public const uint OverviewCameraMessage = 0x801C;
     public const uint CavityCameraMessage = 0x801D;
     public const uint BoundaryCameraMessage = 0x801E;
-    public const uint StartEditBurstMessage = 0x8020;
+    public const uint KeyDownMessage = 0x0100;
+    public const uint KeyUpMessage = 0x0101;
+    public const uint SpaceKey = 0x20;
     public const uint ReleaseCpuBarrierMessage = 0x8021;
     public const uint ReleasePostUploadBarrierMessage = 0x8022;
-    public const uint ContinueEditBurstMessage = 0x8023;
+    public const uint ReleasePostUploadLifecycleBarrierMessage = 0x8023;
     public const uint KeepPositionAndSize = 0x0013;
     public static readonly IntPtr Topmost = new IntPtr(-1);
 
@@ -151,6 +153,17 @@ function Send-Event {
     }
 }
 
+function Send-SpaceKeyPress {
+    param([IntPtr]$Window)
+    [EditBurstWindow]::SetForegroundWindow($Window) | Out-Null
+    if (-not [EditBurstWindow]::PostMessage($Window, [EditBurstWindow]::KeyDownMessage, [IntPtr][EditBurstWindow]::SpaceKey, [IntPtr]::Zero)) {
+        throw "Could not send the Space key-down event."
+    }
+    if (-not [EditBurstWindow]::PostMessage($Window, [EditBurstWindow]::KeyUpMessage, [IntPtr][EditBurstWindow]::SpaceKey, [IntPtr]::Zero)) {
+        throw "Could not send the Space key-up event."
+    }
+}
+
 function Save-WindowCapture {
     param([IntPtr]$Window, [string]$Name)
     [EditBurstWindow]::SetForegroundWindow($Window) | Out-Null
@@ -219,12 +232,14 @@ function Exercise-BarrierLifecycle {
     if (-not [EditBurstWindow]::MoveWindow($Window, 80, 80, 1200, 800, $true)) {
         throw "Could not restore the held desktop demo capture extent."
     }
-    Wait-ForTitle -Process $Process -Window $Window -Pattern "$StagePattern.*Camera=$CameraName" | Out-Null
+    if ($Process.HasExited) { throw "The desktop demo exited during held lifecycle actions." }
     Save-WindowCapture -Window $Window -Name $CaptureName
 }
 
 Push-Location $repositoryRoot
 $process = $null
+$standardOutputTask = $null
+$standardErrorTask = $null
 try {
     & cargo build --locked --package desktop-demo
     if ($LASTEXITCODE -ne 0) { throw "The desktop demo build failed with exit code $LASTEXITCODE." }
@@ -247,14 +262,14 @@ try {
     $captures = @()
     $captures += Save-WindowCapture -Window $window -Name "before-burst"
 
-    Send-Event -Window $window -Message ([EditBurstWindow]::StartEditBurstMessage) -Name "one-keypress edit burst"
+    Send-SpaceKeyPress -Window $window
     $cpuHeldTitle = Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=cpu-barrier-held Required=3 Visible=1" -TimeoutSeconds 30
     $captures += Exercise-BarrierLifecycle -Process $process -Window $window -CameraMessage ([EditBurstWindow]::CavityCameraMessage) -CameraName "cavity" -StagePattern "EditBurst=cpu-barrier-held Required=3 Visible=1" -CaptureName "cpu-barrier-held"
     Send-Event -Window $window -Message ([EditBurstWindow]::ReleaseCpuBarrierMessage) -Name "CPU barrier release"
 
     Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=post-upload-candidate-held Required=3 Visible=1" -TimeoutSeconds 30 | Out-Null
     $captures += Exercise-BarrierLifecycle -Process $process -Window $window -CameraMessage ([EditBurstWindow]::BoundaryCameraMessage) -CameraName "boundary" -StagePattern "EditBurst=post-upload-candidate-held Required=3 Visible=1" -CaptureName "post-upload-barrier-held"
-    Send-Event -Window $window -Message ([EditBurstWindow]::ContinueEditBurstMessage) -Name "continue after post-upload lifecycle"
+    Send-Event -Window $window -Message ([EditBurstWindow]::ReleasePostUploadLifecycleBarrierMessage) -Name "post-upload lifecycle barrier release"
     $postUploadHeldTitle = Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=post-upload-barrier-held Required=4 Visible=1" -TimeoutSeconds 30
     Send-Event -Window $window -Message ([EditBurstWindow]::OverviewCameraMessage) -Name "overview camera during final post-upload hold"
     Wait-ForTitle -Process $process -Window $window -Pattern "EditBurst=post-upload-barrier-held Required=4 Visible=1.*Camera=overview" | Out-Null
@@ -272,12 +287,14 @@ try {
 
     foreach ($required in @(
         "Vulkan validation: enabled",
+        "In-client convergence overlay created",
         "Edit burst started by one keypress",
         "Edit burst command published: revision=2",
         "Edit burst command published: revision=3",
         "Edit burst command published: revision=4",
         "Obsolete CPU generation cancelled: scheduled_regions_before_hold=1 scheduled_regions_total=1",
         "Superseded candidate held after upload: revision=Some(VoxelSceneRevision(3))",
+        "Post-upload lifecycle barrier released; waiting for restored candidate",
         "Superseded candidate rejected at commit: revision=3",
         "Edit burst converged atomically: visible_revision=4 expected_final_revision=4",
         "Render Path-owned raster resources after shutdown: 0"
@@ -304,6 +321,7 @@ try {
         RepositoryRevision = (& git rev-parse HEAD).Trim()
         BuildCommand = "cargo build --locked --package desktop-demo"
         RunArguments = @("--scene-scale", "256", "--camera-pose", "overview", "--edit-burst-demo")
+        Input = [ordered]@{ Key = "Space"; KeyDownMessage = "WM_KEYDOWN"; KeyUpMessage = "WM_KEYUP"; CommandPublicationOwner = "single Space keypress" }
         ProcessExitCode = $process.ExitCode
         Validation = [ordered]@{ Enabled = $true; Warnings = $validationWarnings; Errors = $validationErrors; Log = "desktop-demo.stderr.log" }
         CanonicalInput = [ordered]@{
@@ -338,6 +356,18 @@ finally {
     if ($null -ne $process -and -not $process.HasExited) {
         $process.Kill()
         $process.WaitForExit()
+    }
+    if ($null -ne $standardOutputTask -and -not (Test-Path (Join-Path $evidencePath "desktop-demo.stdout.log"))) {
+        [System.IO.File]::WriteAllText(
+            (Join-Path $evidencePath "desktop-demo.stdout.log"),
+            $standardOutputTask.GetAwaiter().GetResult()
+        )
+    }
+    if ($null -ne $standardErrorTask -and -not (Test-Path (Join-Path $evidencePath "desktop-demo.stderr.log"))) {
+        [System.IO.File]::WriteAllText(
+            (Join-Path $evidencePath "desktop-demo.stderr.log"),
+            $standardErrorTask.GetAwaiter().GetResult()
+        )
     }
     Pop-Location
 }

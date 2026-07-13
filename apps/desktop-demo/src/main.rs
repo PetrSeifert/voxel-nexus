@@ -34,7 +34,7 @@ use voxel_frontend::{
     VoxelSceneId, VoxelSceneRevision, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
 };
 #[cfg(target_os = "windows")]
-use windows_adapter::{WindowsPresentationAdapter, set_measurement_extent};
+use windows_adapter::{WindowsPresentationAdapter, WindowsTextOverlay, set_measurement_extent};
 #[cfg(target_os = "windows")]
 use winit::application::ApplicationHandler;
 #[cfg(target_os = "windows")]
@@ -414,9 +414,8 @@ enum DesktopEvent {
     ReleasePreparation,
     SelectCamera(CanonicalCameraPose),
     StartCameraMove,
-    StartEditBurst,
     ReleaseEditCpuBarrier,
-    ContinueEditBurstAfterPostUploadLifecycle,
+    ReleaseEditPostUploadLifecycleBarrier,
     ReleaseEditPostUploadBarrier,
 }
 
@@ -431,20 +430,46 @@ const BOUNDARY_CAMERA_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging
 #[cfg(target_os = "windows")]
 const START_CAMERA_MOVE_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 31;
 #[cfg(target_os = "windows")]
-const START_EDIT_BURST_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 32;
-#[cfg(target_os = "windows")]
 const RELEASE_EDIT_CPU_BARRIER_MESSAGE: u32 =
     windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 33;
 #[cfg(target_os = "windows")]
 const RELEASE_EDIT_POST_UPLOAD_BARRIER_MESSAGE: u32 =
     windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 34;
 #[cfg(target_os = "windows")]
-const CONTINUE_EDIT_BURST_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 35;
+const RELEASE_EDIT_POST_UPLOAD_LIFECYCLE_BARRIER_MESSAGE: u32 =
+    windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 35;
 
 #[cfg(target_os = "windows")]
 struct EditBurstPlan {
     commands: VecDeque<VoxelEditCommand>,
     expected_final_revision: VoxelSceneRevision,
+    input_owner: Option<EditBurstInputOwner>,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EditBurstInputOwner {
+    SpaceKeypress,
+}
+
+#[cfg(target_os = "windows")]
+impl EditBurstPlan {
+    fn claim_space_keypress(&mut self) -> Result<(), String> {
+        if self.input_owner.is_some() {
+            return Err("the edit burst was already claimed by a Space keypress".to_owned());
+        }
+        self.input_owner = Some(EditBurstInputOwner::SpaceKeypress);
+        Ok(())
+    }
+
+    fn take_next_owned_command(&mut self) -> Result<VoxelEditCommand, String> {
+        if self.input_owner != Some(EditBurstInputOwner::SpaceKeypress) {
+            return Err("the edit burst commands are not owned by a Space keypress".to_owned());
+        }
+        self.commands
+            .pop_front()
+            .ok_or_else(|| "the edit burst has no remaining command".to_owned())
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -462,6 +487,55 @@ enum EditBurstStage {
     WaitingForCandidateRejection(EditBurstPlan),
     WaitingForFinalVisibility(EditBurstPlan),
     Complete,
+}
+
+#[cfg(target_os = "windows")]
+impl EditBurstStage {
+    fn overlay_label(&self) -> &'static str {
+        match self {
+            Self::AwaitingKey(_) => "awaiting-key",
+            Self::WaitingForCpuBarrier(_) => "waiting-cpu-barrier",
+            Self::WaitingForSecondRequirement(_) => "second-requirement",
+            Self::CpuBarrierHeld(_) => "cpu-barrier-held",
+            Self::WaitingForCpuCancellation(_) => "cpu-cancellation",
+            Self::WaitingForPostUploadCandidate(_) => "post-upload-candidate",
+            Self::PostUploadCandidateHeld(_) => "post-upload-candidate-held",
+            Self::WaitingForPostUploadCandidateAfterLifecycle(_) => {
+                "post-upload-candidate-after-lifecycle"
+            }
+            Self::WaitingForFinalRequirement(_) => "final-requirement",
+            Self::PostUploadBarrierHeld(_) => "post-upload-barrier-held",
+            Self::WaitingForCandidateRejection(_) => "candidate-rejection",
+            Self::WaitingForFinalVisibility(_) => "final-visibility",
+            Self::Complete => "complete",
+        }
+    }
+
+    fn waits_for_external_event(&self) -> bool {
+        matches!(
+            self,
+            Self::AwaitingKey(_)
+                | Self::CpuBarrierHeld(_)
+                | Self::PostUploadCandidateHeld(_)
+                | Self::PostUploadBarrierHeld(_)
+                | Self::Complete
+        )
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn format_convergence_overlay(
+    stage: &str,
+    status: RasterConvergenceStatus,
+    camera: &str,
+) -> String {
+    format!(
+        "EditBurst={stage} Required={} Visible={} Affected={} Unaffected={} Camera={camera}",
+        status.required_revision,
+        status.visible_revision,
+        status.affected_region_count,
+        status.unaffected_region_count
+    )
 }
 
 #[cfg(target_os = "windows")]
@@ -524,6 +598,7 @@ fn fixed_edit_burst(view: &voxel_frontend::VoxelSceneView) -> Result<EditBurstPl
     Ok(EditBurstPlan {
         commands,
         expected_final_revision,
+        input_owner: None,
     })
 }
 
@@ -691,6 +766,7 @@ impl MeasurementSession {
 #[cfg(target_os = "windows")]
 struct DesktopApplication {
     backend: Option<RenderBackend>,
+    text_overlay: Option<WindowsTextOverlay>,
     window: Option<Window>,
     application_error: Option<String>,
     drawable_occluded: bool,
@@ -740,6 +816,7 @@ impl DesktopApplication {
             .transpose()?;
         Ok(Self {
             backend: None,
+            text_overlay: None,
             window: None,
             application_error: None,
             drawable_occluded: false,
@@ -775,45 +852,28 @@ impl DesktopApplication {
         }
     }
 
-    fn set_convergence_overlay(&mut self, status: RasterConvergenceStatus) {
-        let stage = match &self.edit_burst_stage {
-            Some(EditBurstStage::AwaitingKey(_)) => "awaiting-key",
-            Some(EditBurstStage::WaitingForCpuBarrier(_)) => "waiting-cpu-barrier",
-            Some(EditBurstStage::WaitingForSecondRequirement(_)) => "second-requirement",
-            Some(EditBurstStage::CpuBarrierHeld(_)) => "cpu-barrier-held",
-            Some(EditBurstStage::WaitingForCpuCancellation(_)) => "cpu-cancellation",
-            Some(EditBurstStage::WaitingForPostUploadCandidate(_)) => "post-upload-candidate",
-            Some(EditBurstStage::PostUploadCandidateHeld(_)) => "post-upload-candidate-held",
-            Some(EditBurstStage::WaitingForPostUploadCandidateAfterLifecycle(_)) => {
-                "post-upload-candidate-after-lifecycle"
-            }
-            Some(EditBurstStage::WaitingForFinalRequirement(_)) => "final-requirement",
-            Some(EditBurstStage::PostUploadBarrierHeld(_)) => "post-upload-barrier-held",
-            Some(EditBurstStage::WaitingForCandidateRejection(_)) => "candidate-rejection",
-            Some(EditBurstStage::WaitingForFinalVisibility(_)) => "final-visibility",
-            Some(EditBurstStage::Complete) => "complete",
-            None => "inactive",
-        };
+    fn set_convergence_overlay(&mut self, status: RasterConvergenceStatus) -> Result<(), String> {
+        let stage = self
+            .edit_burst_stage
+            .as_ref()
+            .map(EditBurstStage::overlay_label)
+            .unwrap_or("inactive");
         let camera = self.last_presented_camera.as_deref().unwrap_or("initial");
-        let report = format!(
-            "EditBurst={stage} Required={} Visible={} Affected={} Unaffected={} Camera={camera}",
-            status.required_revision,
-            status.visible_revision,
-            status.affected_region_count,
-            status.unaffected_region_count
-        );
+        let report = format_convergence_overlay(stage, status, camera);
         if self.last_overlay_report.as_deref() != Some(&report) {
             println!("Edit burst overlay: {report}");
             self.last_overlay_report = Some(report.clone());
         }
+        self.text_overlay
+            .as_ref()
+            .ok_or_else(|| "the in-client convergence overlay is unavailable".to_owned())?
+            .set_text(&report)?;
         self.set_status(&report);
+        Ok(())
     }
 
     fn publish_next_burst_command(&self, plan: &mut EditBurstPlan) -> Result<(), String> {
-        let command = plan
-            .commands
-            .pop_front()
-            .ok_or_else(|| "the edit burst has no remaining command".to_owned())?;
+        let command = plan.take_next_owned_command()?;
         let outcome = self
             .frontend
             .as_ref()
@@ -843,6 +903,10 @@ impl DesktopApplication {
             );
             return;
         };
+        if let Err(error) = plan.claim_space_keypress() {
+            self.fail(event_loop, error);
+            return;
+        }
         if let Err(error) = self.publish_next_burst_command(&mut plan) {
             self.fail(event_loop, error);
             return;
@@ -1091,16 +1155,16 @@ impl DesktopApplication {
         }
     }
 
-    fn continue_edit_burst_after_post_upload_lifecycle(&mut self, event_loop: &ActiveEventLoop) {
+    fn release_edit_post_upload_lifecycle_barrier(&mut self, event_loop: &ActiveEventLoop) {
         let Some(EditBurstStage::PostUploadCandidateHeld(plan)) = self.edit_burst_stage.take()
         else {
             self.fail(
                 event_loop,
-                "the edit burst post-upload candidate is not held for lifecycle proof",
+                "the edit burst post-upload lifecycle barrier is not held",
             );
             return;
         };
-        println!("Post-upload lifecycle actions acknowledged; waiting for restored candidate");
+        println!("Post-upload lifecycle barrier released; waiting for restored candidate");
         self.edit_burst_stage = Some(EditBurstStage::WaitingForPostUploadCandidateAfterLifecycle(
             plan,
         ));
@@ -1330,12 +1394,15 @@ impl DesktopApplication {
                 }
             };
             self.edit_burst_stage = Some(EditBurstStage::AwaitingKey(plan));
-            self.set_convergence_overlay(RasterConvergenceStatus {
+            if let Err(error) = self.set_convergence_overlay(RasterConvergenceStatus {
                 required_revision: installed_revision,
                 visible_revision: installed_revision,
                 affected_region_count: 0,
                 unaffected_region_count: self.raster_region_count,
-            });
+            }) {
+                self.fail(event_loop, error);
+                return;
+            }
             println!("Edit burst ready: press Space");
         }
         if let Some(command) = self.lifecycle_edit.take() {
@@ -1460,6 +1527,18 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 event_loop.exit();
                 return;
             }
+        };
+        let text_overlay = if self.render_configuration.edit_burst_demo {
+            match WindowsTextOverlay::new(&window) {
+                Ok(overlay) => Some(overlay),
+                Err(error) => {
+                    self.application_error = Some(error);
+                    event_loop.exit();
+                    return;
+                }
+            }
+        } else {
+            None
         };
         if matches!(
             self.render_configuration
@@ -1660,6 +1739,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             backend.validation_error_count()
         ));
         self.backend = Some(backend);
+        self.text_overlay = text_overlay;
         self.window = Some(window);
         self.artifact_installer = Some(artifact_installer);
         self.camera_controller = Some(camera_controller);
@@ -2029,7 +2109,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         self.advance_edit_burst(event_loop);
                         if let Some(controller) = &self.lifecycle_controller {
                             match controller.convergence_status() {
-                                Ok(Some(status)) => self.set_convergence_overlay(status),
+                                Ok(Some(status)) => {
+                                    if let Err(error) = self.set_convergence_overlay(status) {
+                                        self.fail(event_loop, error);
+                                        return;
+                                    }
+                                }
                                 Ok(None) => {}
                                 Err(error) => {
                                     self.fail(event_loop, error);
@@ -2038,14 +2123,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             }
                         }
                         if self.render_configuration.edit_burst_demo
-                            && !matches!(
-                                self.edit_burst_stage,
-                                Some(EditBurstStage::AwaitingKey(_))
-                                    | Some(EditBurstStage::CpuBarrierHeld(_))
-                                    | Some(EditBurstStage::PostUploadCandidateHeld(_))
-                                    | Some(EditBurstStage::PostUploadBarrierHeld(_))
-                                    | Some(EditBurstStage::Complete)
-                            )
+                            && self
+                                .edit_burst_stage
+                                .as_ref()
+                                .is_some_and(|stage| !stage.waits_for_external_event())
                             && let Some(window) = &self.window
                         {
                             window.request_redraw();
@@ -2130,10 +2211,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     window.request_redraw();
                 }
             }
-            DesktopEvent::StartEditBurst => self.start_edit_burst(event_loop),
             DesktopEvent::ReleaseEditCpuBarrier => self.release_edit_cpu_barrier(event_loop),
-            DesktopEvent::ContinueEditBurstAfterPostUploadLifecycle => {
-                self.continue_edit_burst_after_post_upload_lifecycle(event_loop);
+            DesktopEvent::ReleaseEditPostUploadLifecycleBarrier => {
+                self.release_edit_post_upload_lifecycle_barrier(event_loop);
             }
             DesktopEvent::ReleaseEditPostUploadBarrier => {
                 self.release_edit_post_upload_barrier(event_loop);
@@ -2170,13 +2250,12 @@ fn desktop_event_for_windows_message(message: u32) -> Option<DesktopEvent> {
             CanonicalCameraPose::BoundaryCutaway,
         )),
         START_CAMERA_MOVE_MESSAGE => Some(DesktopEvent::StartCameraMove),
-        START_EDIT_BURST_MESSAGE => Some(DesktopEvent::StartEditBurst),
         RELEASE_EDIT_CPU_BARRIER_MESSAGE => Some(DesktopEvent::ReleaseEditCpuBarrier),
         RELEASE_EDIT_POST_UPLOAD_BARRIER_MESSAGE => {
             Some(DesktopEvent::ReleaseEditPostUploadBarrier)
         }
-        CONTINUE_EDIT_BURST_MESSAGE => {
-            Some(DesktopEvent::ContinueEditBurstAfterPostUploadLifecycle)
+        RELEASE_EDIT_POST_UPLOAD_LIFECYCLE_BARRIER_MESSAGE => {
+            Some(DesktopEvent::ReleaseEditPostUploadLifecycleBarrier)
         }
         _ => None,
     }
@@ -2409,11 +2488,32 @@ fn main() -> ExitCode {
 
 #[cfg(all(test, target_os = "windows"))]
 mod measurement_tests {
-    use super::{CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst};
+    use super::{
+        CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst,
+        format_convergence_overlay,
+    };
     use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
+    use raster_render_path::RasterConvergenceStatus;
     use render_backend::FrameObservation;
     use std::time::{Duration, Instant};
     use voxel_frontend::{VoxelEditOutcome, VoxelFrontend, VoxelSceneRevision};
+
+    #[test]
+    fn in_client_overlay_text_reports_both_revisions_and_region_counts() {
+        assert_eq!(
+            format_convergence_overlay(
+                "cpu-barrier-held",
+                RasterConvergenceStatus {
+                    required_revision: VoxelSceneRevision::new(3),
+                    visible_revision: VoxelSceneRevision::new(1),
+                    affected_region_count: 2,
+                    unaffected_region_count: 254,
+                },
+                "cavity",
+            ),
+            "EditBurst=cpu-barrier-held Required=3 Visible=1 Affected=2 Unaffected=254 Camera=cavity"
+        );
+    }
 
     #[test]
     fn fixed_edit_burst_has_three_ordered_value_changing_commands_and_checked_final_revision()
@@ -2424,8 +2524,10 @@ mod measurement_tests {
         let mut plan = fixed_edit_burst(&view)?;
         assert_eq!(plan.commands.len(), 3);
         assert_eq!(plan.expected_final_revision, VoxelSceneRevision::new(4));
+        assert!(plan.take_next_owned_command().is_err());
+        plan.claim_space_keypress()?;
         for expected_revision in 2..=4 {
-            let command = plan.commands.pop_front().ok_or("missing fixed command")?;
+            let command = plan.take_next_owned_command()?;
             let outcome = frontend.edit(command)?;
             let VoxelEditOutcome::Changed { view, .. } = outcome else {
                 return Err("fixed command did not change its Voxel Value".into());
