@@ -5327,11 +5327,12 @@ mod convergence_tests {
             convergence.upload_ready_with_test_resources(&retry_render_path, &mut |region| {
                 Ok(fake_resources(region.identity().clone(), 100_000))
             })?;
-            let RasterConvergenceCommit::Committed { .. } =
+            let RasterConvergenceCommit::Committed { retirement } =
                 convergence.commit_at_frame_boundary(&mut retry_render_path)?
             else {
                 return Err("retried canonical candidate did not commit".into());
             };
+            retirement.release_with(drop);
             assert_eq!(
                 retry_render_path.installed_source_revision(),
                 Some(VoxelSceneRevision::new(2))
