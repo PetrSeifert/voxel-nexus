@@ -240,6 +240,92 @@ function Exercise-BarrierLifecycle {
     Save-WindowCapture -Window $Window -Name $CaptureName
 }
 
+function Invoke-InFlightCloseQualification {
+    param(
+        [string]$Name,
+        [string[]]$Arguments,
+        [string]$StatePattern,
+        [string]$RequiredOutput = ""
+    )
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = Join-Path $repositoryRoot "target\debug\desktop-demo.exe"
+    $startInfo.WorkingDirectory = $repositoryRoot
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add($argument)
+    }
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    $started = $false
+    $standardOutputTask = $null
+    $standardErrorTask = $null
+    try {
+        if (-not $process.Start()) { throw "Could not start the $Name shutdown qualification." }
+        $started = $true
+        $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+        $standardErrorTask = $process.StandardError.ReadToEndAsync()
+        $window = Wait-ForWindow -Process $process
+        Wait-ForTitle -Process $process -Window $window -Pattern $StatePattern -TimeoutSeconds 180 | Out-Null
+        Send-Event -Window $window -Message ([EditBurstWindow]::CloseMessage) -Name "$Name normal close"
+        if (-not $process.WaitForExit(10000)) {
+            throw "The $Name shutdown qualification did not close within 10 seconds."
+        }
+        $standardOutput = $standardOutputTask.GetAwaiter().GetResult()
+        $standardError = $standardErrorTask.GetAwaiter().GetResult()
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "$Name.stdout.log"), $standardOutput)
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "$Name.stderr.log"), $standardError)
+        if ($process.ExitCode -ne 0) {
+            throw "The $Name shutdown qualification exited with code $($process.ExitCode)."
+        }
+        foreach ($required in @(
+            "Vulkan validation: enabled",
+            "Render Path-owned raster resources after shutdown: 0"
+        )) {
+            if ($standardOutput -notmatch [Regex]::Escape($required)) {
+                throw "The $Name shutdown qualification is missing '$required'."
+            }
+        }
+        if ($RequiredOutput -and $standardOutput -notmatch [Regex]::Escape($RequiredOutput)) {
+            throw "The $Name shutdown qualification is missing '$RequiredOutput'."
+        }
+        $validationWarnings = ([Regex]::Matches($standardError, "(?m)^Vulkan validation WARNING")).Count
+        $validationErrors = ([Regex]::Matches($standardError, "(?m)^Vulkan validation ERROR")).Count
+        if ($validationWarnings -ne 0 -or $validationErrors -ne 0) {
+            throw "The $Name shutdown qualification reported $validationWarnings warning(s) and $validationErrors error(s)."
+        }
+        [ordered]@{
+            Passed = $true
+            StatePattern = $StatePattern
+            ProcessExitCode = $process.ExitCode
+            OwnedResourcesAfterShutdown = 0
+            ValidationWarnings = $validationWarnings
+            ValidationErrors = $validationErrors
+            StandardOutput = "$Name.stdout.log"
+            StandardError = "$Name.stderr.log"
+        }
+    }
+    finally {
+        if ($started -and -not $process.HasExited) {
+            $process.Kill()
+            $process.WaitForExit()
+        }
+        if ($null -ne $standardOutputTask -and -not (Test-Path (Join-Path $evidencePath "$Name.stdout.log"))) {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $evidencePath "$Name.stdout.log"),
+                $standardOutputTask.GetAwaiter().GetResult()
+            )
+        }
+        if ($null -ne $standardErrorTask -and -not (Test-Path (Join-Path $evidencePath "$Name.stderr.log"))) {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $evidencePath "$Name.stderr.log"),
+                $standardErrorTask.GetAwaiter().GetResult()
+            )
+        }
+    }
+}
+
 Push-Location $repositoryRoot
 $process = $null
 $standardOutputTask = $null
@@ -359,11 +445,36 @@ try {
         throw "Validation reported $validationWarnings warning(s) and $validationErrors error(s)."
     }
 
+    $shutdownQualification = $null
+    if (-not $TimingOnly) {
+        $commonArguments = @(
+            "--scene-scale", "256", "--camera-pose", "overview",
+            "--raster-region-extent", "$RasterRegionExtent"
+        )
+        $activeCpuClose = Invoke-InFlightCloseQualification `
+            -Name "active-cpu-close" `
+            -Arguments ($commonArguments + @("--hold-background-preparation")) `
+            -StatePattern "preparation-paused revision 1"
+        $hiddenCandidateClose = Invoke-InFlightCloseQualification `
+            -Name "hidden-candidate-close" `
+            -Arguments ($commonArguments + @("--hold-post-upload-candidate")) `
+            -StatePattern "post-upload-held revision 2" `
+            -RequiredOutput "Closing with post-upload hidden raster candidate: revision=2"
+        $shutdownQualification = [ordered]@{
+            ActiveCpuWork = $activeCpuClose
+            HiddenPostUploadCandidate = $hiddenCandidateClose
+        }
+    }
+
+    $repositoryRevision = & git rev-parse HEAD
+    if ($LASTEXITCODE -ne 0) {
+        throw "git rev-parse HEAD failed with exit code $LASTEXITCODE."
+    }
     $manifest = [ordered]@{
         SchemaVersion = 1
         Scope = "Descriptive uninterrupted edit-burst evidence for this recorded Windows development machine only."
         RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
-        RepositoryRevision = (& git rev-parse HEAD).Trim()
+        RepositoryRevision = ($repositoryRevision -join "`n").Trim()
         BuildCommand = "cargo build --locked --package desktop-demo"
         RunArguments = @("--scene-scale", "256", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")
         TimingOnly = [bool]$TimingOnly
@@ -392,8 +503,9 @@ try {
         PostUploadBarrier = [ordered]@{ SupersededRevision = 3; RejectedAtCommit = $true; RetiredGpuResourceCount = [int]$retirement.Groups["Count"].Value }
         Measurement = [ordered]@{ KeypressToFinalVisibleMilliseconds = $latencyMilliseconds; PeakLiveGpuBytes = $peakLiveGpuBytes; PeakLiveGpuResources = $peakLiveGpuResources }
         Qualification = [ordered]@{ SemanticCorrectness = $true; Localization = $true; FailureRetry = $true; Lifecycle = (-not $TimingOnly); Shutdown = $true; ResourceRetirement = $true; Validation = $true }
+        ShutdownQualification = $shutdownQualification
         Visibility = [ordered]@{ InitialTitle = $initialTitle; CpuHeldTitle = $cpuHeldTitle; PostUploadHeldTitle = $postUploadHeldTitle; FinalTitle = $finalTitle; IntermediateRevisionVisible = $false }
-        Lifecycle = @("camera during CPU hold", "landscape and portrait resize during CPU hold", "minimize and restore during CPU hold", "camera during post-upload hold", "landscape and portrait resize during post-upload hold", "minimize and restore during post-upload hold", "camera during final post-upload commit hold", "normal close")
+        Lifecycle = if ($TimingOnly) { @() } else { @("camera during CPU hold", "landscape and portrait resize during CPU hold", "minimize and restore during CPU hold", "camera during post-upload hold", "landscape and portrait resize during post-upload hold", "minimize and restore during post-upload hold", "camera during final post-upload commit hold", "normal close") }
         Captures = $captures
         RuntimeLog = "desktop-demo.stdout.log"
     }

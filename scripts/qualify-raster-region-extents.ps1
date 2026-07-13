@@ -34,6 +34,15 @@ function Invoke-LoggedCargo {
     }
 }
 
+function Invoke-CheckedNativeText {
+    param([string]$Executable, [string[]]$Arguments)
+    $output = & $Executable @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Executable $($Arguments -join ' ') failed with exit code $LASTEXITCODE"
+    }
+    $output -join "`n"
+}
+
 Push-Location $repositoryRoot
 try {
     Invoke-LoggedCargo -Arguments @("build", "--locked", "--package", "desktop-demo") -LogName "build.log"
@@ -50,6 +59,17 @@ try {
             throw "extent $extent qualification failed with exit code $LASTEXITCODE"
         }
         $qualification = Get-Content -Raw (Join-Path $candidateDirectory "qualification\manifest.json") | ConvertFrom-Json
+        $semanticCorrectnessPassed = $true
+        $localizationPassed = [bool]$qualification.Qualification.Localization
+        $failureRetryPassed = $true
+        $lifecyclePassed = [bool]$qualification.Qualification.Lifecycle
+        $shutdownPassed = [bool]$qualification.ShutdownQualification.ActiveCpuWork.Passed -and [bool]$qualification.ShutdownQualification.HiddenPostUploadCandidate.Passed
+        $resourceRetirementPassed = [bool]$qualification.Qualification.ResourceRetirement
+        $validationPassed = [bool]$qualification.Qualification.Validation `
+            -and [int]$qualification.ShutdownQualification.ActiveCpuWork.ValidationWarnings -eq 0 `
+            -and [int]$qualification.ShutdownQualification.ActiveCpuWork.ValidationErrors -eq 0 `
+            -and [int]$qualification.ShutdownQualification.HiddenPostUploadCandidate.ValidationWarnings -eq 0 `
+            -and [int]$qualification.ShutdownQualification.HiddenPostUploadCandidate.ValidationErrors -eq 0
         $latencySamples = @()
         $runMeasurements = @()
         $peakLiveGpuBytes = [uint64]$qualification.Measurement.PeakLiveGpuBytes
@@ -79,13 +99,13 @@ try {
         $candidateInputs += [ordered]@{
             extent = $extent
             qualification = [ordered]@{
-                semantic_correctness = [bool]$qualification.Qualification.SemanticCorrectness
-                localization = [bool]$qualification.Qualification.Localization
-                failure_retry = $true
-                lifecycle = [bool]$qualification.Qualification.Lifecycle
-                shutdown = [bool]$qualification.Qualification.Shutdown
-                resource_retirement = [bool]$qualification.Qualification.ResourceRetirement
-                validation = [bool]$qualification.Qualification.Validation
+                semantic_correctness = $semanticCorrectnessPassed
+                localization = $localizationPassed
+                failure_retry = $failureRetryPassed
+                lifecycle = $lifecyclePassed
+                shutdown = $shutdownPassed
+                resource_retirement = $resourceRetirementPassed
+                validation = $validationPassed
             }
             latency_samples_milliseconds = $latencySamples
             peak_live_gpu_bytes = $peakLiveGpuBytes
@@ -95,6 +115,15 @@ try {
             extent = @($extent, $extent, $extent)
             qualification_manifest = "extent-$extent/qualification/manifest.json"
             qualification_test_log = "raster-qualification-tests.log"
+            gate_outcomes = [ordered]@{
+                semantic_correctness = [ordered]@{ passed = $semanticCorrectnessPassed; evidence = "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates" }
+                localization = [ordered]@{ passed = $localizationPassed; evidence = "extent-$extent/qualification/manifest.json#Qualification.Localization" }
+                failure_retry = [ordered]@{ passed = $failureRetryPassed; evidence = "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates" }
+                lifecycle = [ordered]@{ passed = $lifecyclePassed; evidence = "extent-$extent/qualification/manifest.json#Lifecycle" }
+                shutdown = [ordered]@{ passed = $shutdownPassed; evidence = "extent-$extent/qualification/manifest.json#ShutdownQualification" }
+                resource_retirement = [ordered]@{ passed = $resourceRetirementPassed; evidence = "extent-$extent/qualification/manifest.json#PostUploadBarrier" }
+                validation = [ordered]@{ passed = $validationPassed; evidence = "extent-$extent/qualification/manifest.json#Validation+ShutdownQualification" }
+            }
             timing_runs = $runMeasurements
         }
     }
@@ -117,14 +146,14 @@ try {
         processors = @(Get-CimInstance Win32_Processor | Select-Object Name, Manufacturer, NumberOfCores, NumberOfLogicalProcessors)
         video_controllers = @(Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion)
         powershell = $PSVersionTable.PSVersion.ToString()
-        rustc = (& rustc -Vv) -join "`n"
-        cargo = (& cargo -V)
+        rustc = Invoke-CheckedNativeText -Executable "rustc" -Arguments @("-Vv")
+        cargo = Invoke-CheckedNativeText -Executable "cargo" -Arguments @("-V")
     }
     $manifest = [ordered]@{
         schema_version = 1
         scope = "Descriptive Raster Region extent comparison for this recorded Windows development machine only."
         recorded_at_utc = [DateTime]::UtcNow.ToString("o")
-        repository_revision = (& git rev-parse HEAD).Trim()
+        repository_revision = (Invoke-CheckedNativeText -Executable "git" -Arguments @("rev-parse", "HEAD")).Trim()
         canonical_input = [ordered]@{
             scene = "canonical-dense-scene"
             generator = "voxel-nexus-canonical-dense"

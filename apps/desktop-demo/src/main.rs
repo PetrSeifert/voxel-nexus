@@ -2185,7 +2185,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             }
                         }
                         self.advance_edit_burst(event_loop);
-                        if let Some(controller) = &self.lifecycle_controller {
+                        if self.render_configuration.edit_burst_demo
+                            && let Some(controller) = &self.lifecycle_controller
+                        {
                             match controller.convergence_status() {
                                 Ok(Some(status)) => {
                                     if let Err(error) = self.set_convergence_overlay(status) {

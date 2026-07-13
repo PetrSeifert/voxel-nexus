@@ -4925,6 +4925,8 @@ fn raster_vertex_bytes(values: &[RasterVertex]) -> &[u8] {
 mod convergence_tests {
     use super::*;
     use ash::vk::Handle;
+    use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
+    use std::time::{Duration, Instant};
     use voxel_frontend::{
         DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelEditCommand, VoxelFrontend,
         VoxelMaterial,
@@ -4980,6 +4982,23 @@ mod convergence_tests {
         ))
     }
 
+    fn canonical_frontend() -> Result<VoxelFrontend, Box<dyn std::error::Error>> {
+        let frontend = VoxelFrontend::new();
+        frontend.publish(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
+        Ok(frontend)
+    }
+
+    fn canonical_changed(
+        frontend: &VoxelFrontend,
+        coordinate_x: i32,
+    ) -> Result<VoxelEditOutcome, VoxelFrontendError> {
+        frontend.edit(VoxelEditCommand::new(
+            VoxelVolumeId::new("canonical-volume"),
+            VoxelCoordinate::new(coordinate_x, 0, 0),
+            VoxelValue::Occupied(VoxelMaterialId::new("canonical-warm")),
+        ))
+    }
+
     fn wait_until_ready(
         convergence: &mut RasterConvergence,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -5007,6 +5026,22 @@ mod convergence_tests {
             thread::yield_now();
         }
         Err("preparation did not become ready".into())
+    }
+
+    fn wait_until_canonical_candidate_is_ready(
+        convergence: &mut RasterConvergence,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let deadline = Instant::now() + Duration::from_secs(120);
+        loop {
+            convergence.poll_preparation()?;
+            if convergence.active_is_ready() {
+                return Ok(());
+            }
+            if Instant::now() >= deadline {
+                return Err("canonical candidate preparation did not become ready".into());
+            }
+            thread::yield_now();
+        }
     }
 
     #[test]
@@ -5211,6 +5246,97 @@ mod convergence_tests {
                 resources: 2,
             }
         );
+        Ok(())
+    }
+
+    #[test]
+    fn fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for extent in [16, 32, 64] {
+            let region_extent = VoxelExtent::new(extent, extent, extent);
+            let frontend = canonical_frontend()?;
+            let initial_view = frontend.scene_view()?;
+            let mut render_path = RasterRenderPath::new();
+            render_path.install_artifact(derive_raster_regions(&initial_view, region_extent)?);
+            for coordinate_x in [0, 40, 80] {
+                let outcome = canonical_changed(&frontend, coordinate_x)?;
+                let VoxelEditOutcome::Changed { view, change_set } = &outcome else {
+                    return Err(
+                        "canonical qualification command did not change a Voxel Value".into(),
+                    );
+                };
+                render_path.apply_adjacent_change(view, change_set)?;
+            }
+            let final_view = frontend.scene_view()?;
+            let localized_faces = render_path
+                .installed_artifact()
+                .ok_or("localized candidate has no installed artifact")?
+                .semantic_faces()
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>();
+            let complete_region_faces = derive_raster_regions(&final_view, region_extent)?
+                .semantic_faces()
+                .iter()
+                .cloned()
+                .collect::<HashSet<_>>();
+            let semantic_reference =
+                derive_raster_artifact(&final_view, &VoxelVolumeId::new("canonical-volume"))?
+                    .semantic_faces()
+                    .iter()
+                    .cloned()
+                    .collect::<HashSet<_>>();
+            assert_eq!(localized_faces, complete_region_faces);
+            assert_eq!(localized_faces, semantic_reference);
+
+            let retry_frontend = canonical_frontend()?;
+            let mut retry_render_path = RasterRenderPath::new();
+            retry_render_path.install_artifact(derive_raster_regions(
+                &retry_frontend.scene_view()?,
+                region_extent,
+            )?);
+            retry_render_path.region_resources = retry_render_path
+                .installed_regions()
+                .iter()
+                .enumerate()
+                .map(|(index, installation)| {
+                    Ok(fake_resources(
+                        installation.identity().clone(),
+                        u64::try_from(index)? + 10,
+                    ))
+                })
+                .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+            let visible_installations = retry_render_path.installed_regions().to_vec();
+            let mut convergence = RasterConvergence::from_visible(&retry_render_path)?;
+            convergence.accept(canonical_changed(&retry_frontend, 0)?)?;
+            wait_until_canonical_candidate_is_ready(&mut convergence)?;
+            assert!(matches!(
+                convergence.upload_ready_with_test_resources(&retry_render_path, &mut |_| Err(
+                    RasterConvergenceError::ResourceBookkeepingAllocation
+                ),)?,
+                RasterConvergenceUpload::NoReadyPreparation
+            ));
+            assert_eq!(retry_render_path.installed_regions(), visible_installations);
+            assert_eq!(
+                convergence.request_retry()?,
+                RasterConvergenceRetry::Requested {
+                    revision: VoxelSceneRevision::new(2),
+                }
+            );
+            wait_until_canonical_candidate_is_ready(&mut convergence)?;
+            convergence.upload_ready_with_test_resources(&retry_render_path, &mut |region| {
+                Ok(fake_resources(region.identity().clone(), 100_000))
+            })?;
+            let RasterConvergenceCommit::Committed { .. } =
+                convergence.commit_at_frame_boundary(&mut retry_render_path)?
+            else {
+                return Err("retried canonical candidate did not commit".into());
+            };
+            assert_eq!(
+                retry_render_path.installed_source_revision(),
+                Some(VoxelSceneRevision::new(2))
+            );
+        }
         Ok(())
     }
 

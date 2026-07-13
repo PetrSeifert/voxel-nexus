@@ -14,3 +14,6 @@ voxel-frontend = { path = "../voxel-frontend" }
 
 [build-dependencies]
 shaderc = "0.10.1"
+
+[dev-dependencies]
+canonical-scene = { path = "../canonical-scene" }

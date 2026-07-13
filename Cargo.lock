@@ -1124,6 +1124,7 @@ name = "raster-render-path"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "canonical-scene",
  "render-backend",
  "shaderc",
  "thiserror 2.0.18",
