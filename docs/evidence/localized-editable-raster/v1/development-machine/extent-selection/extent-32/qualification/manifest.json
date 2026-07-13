@@ -1,0 +1,177 @@
+{
+  "SchemaVersion": 1,
+  "Scope": "Descriptive uninterrupted edit-burst evidence for this recorded Windows development machine only.",
+  "RecordedAtUtc": "2026-07-13T17:30:11.7287012Z",
+  "RepositoryRevision": "8aaf8ae95bce56b8e28425adef79c927482b8871",
+  "BuildCommand": "cargo build --locked --package desktop-demo",
+  "RunArguments": [
+    "--scene-scale",
+    "256",
+    "--camera-pose",
+    "overview",
+    "--raster-region-extent",
+    "32",
+    "--edit-burst-demo"
+  ],
+  "TimingOnly": false,
+  "Input": {
+    "Key": "Space",
+    "KeyDownMessage": "WM_KEYDOWN",
+    "KeyUpMessage": "WM_KEYUP",
+    "CommandPublicationOwner": "single Space keypress"
+  },
+  "ProcessExitCode": 0,
+  "Validation": {
+    "Enabled": true,
+    "Warnings": 0,
+    "Errors": 0,
+    "Log": "desktop-demo.stderr.log"
+  },
+  "CanonicalInput": {
+    "Scene": "canonical-dense-scene",
+    "Generator": "voxel-nexus-canonical-dense",
+    "GeneratorVersion": 1,
+    "Scale": 256,
+    "Dimensions": [
+      256,
+      128,
+      256
+    ],
+    "InitialRevision": 1,
+    "RasterRegionExtent": [
+      32,
+      32,
+      32
+    ],
+    "Camera": "overview",
+    "InstalledRevision": 1,
+    "InstalledComplete": true,
+    "ExpectedFinalRevision": 4
+  },
+  "Commands": [
+    {
+      "Order": 1,
+      "Coordinate": [
+        0,
+        0,
+        0
+      ],
+      "Old": "empty",
+      "Requested": "occupied:canonical-warm",
+      "PublishedRevision": 2
+    },
+    {
+      "Order": 2,
+      "Coordinate": [
+        40,
+        0,
+        0
+      ],
+      "Old": "empty",
+      "Requested": "occupied:canonical-warm",
+      "PublishedRevision": 3
+    },
+    {
+      "Order": 3,
+      "Coordinate": [
+        80,
+        0,
+        0
+      ],
+      "Old": "empty",
+      "Requested": "occupied:canonical-warm",
+      "PublishedRevision": 4
+    }
+  ],
+  "CpuBarrier": {
+    "ObsoleteRevision": 2,
+    "ScheduledBeforeHold": 1,
+    "ScheduledTotal": 1,
+    "Cancelled": true
+  },
+  "PostUploadBarrier": {
+    "SupersededRevision": 3,
+    "RejectedAtCommit": true,
+    "RetiredGpuResourceCount": 2
+  },
+  "Measurement": {
+    "KeypressToFinalVisibleMilliseconds": 2323.7396,
+    "PeakLiveGpuBytes": 41313520,
+    "PeakLiveGpuResources": 302
+  },
+  "Qualification": {
+    "SemanticCorrectness": true,
+    "Localization": true,
+    "FailureRetry": true,
+    "Lifecycle": true,
+    "Shutdown": true,
+    "ResourceRetirement": true,
+    "Validation": true
+  },
+  "ShutdownQualification": {
+    "ActiveCpuWork": {
+      "Passed": true,
+      "StatePattern": "preparation-paused revision 1",
+      "ProcessExitCode": 0,
+      "OwnedResourcesAfterShutdown": 0,
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "StandardOutput": "active-cpu-close.stdout.log",
+      "StandardError": "active-cpu-close.stderr.log"
+    },
+    "HiddenPostUploadCandidate": {
+      "Passed": true,
+      "StatePattern": "post-upload-held revision 2",
+      "ProcessExitCode": 0,
+      "OwnedResourcesAfterShutdown": 0,
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "StandardOutput": "hidden-candidate-close.stdout.log",
+      "StandardError": "hidden-candidate-close.stderr.log"
+    }
+  },
+  "Visibility": {
+    "InitialTitle": "Voxel Nexus Vulkan Demo | EditBurst=awaiting-key Required=1 Visible=1 Affected=0 Unaffected=256 Camera=initial",
+    "CpuHeldTitle": "Voxel Nexus Vulkan Demo | EditBurst=cpu-barrier-held Required=3 Visible=1 Affected=2 Unaffected=254 Camera=initial",
+    "PostUploadHeldTitle": "Voxel Nexus Vulkan Demo | EditBurst=post-upload-barrier-held Required=4 Visible=1 Affected=3 Unaffected=253 Camera=boundary",
+    "FinalTitle": "Voxel Nexus Vulkan Demo | EditBurst=complete Required=4 Visible=4 Affected=3 Unaffected=253 Camera=overview",
+    "IntermediateRevisionVisible": false
+  },
+  "Lifecycle": [
+    "camera during CPU hold",
+    "landscape and portrait resize during CPU hold",
+    "minimize and restore during CPU hold",
+    "camera during post-upload hold",
+    "landscape and portrait resize during post-upload hold",
+    "minimize and restore during post-upload hold",
+    "camera during final post-upload commit hold",
+    "normal close"
+  ],
+  "Captures": [
+    {
+      "File": "before-burst.png",
+      "Bytes": 21606,
+      "Sha256": "f3ee42fcc57f8f843e0bc26fa8bf70cc90713f03cb884a4446a8d5d772ad08a1",
+      "WindowTitle": "Voxel Nexus Vulkan Demo | EditBurst=awaiting-key Required=1 Visible=1 Affected=0 Unaffected=256 Camera=initial"
+    },
+    {
+      "File": "cpu-barrier-held.png",
+      "Bytes": 24440,
+      "Sha256": "787c49f56eba5f5548bb16f2faa19474ac3ddea78dfb591ce0d964e5e29caf93",
+      "WindowTitle": "Voxel Nexus Vulkan Demo | EditBurst=cpu-barrier-held Required=3 Visible=1 Affected=2 Unaffected=254 Camera=cavity"
+    },
+    {
+      "File": "post-upload-barrier-held.png",
+      "Bytes": 20835,
+      "Sha256": "c67dca9e319c222cbf53935ba6e6882f7fbe3d33a30e6cf0eb88f3f6cdaeb9a4",
+      "WindowTitle": "Voxel Nexus Vulkan Demo | EditBurst=post-upload-candidate-held Required=3 Visible=1 Affected=2 Unaffected=254 Camera=boundary"
+    },
+    {
+      "File": "final-visible.png",
+      "Bytes": 22281,
+      "Sha256": "0f51c997d622d9942ae4ec5ca7f6e1f01e54e7365b9bfe2302a9476c85e94bd7",
+      "WindowTitle": "Voxel Nexus Vulkan Demo | EditBurst=complete Required=4 Visible=4 Affected=3 Unaffected=253 Camera=overview"
+    }
+  ],
+  "RuntimeLog": "desktop-demo.stdout.log"
+}

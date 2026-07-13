@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "candidates": [
+    {
+      "extent": 16,
+      "qualification": {
+        "semantic_correctness": true,
+        "localization": true,
+        "failure_retry": true,
+        "lifecycle": true,
+        "shutdown": true,
+        "resource_retirement": true,
+        "validation": true
+      },
+      "latency_samples_milliseconds": [
+        738.1322,
+        732.1741,
+        734.3968,
+        708.5266,
+        717.6007
+      ],
+      "peak_live_gpu_bytes": 40088816,
+      "peak_live_gpu_resources": 1414
+    },
+    {
+      "extent": 32,
+      "qualification": {
+        "semantic_correctness": true,
+        "localization": true,
+        "failure_retry": true,
+        "lifecycle": true,
+        "shutdown": true,
+        "resource_retirement": true,
+        "validation": true
+      },
+      "latency_samples_milliseconds": [
+        874.8499,
+        846.6809,
+        838.262,
+        871.1,
+        941.3916
+      ],
+      "peak_live_gpu_bytes": 41313520,
+      "peak_live_gpu_resources": 302
+    },
+    {
+      "extent": 64,
+      "qualification": {
+        "semantic_correctness": true,
+        "localization": true,
+        "failure_retry": true,
+        "lifecycle": true,
+        "shutdown": true,
+        "resource_retirement": true,
+        "validation": true
+      },
+      "latency_samples_milliseconds": [
+        2743.8733,
+        2430.2603,
+        2401.8107,
+        2549.8682,
+        2638.4591
+      ],
+      "peak_live_gpu_bytes": 43762928,
+      "peak_live_gpu_resources": 64
+    }
+  ]
+}

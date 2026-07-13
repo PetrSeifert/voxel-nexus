@@ -1,0 +1,47 @@
+In-client convergence overlay created
+Canonical scene: generator=voxel-nexus-canonical-dense version=1 seed=6219286665078134867 dimensions=256x128x256 origin=-8,-4,-8 voxel_size=0.0625 materials=canonical-warm,canonical-green,canonical-blue material_colors=0.95,0.22,0.1,1;0.12,0.75,0.28,1;0.1,0.32,0.95,1 occupied=3366912 exposed_faces=217856 exposed_face_limit=224000
+Canonical camera: camera=overview eye=20,14,22 target=0,0,0 up=0,1,0 fov_degrees=50 near=0.1 far=100
+Vulkan drawable extent: 800x600
+Vulkan device: NVIDIA GeForce RTX 4070
+Driver version: 2497200128 (0x94d84000)
+Vulkan API version: 1.4.329
+Vulkan validation: enabled
+Vulkan present mode: FIFO
+GPU timestamp valid bits: 64
+GPU timestamp period nanoseconds: 1
+Raster artifact installed: revision=1 count=1
+Edit burst command: order=1 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 0, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst command: order=2 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 40, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst command: order=3 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 80, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst inputs: scene=VoxelSceneId("canonical-dense-scene") generator=voxel-nexus-canonical-dense generator_version=1 initial_revision=1 raster_region_extent=16x16x16 camera=overview installed_revision=1 installed_complete=true expected_final_revision=4
+Edit burst overlay: EditBurst=awaiting-key Required=1 Visible=1 Affected=0 Unaffected=2048 Camera=initial
+Edit burst ready: press Space
+First matching raster frame presented: revision=1
+Edit burst command published: revision=2
+Edit burst started by one keypress
+Edit burst overlay: EditBurst=waiting-cpu-barrier Required=2 Visible=1 Affected=1 Unaffected=2047 Camera=initial
+Edit burst CPU barrier reached: scheduled_regions=1
+Edit burst command published: revision=3
+Edit burst overlay: EditBurst=second-requirement Required=2 Visible=1 Affected=1 Unaffected=2047 Camera=initial
+Edit burst CPU barrier held with newer requirement installed
+Edit burst overlay: EditBurst=cpu-barrier-held Required=3 Visible=1 Affected=2 Unaffected=2046 Camera=initial
+Edit burst CPU barrier released after newer requirement
+Obsolete CPU generation cancelled: scheduled_regions_before_hold=1 scheduled_regions_total=1
+Edit burst overlay: EditBurst=post-upload-candidate Required=3 Visible=1 Affected=2 Unaffected=2046 Camera=initial
+Post-upload raster candidate held: revision=3
+Superseded candidate held after upload: revision=Some(VoxelSceneRevision(3))
+Edit burst overlay: EditBurst=post-upload-candidate-held Required=3 Visible=1 Affected=2 Unaffected=2046 Camera=initial
+Post-upload lifecycle barrier released; waiting for restored candidate
+Post-upload candidate restored after lifecycle: revision=Some(VoxelSceneRevision(3))
+Edit burst command published: revision=4
+Edit burst overlay: EditBurst=final-requirement Required=3 Visible=1 Affected=2 Unaffected=2046 Camera=initial
+Post-upload barrier held with newest requirement installed
+Edit burst overlay: EditBurst=post-upload-barrier-held Required=4 Visible=1 Affected=4 Unaffected=2044 Camera=initial
+Post-upload barrier released for newest requirement
+Superseded candidate rejected at commit: revision=3 retired_resources=2
+Edit burst overlay: EditBurst=final-visibility Required=4 Visible=1 Affected=4 Unaffected=2044 Camera=initial
+Edit burst converged atomically: visible_revision=4 expected_final_revision=4
+Edit burst final-visible measurement: elapsed_ms=728.824400 peak_live_gpu_bytes=40088816 peak_live_gpu_resources=1414
+Raster Convergence characterization: submission_bookkeeping_ms=0.235500 queued_wait_ms=2.113900 cpu_derivation_ms=25.972100 upload_ms=188.627500 frame_boundary_commit_ms=42.571200 scheduled_regions=7 completed_regions=4 cancelled_regions=1 stale_regions=2 installed_bytes=40088816 installed_resources=1414 hidden_bytes=3312 hidden_resources=6 retired_bytes=2208 retired_resources=4 peak_bytes=40088816 peak_resources=1414 cancellation_events=2:1:1:1 safe_retirement_events=3:stale-candidate:2208:4|4:replaced-installation:0:0
+Edit burst overlay: EditBurst=complete Required=4 Visible=4 Affected=4 Unaffected=2044 Camera=initial
+Render Path-owned raster resources after shutdown: 0

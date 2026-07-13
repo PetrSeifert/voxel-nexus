@@ -1,0 +1,1602 @@
+{
+  "schema_version": 1,
+  "scope": "Raw descriptive Raster Region scale distributions for this recorded Windows development machine only; not a production budget, performance gate, or cross-machine claim.",
+  "selected_extent": [
+    16,
+    16,
+    16
+  ],
+  "sample_count_per_scale": 5,
+  "scales": [
+    {
+      "scale": 64,
+      "dimensions": [
+        64,
+        32,
+        64
+      ],
+      "samples": [
+        {
+          "sample": 1,
+          "manifest": "scale-64/sample-01/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.182,
+            "queued_wait": 7.2816,
+            "cpu_derivation": 39.3785,
+            "upload": 8.8079,
+            "frame_boundary_commit": 1.7078,
+            "keypress_to_final_visible": 136.5352
+          },
+          "work_disposition": {
+            "scheduled_regions": 6,
+            "completed_regions": 3,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 2508656,
+              "Resources": 60
+            },
+            "hidden": {
+              "Bytes": 349968,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 578496,
+              "Resources": 10
+            },
+            "peak": {
+              "Bytes": 2855312,
+              "Resources": 66
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 231840,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 346656,
+              "Resources": 6
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "manifest": "scale-64/sample-02/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.1884,
+            "queued_wait": 8.4605,
+            "cpu_derivation": 40.333,
+            "upload": 7.8691,
+            "frame_boundary_commit": 1.6851,
+            "keypress_to_final_visible": 95.7571
+          },
+          "work_disposition": {
+            "scheduled_regions": 6,
+            "completed_regions": 3,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 2508656,
+              "Resources": 60
+            },
+            "hidden": {
+              "Bytes": 349968,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 578496,
+              "Resources": 10
+            },
+            "peak": {
+              "Bytes": 2855312,
+              "Resources": 66
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 231840,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 346656,
+              "Resources": 6
+            }
+          ]
+        },
+        {
+          "sample": 3,
+          "manifest": "scale-64/sample-03/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2259,
+            "queued_wait": 6.875,
+            "cpu_derivation": 43.9138,
+            "upload": 10.1942,
+            "frame_boundary_commit": 1.722,
+            "keypress_to_final_visible": 121.737
+          },
+          "work_disposition": {
+            "scheduled_regions": 6,
+            "completed_regions": 3,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 2508656,
+              "Resources": 60
+            },
+            "hidden": {
+              "Bytes": 349968,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 578496,
+              "Resources": 10
+            },
+            "peak": {
+              "Bytes": 2855312,
+              "Resources": 66
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 231840,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 346656,
+              "Resources": 6
+            }
+          ]
+        },
+        {
+          "sample": 4,
+          "manifest": "scale-64/sample-04/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.177,
+            "queued_wait": 18.2818,
+            "cpu_derivation": 38.9164,
+            "upload": 10.1462,
+            "frame_boundary_commit": 1.8457,
+            "keypress_to_final_visible": 132.1565
+          },
+          "work_disposition": {
+            "scheduled_regions": 6,
+            "completed_regions": 3,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 2508656,
+              "Resources": 60
+            },
+            "hidden": {
+              "Bytes": 349968,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 578496,
+              "Resources": 10
+            },
+            "peak": {
+              "Bytes": 2855312,
+              "Resources": 66
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 231840,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 346656,
+              "Resources": 6
+            }
+          ]
+        },
+        {
+          "sample": 5,
+          "manifest": "scale-64/sample-05/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.1784,
+            "queued_wait": 7.2727,
+            "cpu_derivation": 39.1565,
+            "upload": 9.3797,
+            "frame_boundary_commit": 1.9986,
+            "keypress_to_final_visible": 98.1669
+          },
+          "work_disposition": {
+            "scheduled_regions": 6,
+            "completed_regions": 3,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 2508656,
+              "Resources": 60
+            },
+            "hidden": {
+              "Bytes": 349968,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 578496,
+              "Resources": 10
+            },
+            "peak": {
+              "Bytes": 2855312,
+              "Resources": 66
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 231840,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 346656,
+              "Resources": 6
+            }
+          ]
+        }
+      ],
+      "raw_distributions": {
+        "phases_milliseconds": {
+          "submission_bookkeeping": [
+            0.182,
+            0.1884,
+            0.2259,
+            0.177,
+            0.1784
+          ],
+          "queued_wait": [
+            7.2816,
+            8.4605,
+            6.875,
+            18.2818,
+            7.2727
+          ],
+          "cpu_derivation": [
+            39.3785,
+            40.333,
+            43.9138,
+            38.9164,
+            39.1565
+          ],
+          "upload": [
+            8.8079,
+            7.8691,
+            10.1942,
+            10.1462,
+            9.3797
+          ],
+          "frame_boundary_commit": [
+            1.7078,
+            1.6851,
+            1.722,
+            1.8457,
+            1.9986
+          ],
+          "keypress_to_final_visible": [
+            136.5352,
+            95.7571,
+            121.737,
+            132.1565,
+            98.1669
+          ]
+        },
+        "work_disposition": {
+          "scheduled_regions": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "completed_regions": [
+            3,
+            3,
+            3,
+            3,
+            3
+          ],
+          "cancelled_regions": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "stale_regions": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "resource_bytes": {
+          "installed": [
+            2508656,
+            2508656,
+            2508656,
+            2508656,
+            2508656
+          ],
+          "hidden": [
+            349968,
+            349968,
+            349968,
+            349968,
+            349968
+          ],
+          "retired": [
+            578496,
+            578496,
+            578496,
+            578496,
+            578496
+          ],
+          "peak": [
+            2855312,
+            2855312,
+            2855312,
+            2855312,
+            2855312
+          ]
+        },
+        "resource_counts": {
+          "installed": [
+            60,
+            60,
+            60,
+            60,
+            60
+          ],
+          "hidden": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "retired": [
+            10,
+            10,
+            10,
+            10,
+            10
+          ],
+          "peak": [
+            66,
+            66,
+            66,
+            66,
+            66
+          ]
+        },
+        "cancellation_observations": [
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          }
+        ],
+        "safe_retirement_events": [
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 231840,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 346656,
+            "Resources": 6
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 231840,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 346656,
+            "Resources": 6
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 231840,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 346656,
+            "Resources": 6
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 231840,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 346656,
+            "Resources": 6
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 231840,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 346656,
+            "Resources": 6
+          }
+        ]
+      }
+    },
+    {
+      "scale": 128,
+      "dimensions": [
+        128,
+        64,
+        128
+      ],
+      "samples": [
+        {
+          "sample": 1,
+          "manifest": "scale-128/sample-01/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.1817,
+            "queued_wait": 2.6937,
+            "cpu_derivation": 49.4528,
+            "upload": 33.3832,
+            "frame_boundary_commit": 8.7693,
+            "keypress_to_final_visible": 180.4419
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 10024688,
+              "Resources": 296
+            },
+            "hidden": {
+              "Bytes": 403696,
+              "Resources": 8
+            },
+            "retired": {
+              "Bytes": 614560,
+              "Resources": 12
+            },
+            "peak": {
+              "Bytes": 10425072,
+              "Resources": 304
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 214176,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 400384,
+              "Resources": 8
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "manifest": "scale-128/sample-02/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2219,
+            "queued_wait": 3.406,
+            "cpu_derivation": 51.0487,
+            "upload": 33.4815,
+            "frame_boundary_commit": 7.4967,
+            "keypress_to_final_visible": 186.9122
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 10024688,
+              "Resources": 296
+            },
+            "hidden": {
+              "Bytes": 403696,
+              "Resources": 8
+            },
+            "retired": {
+              "Bytes": 614560,
+              "Resources": 12
+            },
+            "peak": {
+              "Bytes": 10425072,
+              "Resources": 304
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 214176,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 400384,
+              "Resources": 8
+            }
+          ]
+        },
+        {
+          "sample": 3,
+          "manifest": "scale-128/sample-03/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.1932,
+            "queued_wait": 2.935,
+            "cpu_derivation": 48.5736,
+            "upload": 33.3285,
+            "frame_boundary_commit": 7.9662,
+            "keypress_to_final_visible": 187.3165
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 10024688,
+              "Resources": 296
+            },
+            "hidden": {
+              "Bytes": 403696,
+              "Resources": 8
+            },
+            "retired": {
+              "Bytes": 614560,
+              "Resources": 12
+            },
+            "peak": {
+              "Bytes": 10425072,
+              "Resources": 304
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 214176,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 400384,
+              "Resources": 8
+            }
+          ]
+        },
+        {
+          "sample": 4,
+          "manifest": "scale-128/sample-04/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2031,
+            "queued_wait": 1.8498,
+            "cpu_derivation": 50.7202,
+            "upload": 34.4422,
+            "frame_boundary_commit": 8.0532,
+            "keypress_to_final_visible": 202.7894
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 10024688,
+              "Resources": 296
+            },
+            "hidden": {
+              "Bytes": 403696,
+              "Resources": 8
+            },
+            "retired": {
+              "Bytes": 614560,
+              "Resources": 12
+            },
+            "peak": {
+              "Bytes": 10425072,
+              "Resources": 304
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 214176,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 400384,
+              "Resources": 8
+            }
+          ]
+        },
+        {
+          "sample": 5,
+          "manifest": "scale-128/sample-05/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.1955,
+            "queued_wait": 2.2693,
+            "cpu_derivation": 48.7215,
+            "upload": 33.2518,
+            "frame_boundary_commit": 7.7088,
+            "keypress_to_final_visible": 172.6664
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 10024688,
+              "Resources": 296
+            },
+            "hidden": {
+              "Bytes": 403696,
+              "Resources": 8
+            },
+            "retired": {
+              "Bytes": 614560,
+              "Resources": 12
+            },
+            "peak": {
+              "Bytes": 10425072,
+              "Resources": 304
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 214176,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 400384,
+              "Resources": 8
+            }
+          ]
+        }
+      ],
+      "raw_distributions": {
+        "phases_milliseconds": {
+          "submission_bookkeeping": [
+            0.1817,
+            0.2219,
+            0.1932,
+            0.2031,
+            0.1955
+          ],
+          "queued_wait": [
+            2.6937,
+            3.406,
+            2.935,
+            1.8498,
+            2.2693
+          ],
+          "cpu_derivation": [
+            49.4528,
+            51.0487,
+            48.5736,
+            50.7202,
+            48.7215
+          ],
+          "upload": [
+            33.3832,
+            33.4815,
+            33.3285,
+            34.4422,
+            33.2518
+          ],
+          "frame_boundary_commit": [
+            8.7693,
+            7.4967,
+            7.9662,
+            8.0532,
+            7.7088
+          ],
+          "keypress_to_final_visible": [
+            180.4419,
+            186.9122,
+            187.3165,
+            202.7894,
+            172.6664
+          ]
+        },
+        "work_disposition": {
+          "scheduled_regions": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "completed_regions": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "cancelled_regions": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "stale_regions": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "resource_bytes": {
+          "installed": [
+            10024688,
+            10024688,
+            10024688,
+            10024688,
+            10024688
+          ],
+          "hidden": [
+            403696,
+            403696,
+            403696,
+            403696,
+            403696
+          ],
+          "retired": [
+            614560,
+            614560,
+            614560,
+            614560,
+            614560
+          ],
+          "peak": [
+            10425072,
+            10425072,
+            10425072,
+            10425072,
+            10425072
+          ]
+        },
+        "resource_counts": {
+          "installed": [
+            296,
+            296,
+            296,
+            296,
+            296
+          ],
+          "hidden": [
+            8,
+            8,
+            8,
+            8,
+            8
+          ],
+          "retired": [
+            12,
+            12,
+            12,
+            12,
+            12
+          ],
+          "peak": [
+            304,
+            304,
+            304,
+            304,
+            304
+          ]
+        },
+        "cancellation_observations": [
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          }
+        ],
+        "safe_retirement_events": [
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 214176,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 400384,
+            "Resources": 8
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 214176,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 400384,
+            "Resources": 8
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 214176,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 400384,
+            "Resources": 8
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 214176,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 400384,
+            "Resources": 8
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 214176,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 400384,
+            "Resources": 8
+          }
+        ]
+      }
+    },
+    {
+      "scale": 256,
+      "dimensions": [
+        256,
+        128,
+        256
+      ],
+      "samples": [
+        {
+          "sample": 1,
+          "manifest": "scale-256/sample-01/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2216,
+            "queued_wait": 2.1412,
+            "cpu_derivation": 24.7682,
+            "upload": 182.9803,
+            "frame_boundary_commit": 40.8157,
+            "keypress_to_final_visible": 716.8464
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            },
+            "hidden": {
+              "Bytes": 3312,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            "peak": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 0,
+              "Resources": 0
+            }
+          ]
+        },
+        {
+          "sample": 2,
+          "manifest": "scale-256/sample-02/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2338,
+            "queued_wait": 2.1029,
+            "cpu_derivation": 26.5089,
+            "upload": 181.4615,
+            "frame_boundary_commit": 40.7326,
+            "keypress_to_final_visible": 733.5249
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            },
+            "hidden": {
+              "Bytes": 3312,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            "peak": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 0,
+              "Resources": 0
+            }
+          ]
+        },
+        {
+          "sample": 3,
+          "manifest": "scale-256/sample-03/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2355,
+            "queued_wait": 2.1139,
+            "cpu_derivation": 25.9721,
+            "upload": 188.6275,
+            "frame_boundary_commit": 42.5712,
+            "keypress_to_final_visible": 728.8244
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            },
+            "hidden": {
+              "Bytes": 3312,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            "peak": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 0,
+              "Resources": 0
+            }
+          ]
+        },
+        {
+          "sample": 4,
+          "manifest": "scale-256/sample-04/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2298,
+            "queued_wait": 2.2624,
+            "cpu_derivation": 23.3173,
+            "upload": 178.9571,
+            "frame_boundary_commit": 44.8936,
+            "keypress_to_final_visible": 731.184
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            },
+            "hidden": {
+              "Bytes": 3312,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            "peak": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 0,
+              "Resources": 0
+            }
+          ]
+        },
+        {
+          "sample": 5,
+          "manifest": "scale-256/sample-05/manifest.json",
+          "phases_milliseconds": {
+            "submission_bookkeeping": 0.2085,
+            "queued_wait": 2.1126,
+            "cpu_derivation": 25.0098,
+            "upload": 174.3971,
+            "frame_boundary_commit": 40.094,
+            "keypress_to_final_visible": 707.3977
+          },
+          "work_disposition": {
+            "scheduled_regions": 7,
+            "completed_regions": 4,
+            "cancelled_regions": 1,
+            "stale_regions": 2
+          },
+          "resources": {
+            "installed": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            },
+            "hidden": {
+              "Bytes": 3312,
+              "Resources": 6
+            },
+            "retired": {
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            "peak": {
+              "Bytes": 40088816,
+              "Resources": 1414
+            }
+          },
+          "cancellation_observations": [
+            {
+              "Revision": 2,
+              "ScheduledRegions": 1,
+              "CompletedRegions": 1,
+              "CancelledRegions": 1
+            }
+          ],
+          "safe_retirement_events": [
+            {
+              "Revision": 3,
+              "Disposition": "stale-candidate",
+              "Bytes": 2208,
+              "Resources": 4
+            },
+            {
+              "Revision": 4,
+              "Disposition": "replaced-installation",
+              "Bytes": 0,
+              "Resources": 0
+            }
+          ]
+        }
+      ],
+      "raw_distributions": {
+        "phases_milliseconds": {
+          "submission_bookkeeping": [
+            0.2216,
+            0.2338,
+            0.2355,
+            0.2298,
+            0.2085
+          ],
+          "queued_wait": [
+            2.1412,
+            2.1029,
+            2.1139,
+            2.2624,
+            2.1126
+          ],
+          "cpu_derivation": [
+            24.7682,
+            26.5089,
+            25.9721,
+            23.3173,
+            25.0098
+          ],
+          "upload": [
+            182.9803,
+            181.4615,
+            188.6275,
+            178.9571,
+            174.3971
+          ],
+          "frame_boundary_commit": [
+            40.8157,
+            40.7326,
+            42.5712,
+            44.8936,
+            40.094
+          ],
+          "keypress_to_final_visible": [
+            716.8464,
+            733.5249,
+            728.8244,
+            731.184,
+            707.3977
+          ]
+        },
+        "work_disposition": {
+          "scheduled_regions": [
+            7,
+            7,
+            7,
+            7,
+            7
+          ],
+          "completed_regions": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "cancelled_regions": [
+            1,
+            1,
+            1,
+            1,
+            1
+          ],
+          "stale_regions": [
+            2,
+            2,
+            2,
+            2,
+            2
+          ]
+        },
+        "resource_bytes": {
+          "installed": [
+            40088816,
+            40088816,
+            40088816,
+            40088816,
+            40088816
+          ],
+          "hidden": [
+            3312,
+            3312,
+            3312,
+            3312,
+            3312
+          ],
+          "retired": [
+            2208,
+            2208,
+            2208,
+            2208,
+            2208
+          ],
+          "peak": [
+            40088816,
+            40088816,
+            40088816,
+            40088816,
+            40088816
+          ]
+        },
+        "resource_counts": {
+          "installed": [
+            1414,
+            1414,
+            1414,
+            1414,
+            1414
+          ],
+          "hidden": [
+            6,
+            6,
+            6,
+            6,
+            6
+          ],
+          "retired": [
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "peak": [
+            1414,
+            1414,
+            1414,
+            1414,
+            1414
+          ]
+        },
+        "cancellation_observations": [
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          },
+          {
+            "Revision": 2,
+            "ScheduledRegions": 1,
+            "CompletedRegions": 1,
+            "CancelledRegions": 1
+          }
+        ],
+        "safe_retirement_events": [
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 2208,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 0,
+            "Resources": 0
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 2208,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 0,
+            "Resources": 0
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 2208,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 0,
+            "Resources": 0
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 2208,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 0,
+            "Resources": 0
+          },
+          {
+            "Revision": 3,
+            "Disposition": "stale-candidate",
+            "Bytes": 2208,
+            "Resources": 4
+          },
+          {
+            "Revision": 4,
+            "Disposition": "replaced-installation",
+            "Bytes": 0,
+            "Resources": 0
+          }
+        ]
+      }
+    }
+  ]
+}

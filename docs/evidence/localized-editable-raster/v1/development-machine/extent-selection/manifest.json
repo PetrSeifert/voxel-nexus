@@ -1,0 +1,333 @@
+{
+  "schema_version": 1,
+  "scope": "Descriptive Raster Region extent comparison for this recorded Windows development machine only.",
+  "recorded_at_utc": "2026-07-13T17:33:56.7459368Z",
+  "repository_revision": "8aaf8ae95bce56b8e28425adef79c927482b8871",
+  "canonical_input": {
+    "scene": "canonical-dense-scene",
+    "generator": "voxel-nexus-canonical-dense",
+    "generator_version": 1,
+    "dimensions": [
+      256,
+      128,
+      256
+    ],
+    "camera": "overview",
+    "initial_revision": 1,
+    "expected_final_revision": 4,
+    "commands": [
+      {
+        "order": 1,
+        "coordinate": [
+          0,
+          0,
+          0
+        ],
+        "old": "empty",
+        "requested": "occupied:canonical-warm"
+      },
+      {
+        "order": 2,
+        "coordinate": [
+          40,
+          0,
+          0
+        ],
+        "old": "empty",
+        "requested": "occupied:canonical-warm"
+      },
+      {
+        "order": 3,
+        "coordinate": [
+          80,
+          0,
+          0
+        ],
+        "old": "empty",
+        "requested": "occupied:canonical-warm"
+      }
+    ]
+  },
+  "build": {
+    "command": "cargo build --locked --package desktop-demo",
+    "log": "build.log"
+  },
+  "common_qualification": {
+    "command": "cargo test --locked --package raster-render-path --all-targets",
+    "log": "raster-qualification-tests.log"
+  },
+  "sample_count_per_candidate": 5,
+  "candidate_runs": [
+    {
+      "extent": [
+        16,
+        16,
+        16
+      ],
+      "qualification_manifest": "extent-16/qualification/manifest.json",
+      "qualification_test_log": "raster-qualification-tests.log",
+      "gate_outcomes": {
+        "semantic_correctness": {
+          "passed": true,
+          "evidence": "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates"
+        },
+        "localization": {
+          "passed": true,
+          "evidence": "extent-16/qualification/manifest.json#Qualification.Localization"
+        },
+        "failure_retry": {
+          "passed": true,
+          "evidence": "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates"
+        },
+        "lifecycle": {
+          "passed": true,
+          "evidence": "extent-16/qualification/manifest.json#Lifecycle"
+        },
+        "shutdown": {
+          "passed": true,
+          "evidence": "extent-16/qualification/manifest.json#ShutdownQualification"
+        },
+        "resource_retirement": {
+          "passed": true,
+          "evidence": "extent-16/qualification/manifest.json#PostUploadBarrier"
+        },
+        "validation": {
+          "passed": true,
+          "evidence": "extent-16/qualification/manifest.json#Validation+ShutdownQualification"
+        }
+      },
+      "timing_runs": [
+        {
+          "sample": 1,
+          "manifest": "extent-16/sample-01/manifest.json",
+          "keypress_to_final_visible_milliseconds": 738.1322,
+          "peak_live_gpu_bytes": 40088816,
+          "peak_live_gpu_resources": 1414
+        },
+        {
+          "sample": 2,
+          "manifest": "extent-16/sample-02/manifest.json",
+          "keypress_to_final_visible_milliseconds": 732.1741,
+          "peak_live_gpu_bytes": 40088816,
+          "peak_live_gpu_resources": 1414
+        },
+        {
+          "sample": 3,
+          "manifest": "extent-16/sample-03/manifest.json",
+          "keypress_to_final_visible_milliseconds": 734.3968,
+          "peak_live_gpu_bytes": 40088816,
+          "peak_live_gpu_resources": 1414
+        },
+        {
+          "sample": 4,
+          "manifest": "extent-16/sample-04/manifest.json",
+          "keypress_to_final_visible_milliseconds": 708.5266,
+          "peak_live_gpu_bytes": 40088816,
+          "peak_live_gpu_resources": 1414
+        },
+        {
+          "sample": 5,
+          "manifest": "extent-16/sample-05/manifest.json",
+          "keypress_to_final_visible_milliseconds": 717.6007,
+          "peak_live_gpu_bytes": 40088816,
+          "peak_live_gpu_resources": 1414
+        }
+      ]
+    },
+    {
+      "extent": [
+        32,
+        32,
+        32
+      ],
+      "qualification_manifest": "extent-32/qualification/manifest.json",
+      "qualification_test_log": "raster-qualification-tests.log",
+      "gate_outcomes": {
+        "semantic_correctness": {
+          "passed": true,
+          "evidence": "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates"
+        },
+        "localization": {
+          "passed": true,
+          "evidence": "extent-32/qualification/manifest.json#Qualification.Localization"
+        },
+        "failure_retry": {
+          "passed": true,
+          "evidence": "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates"
+        },
+        "lifecycle": {
+          "passed": true,
+          "evidence": "extent-32/qualification/manifest.json#Lifecycle"
+        },
+        "shutdown": {
+          "passed": true,
+          "evidence": "extent-32/qualification/manifest.json#ShutdownQualification"
+        },
+        "resource_retirement": {
+          "passed": true,
+          "evidence": "extent-32/qualification/manifest.json#PostUploadBarrier"
+        },
+        "validation": {
+          "passed": true,
+          "evidence": "extent-32/qualification/manifest.json#Validation+ShutdownQualification"
+        }
+      },
+      "timing_runs": [
+        {
+          "sample": 1,
+          "manifest": "extent-32/sample-01/manifest.json",
+          "keypress_to_final_visible_milliseconds": 874.8499,
+          "peak_live_gpu_bytes": 41313520,
+          "peak_live_gpu_resources": 302
+        },
+        {
+          "sample": 2,
+          "manifest": "extent-32/sample-02/manifest.json",
+          "keypress_to_final_visible_milliseconds": 846.6809,
+          "peak_live_gpu_bytes": 41313520,
+          "peak_live_gpu_resources": 302
+        },
+        {
+          "sample": 3,
+          "manifest": "extent-32/sample-03/manifest.json",
+          "keypress_to_final_visible_milliseconds": 838.262,
+          "peak_live_gpu_bytes": 41313520,
+          "peak_live_gpu_resources": 302
+        },
+        {
+          "sample": 4,
+          "manifest": "extent-32/sample-04/manifest.json",
+          "keypress_to_final_visible_milliseconds": 871.1,
+          "peak_live_gpu_bytes": 41313520,
+          "peak_live_gpu_resources": 302
+        },
+        {
+          "sample": 5,
+          "manifest": "extent-32/sample-05/manifest.json",
+          "keypress_to_final_visible_milliseconds": 941.3916,
+          "peak_live_gpu_bytes": 41313520,
+          "peak_live_gpu_resources": 302
+        }
+      ]
+    },
+    {
+      "extent": [
+        64,
+        64,
+        64
+      ],
+      "qualification_manifest": "extent-64/qualification/manifest.json",
+      "qualification_test_log": "raster-qualification-tests.log",
+      "gate_outcomes": {
+        "semantic_correctness": {
+          "passed": true,
+          "evidence": "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates"
+        },
+        "localization": {
+          "passed": true,
+          "evidence": "extent-64/qualification/manifest.json#Qualification.Localization"
+        },
+        "failure_retry": {
+          "passed": true,
+          "evidence": "raster-qualification-tests.log#fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates"
+        },
+        "lifecycle": {
+          "passed": true,
+          "evidence": "extent-64/qualification/manifest.json#Lifecycle"
+        },
+        "shutdown": {
+          "passed": true,
+          "evidence": "extent-64/qualification/manifest.json#ShutdownQualification"
+        },
+        "resource_retirement": {
+          "passed": true,
+          "evidence": "extent-64/qualification/manifest.json#PostUploadBarrier"
+        },
+        "validation": {
+          "passed": true,
+          "evidence": "extent-64/qualification/manifest.json#Validation+ShutdownQualification"
+        }
+      },
+      "timing_runs": [
+        {
+          "sample": 1,
+          "manifest": "extent-64/sample-01/manifest.json",
+          "keypress_to_final_visible_milliseconds": 2743.8733,
+          "peak_live_gpu_bytes": 43762928,
+          "peak_live_gpu_resources": 64
+        },
+        {
+          "sample": 2,
+          "manifest": "extent-64/sample-02/manifest.json",
+          "keypress_to_final_visible_milliseconds": 2430.2603,
+          "peak_live_gpu_bytes": 43762928,
+          "peak_live_gpu_resources": 64
+        },
+        {
+          "sample": 3,
+          "manifest": "extent-64/sample-03/manifest.json",
+          "keypress_to_final_visible_milliseconds": 2401.8107,
+          "peak_live_gpu_bytes": 43762928,
+          "peak_live_gpu_resources": 64
+        },
+        {
+          "sample": 4,
+          "manifest": "extent-64/sample-04/manifest.json",
+          "keypress_to_final_visible_milliseconds": 2549.8682,
+          "peak_live_gpu_bytes": 43762928,
+          "peak_live_gpu_resources": 64
+        },
+        {
+          "sample": 5,
+          "manifest": "extent-64/sample-05/manifest.json",
+          "keypress_to_final_visible_milliseconds": 2638.4591,
+          "peak_live_gpu_bytes": 43762928,
+          "peak_live_gpu_resources": 64
+        }
+      ]
+    }
+  ],
+  "selection_input": "selection-input.json",
+  "selection_report": "selection.json",
+  "selected_extent": [
+    16,
+    16,
+    16
+  ],
+  "machine": {
+    "operating_system": {
+      "Caption": "Microsoft Windows 11 Pro",
+      "Version": "10.0.26200",
+      "BuildNumber": "26200"
+    },
+    "processors": [
+      {
+        "Name": "AMD Ryzen 5 7600 6-Core Processor              ",
+        "Manufacturer": "AuthenticAMD",
+        "NumberOfCores": 6,
+        "NumberOfLogicalProcessors": 12
+      }
+    ],
+    "video_controllers": [
+      {
+        "Name": "Meta Virtual Monitor",
+        "DriverVersion": "11.1.45.729"
+      },
+      {
+        "Name": "Virtual Desktop Monitor",
+        "DriverVersion": "13.50.53.699"
+      },
+      {
+        "Name": "AMD Radeon(TM) Graphics",
+        "DriverVersion": "32.0.11024.2"
+      },
+      {
+        "Name": "NVIDIA GeForce RTX 4070",
+        "DriverVersion": "32.0.15.9597"
+      }
+    ],
+    "powershell": "7.5.8",
+    "rustc": "rustc 1.99.0-nightly (14cae6813 2026-07-08)\nbinary: rustc\ncommit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8\ncommit-date: 2026-07-08\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.0-nightly\nLLVM version: 22.1.8",
+    "cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)"
+  }
+}

@@ -1,0 +1,109 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src\raster_render_path.rs (target\debug\deps\raster_render_path-925702c200020cd9.exe)
+
+running 23 tests
+test convergence_tests::lifecycle_controller_reports_peak_live_raster_gpu_bytes_and_buffers ... ok
+test convergence_tests::lifecycle_cleanup_preserves_the_operational_error_when_control_reporting_also_fails ... ok
+test convergence_tests::dropping_convergence_releases_a_held_cpu_barrier_and_joins_the_worker ... ok
+test convergence_tests::controller_barrier_proves_cancelled_generation_schedules_no_later_region ... ok
+test convergence_tests::installation_generation_overflow_uses_the_contextual_upload_failure_path ... ok
+test convergence_tests::configured_candidate_swaps_affected_resources_and_preserves_unaffected_resources ... ok
+test convergence_tests::frame_boundary_hook_commits_all_affected_entries_and_visible_revision_together ... ok
+test convergence_tests::commit_failure_discards_the_hidden_candidate_and_pauses_the_required_target ... ok
+test convergence_tests::controller_observes_superseded_post_upload_rejection_before_final_visibility ... ok
+test convergence_tests::missing_configured_region_uses_the_contextual_upload_failure_path ... ok
+test convergence_tests::late_older_derivation_failure_is_observable_without_pausing_newer_convergence ... ok
+test convergence_tests::failed_preparation_clears_dead_active_state_and_retry_progresses ... ok
+test convergence_tests::presentation_release_returns_hidden_retirement_when_restart_fails ... ok
+test convergence_tests::private_target_bookkeeping_accumulates_adjacent_work_and_marks_discontinuities ... ok
+test convergence_tests::newer_generation_rejects_a_same_revision_candidate ... ok
+test convergence_tests::newer_changed_outcome_resumes_after_the_older_requirement_was_paused ... ok
+test convergence_tests::presentation_release_restarts_the_held_candidate_target ... ok
+test convergence_tests::shutdown_joins_active_work_and_disposes_a_hidden_uploaded_candidate ... ok
+test convergence_tests::terminated_preparation_clears_dead_active_state_and_retry_progresses ... ok
+test convergence_tests::superseded_uploaded_resources_remain_live_until_fence_safe_retirement ... ok
+test convergence_tests::upload_failure_pauses_the_required_target_and_preserves_the_visible_installation ... ok
+test convergence_tests::superseded_candidate_is_rejected_and_event_retention_stays_bounded ... ok
+test convergence_tests::fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates has been running for over 60 seconds
+test convergence_tests::fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 142.67s
+
+     Running tests\artifact_gate.rs (target\debug\deps\artifact_gate-830c77c00169ce2a.exe)
+
+running 2 tests
+test render_path_gate_rejects_a_stale_complete_artifact ... ok
+test render_path_gate_accepts_exactly_one_complete_matching_revision ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\convergence.rs (target\debug\deps\convergence-ebbd10ecd18eca5d.exe)
+
+running 7 tests
+test unchanged_outcomes_do_not_advance_the_required_revision ... ok
+test an_older_discontinuous_outcome_cannot_replace_the_newest_requirement ... ok
+test a_new_requirement_discards_an_already_ready_result_before_upload ... ok
+test retry_restarts_the_retained_required_view_without_another_edit ... ok
+test adjacent_outcomes_accumulate_as_one_localized_newest_requirement ... ok
+test a_discontinuous_newest_outcome_replaces_pending_work_with_a_full_rebuild ... ok
+test rapid_requirements_keep_only_the_newest_pending_target ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests\derivation.rs (target\debug\deps\derivation-456602fce623a295.exe)
+
+running 7 tests
+test empty_volume_produces_an_empty_complete_artifact ... ok
+test render_path_installs_one_complete_revision_tagged_artifact ... ok
+test one_voxel_produces_six_scene_space_material_colored_faces ... ok
+test occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permutation ... ok
+test adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation ... ok
+test adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color ... ok
+test hollow_three_cube_includes_outer_boundary_and_inner_cavity_faces_for_every_batch_permutation ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\failures.rs (target\debug\deps\failures-98ed32ab968530e1.exe)
+
+running 2 tests
+test unknown_volume_error_carries_metadata_phase_and_source_revision ... ok
+test non_finite_scene_transform_returns_only_a_contextual_geometry_error ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\front_face.rs (target\debug\deps\front_face-5dcf269130d7c555.exe)
+
+running 1 test
+test camera_facing_outward_face_matches_the_configured_framebuffer_winding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\localized_replacement.rs (target\debug\deps\localized_replacement-ab16c08094930ce6.exe)
+
+running 3 tests
+test applicability_mismatches_leave_the_complete_installation_unchanged ... ok
+test an_edit_in_one_volume_retains_every_installation_in_other_volumes ... ok
+test one_adjacent_edit_replaces_only_face_neighbor_regions_with_complete_results ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\preparation.rs (target\debug\deps\preparation-c39fa26850d7f107.exe)
+
+running 3 tests
+test clean_close_releases_a_held_barrier_and_joins_the_worker_under_the_watchdog ... ok
+test retained_view_preparation_pauses_on_a_real_worker_until_released ... ok
+test derivation_failure_keeps_phase_and_source_revision_at_the_worker_boundary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests\regions.rs (target\debug\deps\regions-4fb890b3d967937d.exe)
+
+running 5 tests
+test empty_complete_scene_derives_an_empty_revision_tagged_collection ... ok
+test regional_derivation_covers_every_volume_in_the_complete_scene_view ... ok
+test only_core_voxels_own_faces_and_the_face_halo_hides_cross_region_seams ... ok
+test complete_installation_records_empty_regions_with_stable_identity_and_ownership ... ok
+test raster_region_grid_is_zero_anchored_and_stable_across_revisions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

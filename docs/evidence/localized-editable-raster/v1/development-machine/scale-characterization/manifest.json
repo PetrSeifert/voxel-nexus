@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "scope": "Raw descriptive Raster Region scale distributions for this recorded Windows development machine only; not a production budget, performance gate, or cross-machine claim.",
+  "recorded_at_utc": "2026-07-13T18:04:45.5558799Z",
+  "repository_revision": "f5d3a93dcfbb81f4719e2afc04be73df63bcf225",
+  "selected_extent_source": {
+    "manifest": "artifacts/raster-region-extent-selection-issue-47/manifest.json",
+    "manifest_sha256": "6aea7e359bbdf35bf91a26a53e70f72baec3590599191d43ca261a5e3ad57521",
+    "report": "artifacts/raster-region-extent-selection-issue-47/selection.json",
+    "report_sha256": "d7e9cafccf8a2fb042bd9e498df3185b6a76e3b910dab4f2791d36ac55ed2237",
+    "selected_extent": [
+      16,
+      16,
+      16
+    ]
+  },
+  "shared_build": {
+    "command": "cargo build --locked --package desktop-demo",
+    "log": "build.log",
+    "binary": "target/debug/desktop-demo.exe",
+    "binary_sha256": "c6e5df1488c6b39e982cce8d8b9977577c146885c37bce0f86dfd93471fe7699"
+  },
+  "sample_count_per_scale": 5,
+  "scales": [
+    {
+      "scale": 64,
+      "dimensions": [
+        64,
+        32,
+        64
+      ]
+    },
+    {
+      "scale": 128,
+      "dimensions": [
+        128,
+        64,
+        128
+      ]
+    },
+    {
+      "scale": 256,
+      "dimensions": [
+        256,
+        128,
+        256
+      ]
+    }
+  ],
+  "raw_distributions": "raw-distributions.json",
+  "machine": {
+    "operating_system": {
+      "Caption": "Microsoft Windows 11 Pro",
+      "Version": "10.0.26200",
+      "BuildNumber": "26200"
+    },
+    "processors": [
+      {
+        "Name": "AMD Ryzen 5 7600 6-Core Processor              ",
+        "Manufacturer": "AuthenticAMD",
+        "NumberOfCores": 6,
+        "NumberOfLogicalProcessors": 12
+      }
+    ],
+    "video_controllers": [
+      {
+        "Name": "Meta Virtual Monitor",
+        "DriverVersion": "11.1.45.729"
+      },
+      {
+        "Name": "Virtual Desktop Monitor",
+        "DriverVersion": "13.50.53.699"
+      },
+      {
+        "Name": "AMD Radeon(TM) Graphics",
+        "DriverVersion": "32.0.11024.2"
+      },
+      {
+        "Name": "NVIDIA GeForce RTX 4070",
+        "DriverVersion": "32.0.15.9597"
+      }
+    ],
+    "powershell": "7.5.8",
+    "rustc": "rustc 1.99.0-nightly (14cae6813 2026-07-08)\nbinary: rustc\ncommit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8\ncommit-date: 2026-07-08\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.0-nightly\nLLVM version: 22.1.8",
+    "cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)"
+  }
+}
