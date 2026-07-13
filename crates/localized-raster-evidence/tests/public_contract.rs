@@ -1,7 +1,8 @@
 use localized_raster_evidence::{
     ArtifactCategory, ArtifactRecord, BarrierOutcomes, BundleManifest, CommandInput,
-    EnvironmentContext, LifecycleOutcomes, RepositoryContext, RevisionOutcomes, SceneInput,
-    SelectionContext, SummaryOutcomes, verify_hash_inventory, verify_manifest_contract,
+    EnvironmentContext, LifecycleOutcomes, RepositoryContext, RequiredProcessOutcome,
+    RevisionOutcomes, SceneInput, SelectionContext, SummaryOutcomes, verify_hash_inventory,
+    verify_manifest_contract,
 };
 use std::fs;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -77,9 +78,11 @@ fn valid_manifest() -> BundleManifest {
             "pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 -EvidenceDirectory artifacts/edit-burst-issue-46".to_owned(),
             "pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 -EvidenceDirectory artifacts/raster-region-extent-selection-issue-47".to_owned(),
             "pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 -EvidenceDirectory artifacts/raster-region-scale-characterization-issue-48 -SelectionManifest artifacts/raster-region-extent-selection-issue-47/manifest.json".to_owned(),
+            "pwsh -NoProfile -File scripts/verify-localized-raster-source-processes.ps1".to_owned(),
             "pwsh -NoProfile -File scripts/assemble-localized-raster-evidence.ps1".to_owned(),
         ],
         verification_command: "cargo run --locked --package localized-raster-evidence --bin verify-localized-raster-evidence -- docs/evidence/localized-editable-raster/v1/development-machine".to_owned(),
+        required_processes: required_processes(),
         artifacts: required_artifacts(),
     }
 }
@@ -90,7 +93,8 @@ fn artifact(category: ArtifactCategory, path: &str) -> ArtifactRecord {
         path: path.to_owned(),
         sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".to_owned(),
         bytes: 0,
-        process_exit_code: 0,
+        process_exit_code: Some(0),
+        process_outcome_source: Some("demo/manifest.json#/ProcessExitCode".to_owned()),
     }
 }
 
@@ -150,14 +154,37 @@ fn required_artifacts() -> Vec<ArtifactRecord> {
             &format!("scale-characterization/supporting-{index}.log"),
         ));
     }
+    for index in 0..5 {
+        artifacts.push(artifact(
+            ArtifactCategory::SupportingEvidence,
+            &format!("process-verification/artifact-{index}.log"),
+        ));
+    }
     artifacts
+}
+
+fn required_processes() -> Vec<RequiredProcessOutcome> {
+    [
+        "desktop_build",
+        "raster_qualification_tests",
+        "extent_selection",
+        "selection_comparison",
+    ]
+    .into_iter()
+    .map(|name| RequiredProcessOutcome {
+        name: name.to_owned(),
+        command: "checked command".to_owned(),
+        exit_code: 0,
+        evidence: "evidence.log#success".to_owned(),
+    })
+    .collect()
 }
 
 #[test]
 fn contract_accepts_the_complete_evidence_summary() -> Result<(), Box<dyn std::error::Error>> {
     let summary = verify_manifest_contract(&valid_manifest())?;
 
-    assert_eq!(summary.artifacts, 141);
+    assert_eq!(summary.artifacts, 146);
     assert_eq!(summary.selected_extent, [16, 16, 16]);
     Ok(())
 }
@@ -219,11 +246,38 @@ fn contract_rejects_validation_findings() {
 #[test]
 fn contract_rejects_unsuccessful_artifact_process() {
     let mut manifest = valid_manifest();
-    manifest.artifacts[0].process_exit_code = 7;
+    manifest.artifacts[0].process_exit_code = Some(7);
 
     let error = verify_manifest_contract(&manifest).expect_err("failed process must be rejected");
 
     assert!(error.to_string().contains("exit"));
+}
+
+#[test]
+fn contract_accepts_not_applicable_process_metadata_for_static_artifacts()
+-> Result<(), Box<dyn std::error::Error>> {
+    let mut manifest = valid_manifest();
+    let chart = manifest
+        .artifacts
+        .iter_mut()
+        .find(|artifact| artifact.category == ArtifactCategory::ComparisonChart)
+        .ok_or("missing comparison chart")?;
+    chart.process_exit_code = None;
+    chart.process_outcome_source = None;
+
+    verify_manifest_contract(&manifest)?;
+    Ok(())
+}
+
+#[test]
+fn contract_rejects_an_unsuccessful_required_process() {
+    let mut manifest = valid_manifest();
+    manifest.required_processes[1].exit_code = 1;
+
+    let error =
+        verify_manifest_contract(&manifest).expect_err("failed required process must be rejected");
+
+    assert!(error.to_string().contains("raster_qualification_tests"));
 }
 
 #[test]
@@ -258,6 +312,20 @@ fn hash_inventory_rejects_a_checksum_mismatch() -> Result<(), Box<dyn std::error
     let error = verify_hash_inventory(&root, &[record]).expect_err("changed file must be rejected");
 
     assert!(error.to_string().contains("changed.log"));
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn hash_inventory_rejects_a_duplicate_artifact_path() -> Result<(), Box<dyn std::error::Error>> {
+    let root = temporary_directory("duplicate")?;
+    fs::write(root.join("same.log"), "")?;
+    let record = artifact(ArtifactCategory::ValidationOutput, "same.log");
+
+    let error = verify_hash_inventory(&root, &[record.clone(), record])
+        .expect_err("duplicate artifact path must be rejected");
+
+    assert!(error.to_string().contains("same.log"));
     fs::remove_dir_all(root)?;
     Ok(())
 }

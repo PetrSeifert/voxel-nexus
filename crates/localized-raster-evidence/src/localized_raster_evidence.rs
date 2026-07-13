@@ -14,6 +14,7 @@ const REPRODUCTION_COMMANDS: &[&str] = &[
     "pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 -EvidenceDirectory artifacts/edit-burst-issue-46",
     "pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 -EvidenceDirectory artifacts/raster-region-extent-selection-issue-47",
     "pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 -EvidenceDirectory artifacts/raster-region-scale-characterization-issue-48 -SelectionManifest artifacts/raster-region-extent-selection-issue-47/manifest.json",
+    "pwsh -NoProfile -File scripts/verify-localized-raster-source-processes.ps1",
     "pwsh -NoProfile -File scripts/assemble-localized-raster-evidence.ps1",
 ];
 
@@ -52,7 +53,16 @@ pub struct ArtifactRecord {
     pub path: String,
     pub sha256: String,
     pub bytes: u64,
-    pub process_exit_code: i32,
+    pub process_exit_code: Option<i32>,
+    pub process_outcome_source: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RequiredProcessOutcome {
+    pub name: String,
+    pub command: String,
+    pub exit_code: i32,
+    pub evidence: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -164,6 +174,7 @@ pub struct BundleManifest {
     pub outcomes: SummaryOutcomes,
     pub reproduction_commands: Vec<String>,
     pub verification_command: String,
+    pub required_processes: Vec<RequiredProcessOutcome>,
     pub artifacts: Vec<ArtifactRecord>,
 }
 
@@ -223,6 +234,12 @@ pub enum EvidenceError {
     InvalidArtifactHash { path: String },
     #[error("artifact {path} records unsuccessful process exit {exit_code}")]
     FailedArtifactProcess { path: String, exit_code: i32 },
+    #[error("artifact {path} has inconsistent process outcome metadata")]
+    InvalidArtifactProcessMetadata { path: String },
+    #[error("required process {name} records unsuccessful exit {exit_code}")]
+    FailedRequiredProcess { name: String, exit_code: i32 },
+    #[error("required process inventory is incomplete or inconsistent")]
+    InvalidRequiredProcesses,
     #[error("artifact {path} could not be read: {source}")]
     ArtifactRead {
         path: String,
@@ -252,8 +269,8 @@ pub fn verify_hash_inventory(
     artifacts: &[ArtifactRecord],
 ) -> Result<(), EvidenceError> {
     let mut buffer = vec![0_u8; 64 * 1024];
+    let mut paths = BTreeSet::new();
     for artifact in artifacts {
-        let mut paths = BTreeSet::new();
         validate_artifact(artifact, &mut paths)?;
         let artifact_path = bundle_root.join(&artifact.path);
         let mut file =
@@ -323,6 +340,7 @@ fn verify_retained_sources(
     manifest: &BundleManifest,
 ) -> Result<(), EvidenceError> {
     for artifact in &manifest.artifacts {
+        verify_artifact_process_outcome(bundle_root, artifact)?;
         if artifact.category == ArtifactCategory::ValidationOutput && artifact.bytes != 0 {
             return source_error(&artifact.path, "validation output is not empty");
         }
@@ -336,6 +354,7 @@ fn verify_retained_sources(
             }
         }
     }
+    verify_required_process_evidence(bundle_root, &manifest.required_processes)?;
 
     let demo_path = "demo/manifest.json";
     let demo = read_source_json(bundle_root, demo_path)?;
@@ -380,6 +399,95 @@ fn verify_retained_sources(
             false,
             require_full_lifecycle,
         )?;
+    }
+    Ok(())
+}
+
+fn verify_artifact_process_outcome(
+    bundle_root: &Path,
+    artifact: &ArtifactRecord,
+) -> Result<(), EvidenceError> {
+    let (Some(expected_exit), Some(source)) = (
+        artifact.process_exit_code,
+        artifact.process_outcome_source.as_deref(),
+    ) else {
+        return Ok(());
+    };
+    let (source_path, pointer) =
+        source
+            .split_once('#')
+            .ok_or_else(|| EvidenceError::SourceEvidence {
+                path: artifact.path.clone(),
+                reason: "process outcome source has no JSON pointer".to_owned(),
+            })?;
+    let source_manifest = read_source_json(bundle_root, source_path)?;
+    let expected_exit =
+        u64::try_from(expected_exit).map_err(|_| EvidenceError::SourceEvidence {
+            path: artifact.path.clone(),
+            reason: "recorded process exit is negative".to_owned(),
+        })?;
+    let actual_exit = require_u64(
+        &source_manifest,
+        pointer,
+        source_path,
+        "source process exit",
+    )?;
+    if actual_exit != expected_exit {
+        return source_error(
+            &artifact.path,
+            "recorded process exit differs from its retained source manifest",
+        );
+    }
+    Ok(())
+}
+
+fn verify_required_process_evidence(
+    bundle_root: &Path,
+    processes: &[RequiredProcessOutcome],
+) -> Result<(), EvidenceError> {
+    for process in processes {
+        let (evidence_path, pointer) =
+            process
+                .evidence
+                .split_once('#')
+                .ok_or_else(|| EvidenceError::SourceEvidence {
+                    path: process.evidence.clone(),
+                    reason: "required process evidence has no JSON pointer".to_owned(),
+                })?;
+        let source = read_source_json(bundle_root, evidence_path)?;
+        let expected_exit =
+            u64::try_from(process.exit_code).map_err(|_| EvidenceError::SourceEvidence {
+                path: evidence_path.to_owned(),
+                reason: "required process exit is negative".to_owned(),
+            })?;
+        if require_u64(&source, pointer, evidence_path, "required process exit")? != expected_exit {
+            return source_error(evidence_path, "required process exit changed");
+        }
+        let process_prefix =
+            pointer
+                .strip_suffix("/exit_code")
+                .ok_or_else(|| EvidenceError::SourceEvidence {
+                    path: evidence_path.to_owned(),
+                    reason: "required process pointer does not address an exit code".to_owned(),
+                })?;
+        if require_string(
+            &source,
+            &format!("{process_prefix}/name"),
+            evidence_path,
+            "required process name",
+        )? != process.name
+            || require_string(
+                &source,
+                &format!("{process_prefix}/command"),
+                evidence_path,
+                "required process command",
+            )? != process.command
+        {
+            return source_error(
+                evidence_path,
+                "required process identity or command changed",
+            );
+        }
     }
     Ok(())
 }
@@ -948,7 +1056,7 @@ fn verify_source_commands(
     if commands.len() != manifest.commands.len() {
         return source_error(path, "command count changed");
     }
-    let mut previous_x = None;
+    let mut previous_x_coordinate = None;
     for (index, command) in commands.iter().enumerate() {
         let expected = &manifest.commands[index];
         if require_u64(command, "/Order", path, "command order")? != u64::from(expected.order)
@@ -967,21 +1075,21 @@ fn verify_source_commands(
         {
             return source_error(path, "command coordinate is malformed");
         }
-        let x = coordinate
+        let x_coordinate = coordinate
             .first()
             .and_then(serde_json::Value::as_i64)
             .ok_or_else(|| EvidenceError::SourceEvidence {
                 path: path.to_owned(),
                 reason: "command x coordinate is missing".to_owned(),
             })?;
-        if let Some(previous) = previous_x {
-            if x <= previous {
+        if let Some(previous) = previous_x_coordinate {
+            if x_coordinate <= previous {
                 return source_error(path, "command coordinates are not strictly increasing");
             }
-        } else if x != 0 {
+        } else if x_coordinate != 0 {
             return source_error(path, "first command coordinate changed");
         }
-        previous_x = Some(x);
+        previous_x_coordinate = Some(x_coordinate);
         if (compare_top_level_commands || scale == manifest.scene.scale)
             && coordinate
                 .iter()
@@ -1190,6 +1298,7 @@ pub fn verify_manifest_contract(
     {
         return Err(EvidenceError::InvalidReproductionCommands);
     }
+    validate_required_processes(&manifest.required_processes)?;
 
     let mut artifact_paths = BTreeSet::new();
     for artifact in &manifest.artifacts {
@@ -1214,6 +1323,7 @@ pub fn verify_manifest_contract(
             "scale-characterization/",
             48_usize,
         ),
+        ("process verification", "process-verification/", 5_usize),
     ] {
         let actual = manifest
             .artifacts
@@ -1228,10 +1338,10 @@ pub fn verify_manifest_contract(
             });
         }
     }
-    if manifest.artifacts.len() != 141 {
+    if manifest.artifacts.len() != 146 {
         return Err(EvidenceError::InvalidInventoryCount {
             inventory: "complete bundle",
-            expected: 141,
+            expected: 146,
             actual: manifest.artifacts.len(),
         });
     }
@@ -1363,10 +1473,49 @@ fn validate_artifact(
             path: artifact.path.clone(),
         });
     }
-    if artifact.process_exit_code != 0 {
-        return Err(EvidenceError::FailedArtifactProcess {
-            path: artifact.path.clone(),
-            exit_code: artifact.process_exit_code,
+    match (
+        artifact.process_exit_code,
+        artifact.process_outcome_source.as_deref(),
+    ) {
+        (Some(0), Some(source)) if !source.trim().is_empty() => {}
+        (Some(exit_code), Some(source)) if exit_code != 0 && !source.trim().is_empty() => {
+            return Err(EvidenceError::FailedArtifactProcess {
+                path: artifact.path.clone(),
+                exit_code,
+            });
+        }
+        (None, None) => {}
+        _ => {
+            return Err(EvidenceError::InvalidArtifactProcessMetadata {
+                path: artifact.path.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_required_processes(processes: &[RequiredProcessOutcome]) -> Result<(), EvidenceError> {
+    let expected_names = [
+        "desktop_build",
+        "raster_qualification_tests",
+        "extent_selection",
+        "selection_comparison",
+    ];
+    if processes.len() != expected_names.len()
+        || processes
+            .iter()
+            .map(|process| process.name.as_str())
+            .ne(expected_names)
+        || processes
+            .iter()
+            .any(|process| process.command.trim().is_empty() || process.evidence.trim().is_empty())
+    {
+        return Err(EvidenceError::InvalidRequiredProcesses);
+    }
+    if let Some(process) = processes.iter().find(|process| process.exit_code != 0) {
+        return Err(EvidenceError::FailedRequiredProcess {
+            name: process.name.clone(),
+            exit_code: process.exit_code,
         });
     }
     Ok(())

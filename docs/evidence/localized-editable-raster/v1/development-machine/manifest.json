@@ -109,996 +109,1204 @@
     "pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 -EvidenceDirectory artifacts/edit-burst-issue-46",
     "pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 -EvidenceDirectory artifacts/raster-region-extent-selection-issue-47",
     "pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 -EvidenceDirectory artifacts/raster-region-scale-characterization-issue-48 -SelectionManifest artifacts/raster-region-extent-selection-issue-47/manifest.json",
+    "pwsh -NoProfile -File scripts/verify-localized-raster-source-processes.ps1",
     "pwsh -NoProfile -File scripts/assemble-localized-raster-evidence.ps1"
   ],
   "verification_command": "cargo run --locked --package localized-raster-evidence --bin verify-localized-raster-evidence -- docs/evidence/localized-editable-raster/v1/development-machine",
+  "required_processes": [
+    {
+      "name": "desktop_build",
+      "command": "cargo build --locked --package desktop-demo",
+      "exit_code": 0,
+      "evidence": "process-verification/process-outcomes.json#/processes/0/exit_code"
+    },
+    {
+      "name": "raster_qualification_tests",
+      "command": "cargo test --locked --package raster-render-path --all-targets",
+      "exit_code": 0,
+      "evidence": "process-verification/process-outcomes.json#/processes/1/exit_code"
+    },
+    {
+      "name": "extent_selection",
+      "command": "cargo run --locked --package measurement-evidence --bin raster-region-extent-report -- E:\\Programming\\voxel-nexus\\artifacts\\raster-region-extent-selection-issue-47\\selection-input.json E:\\Programming\\voxel-nexus\\artifacts\\localized-raster-source-processes-issue-49\\selection-reproduced.json",
+      "exit_code": 0,
+      "evidence": "process-verification/process-outcomes.json#/processes/2/exit_code"
+    },
+    {
+      "name": "selection_comparison",
+      "command": "SHA-256 compare reproduced selection.json with retained selection.json",
+      "exit_code": 0,
+      "evidence": "process-verification/process-outcomes.json#/processes/3/exit_code"
+    }
+  ],
   "artifacts": [
     {
       "category": "comparison_chart",
       "path": "comparison.svg",
       "sha256": "8cc2153d9d6aa7f2e4db0cb5309bcad7b4e7bcf48e40132bec48cb8e9ab67959",
       "bytes": 1461,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "representative_frame",
       "path": "demo/before-burst.png",
       "sha256": "b586bb7777828e538092f92d477f5614d7669fe545bddd5990ff25c045fbf400",
       "bytes": 58889,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "demo/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "demo/cpu-barrier-held.png",
       "sha256": "9e08174be70e67bdbf61ce12a6ab022d460bdd6fa198977a6aa2a34d97bb5fe8",
       "bytes": 31814,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "demo/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "demo/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "demo/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "demo/desktop-demo.stdout.log",
       "sha256": "039e5260f4bdf81fd8b8f596e00867217f2aef895d3e5c23c996645920d1c12b",
       "bytes": 4343,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "demo/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "demo/final-visible.png",
       "sha256": "0e779c397c25efcf76b231279fe1dc69a11c0c44ac760a26ceb454fb9f1d49ae",
       "bytes": 41281,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "demo/manifest.json#/ProcessExitCode"
     },
     {
       "category": "uninterrupted_demo",
       "path": "demo/manifest.json",
       "sha256": "6b17f863047453cdc401ac1ef7a377df45b565fef399b6dcf181d5f025907005",
       "bytes": 4378,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "demo/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "demo/post-upload-barrier-held.png",
       "sha256": "053313a23bdcbf11996f0534c383335ac32821041a75a070d4b3d3e1b10d2827",
       "bytes": 35892,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "demo/manifest.json#/ProcessExitCode"
     },
     {
       "category": "supporting_evidence",
       "path": "extent-selection/build.log",
       "sha256": "726adca148695d066310fafb35cf907ac628ce845ba559463ebfbfc2bc4e6459",
       "bytes": 253,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-16/qualification/active-cpu-close.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ShutdownQualification/ActiveCpuWork/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-16/qualification/active-cpu-close.stdout.log",
       "sha256": "fd67cb78d979dd65a7acc6e3e69e825437d41d7bf65d292b966704dbb2662a01",
       "bytes": 792,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ShutdownQualification/ActiveCpuWork/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-16/qualification/before-burst.png",
       "sha256": "2ce364168d05796c6e61e0bcdd3bd88f3f9d982dcae2daaf8c79c19e2c59dee8",
       "bytes": 16750,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-16/qualification/cpu-barrier-held.png",
       "sha256": "df937f2f32c11019bf4a1381b1590f90f768853e6a5d685b6743affde62567b5",
       "bytes": 24524,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-16/qualification/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-16/qualification/desktop-demo.stdout.log",
       "sha256": "83ba33693fb8e135549aaf298cf6c07021aeff56f163fb27871760fd25b354c0",
       "bytes": 4383,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-16/qualification/final-visible.png",
       "sha256": "be791b7dbd4e5d923e5d69bfb4e187854df9faf2d1e0720528f9d4c05fef1e5d",
       "bytes": 22297,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-16/qualification/hidden-candidate-close.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ShutdownQualification/HiddenPostUploadCandidate/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-16/qualification/hidden-candidate-close.stdout.log",
       "sha256": "81996e2a14e5b817bdc8ef26d0f6b067894ece82da97e5a8b5d2017f5bb439e9",
       "bytes": 1175,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ShutdownQualification/HiddenPostUploadCandidate/ProcessExitCode"
     },
     {
       "category": "semantic_localization_report",
       "path": "extent-selection/extent-16/qualification/manifest.json",
       "sha256": "7aeec6c539c1b238325303a2cdea6005e52052624a4f86e2d00f5ca4448f5834",
       "bytes": 5584,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-16/qualification/post-upload-barrier-held.png",
       "sha256": "76b565749d884f04e8732dfa09912c07c2e5174b88da9e5df007021dde3e967d",
       "bytes": 20919,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-16/sample-01/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-16/sample-01/desktop-demo.stdout.log",
       "sha256": "d7d2376be506b01c2a5944ee1fbe2b8c3de4fb00bb2a52e19d3c48c30c5ec6e7",
       "bytes": 3901,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-16/sample-01/manifest.json",
       "sha256": "2f05604228bb30194252b6d8372256e8cfdfe2c0b5cfaa98557db3ba27916a05",
       "bytes": 3283,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-16/sample-02/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-16/sample-02/desktop-demo.stdout.log",
       "sha256": "92f9ce08891687f4c2dc994f1e89fb02b79b23835327fd4634bb2a067dcdff7d",
       "bytes": 3901,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-16/sample-02/manifest.json",
       "sha256": "fce2ff274afab751cc39885bdf2ceba3bb7a1d4ca57086ea16dd038cff8c8fdf",
       "bytes": 3283,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-16/sample-03/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-16/sample-03/desktop-demo.stdout.log",
       "sha256": "fc35fecb61ba93e0c79aa4becc73c72daa302d73a0a804fb31e5b74a18d9da95",
       "bytes": 3901,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-16/sample-03/manifest.json",
       "sha256": "5c3ca2cc90839d2151fd104bf0e5166ed5e077c3275a37abe93294bf1ee8c1ca",
       "bytes": 3283,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-16/sample-04/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-16/sample-04/desktop-demo.stdout.log",
       "sha256": "5dbab32e0cf7f3a36d35918a352b1b593ff763ff139699623c40c5b7b1e506f7",
       "bytes": 3901,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-16/sample-04/manifest.json",
       "sha256": "ab4dd7e1d0490a2a356c1381104b52908fd434de565a9cf910e7b6a41c448652",
       "bytes": 3283,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-16/sample-05/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-16/sample-05/desktop-demo.stdout.log",
       "sha256": "09938573cfa8de136477bcd77b546fa5b96e30c91377a37eb502d4156e780927",
       "bytes": 3901,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-16/sample-05/manifest.json",
       "sha256": "60ad10703eee43140ba031b6e249e6acac63e8e1217ba8ed4b6040aa83c431e0",
       "bytes": 3283,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-16/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-32/qualification/active-cpu-close.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ShutdownQualification/ActiveCpuWork/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-32/qualification/active-cpu-close.stdout.log",
       "sha256": "fd67cb78d979dd65a7acc6e3e69e825437d41d7bf65d292b966704dbb2662a01",
       "bytes": 792,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ShutdownQualification/ActiveCpuWork/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-32/qualification/before-burst.png",
       "sha256": "f3ee42fcc57f8f843e0bc26fa8bf70cc90713f03cb884a4446a8d5d772ad08a1",
       "bytes": 21606,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-32/qualification/cpu-barrier-held.png",
       "sha256": "787c49f56eba5f5548bb16f2faa19474ac3ddea78dfb591ce0d964e5e29caf93",
       "bytes": 24440,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-32/qualification/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-32/qualification/desktop-demo.stdout.log",
       "sha256": "386a2e1b4aedb9680db7fcff942c94c1837cd8370b686c396135cd730c71a686",
       "bytes": 4461,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-32/qualification/final-visible.png",
       "sha256": "0f51c997d622d9942ae4ec5ca7f6e1f01e54e7365b9bfe2302a9476c85e94bd7",
       "bytes": 22281,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-32/qualification/hidden-candidate-close.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ShutdownQualification/HiddenPostUploadCandidate/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-32/qualification/hidden-candidate-close.stdout.log",
       "sha256": "81996e2a14e5b817bdc8ef26d0f6b067894ece82da97e5a8b5d2017f5bb439e9",
       "bytes": 1175,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ShutdownQualification/HiddenPostUploadCandidate/ProcessExitCode"
     },
     {
       "category": "semantic_localization_report",
       "path": "extent-selection/extent-32/qualification/manifest.json",
       "sha256": "812d61162dcf7b09f6f33f6e8fa5d8e19c45bea1857a4f445cd101f8a768dc37",
       "bytes": 5575,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-32/qualification/post-upload-barrier-held.png",
       "sha256": "c67dca9e319c222cbf53935ba6e6882f7fbe3d33a30e6cf0eb88f3f6cdaeb9a4",
       "bytes": 20835,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-32/sample-01/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-32/sample-01/desktop-demo.stdout.log",
       "sha256": "a8fe6fac0ed40e44556f432a1f052ae745ec8395c0e9b15dedec7c7ad2b9518f",
       "bytes": 3890,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-32/sample-01/manifest.json",
       "sha256": "a6a32a124e68c2ca481bdc914580b9136ca0b57f7024fa8b13fcbd659d4cabc9",
       "bytes": 3278,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-32/sample-02/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-32/sample-02/desktop-demo.stdout.log",
       "sha256": "b395ea400a55040b56de2e5b636ca77e814bf63a659ec65595cb0ae4267d303c",
       "bytes": 3890,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-32/sample-02/manifest.json",
       "sha256": "0087845375a9a0146e618e047ac32408d0b3ca4e31f47f7faaca35995f77f1fc",
       "bytes": 3278,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-32/sample-03/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-32/sample-03/desktop-demo.stdout.log",
       "sha256": "a2f78699bb77175d4eac0c82f7e4669e1bd1353d47f716f5f1b022047209cd03",
       "bytes": 3890,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-32/sample-03/manifest.json",
       "sha256": "2df1c11cfbbf7bf017ae4e0c114020d762714f32b8cee47335668982e49eaf7c",
       "bytes": 3277,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-32/sample-04/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-32/sample-04/desktop-demo.stdout.log",
       "sha256": "1244f5c9d8aa6cd8c3b605413e789e297e6d2d65572d1e8398a8b6dc9012e5c6",
       "bytes": 3890,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-32/sample-04/manifest.json",
       "sha256": "b2db287bd10174c14ace977d512a93d47e3671123d47a4b58c2a5acffa68802a",
       "bytes": 3275,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-32/sample-05/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-32/sample-05/desktop-demo.stdout.log",
       "sha256": "40b898cd9d08a23797853cc21e48878230ff92d77c577f809b91e61a8150579e",
       "bytes": 3890,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-32/sample-05/manifest.json",
       "sha256": "c5809475f31e21ad8eeb50b7f3469244eb77ac7802fe15bde2fb89f5b2fb6bff",
       "bytes": 3278,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-32/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-64/qualification/active-cpu-close.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ShutdownQualification/ActiveCpuWork/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-64/qualification/active-cpu-close.stdout.log",
       "sha256": "fd67cb78d979dd65a7acc6e3e69e825437d41d7bf65d292b966704dbb2662a01",
       "bytes": 792,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ShutdownQualification/ActiveCpuWork/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-64/qualification/before-burst.png",
       "sha256": "b787f3ccc4482b46f8a757283eaa3db9175886dabcc94df02a1477af04591fdf",
       "bytes": 17637,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-64/qualification/cpu-barrier-held.png",
       "sha256": "5116f519a86aeef71ce9fa99afea71f5d83f7068a3a15258482c7473ad9ef5ef",
       "bytes": 24379,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-64/qualification/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-64/qualification/desktop-demo.stdout.log",
       "sha256": "c849b8de27cc6ca8958fe90f1c8458ef659b4438402225f712f8b681ee7d999b",
       "bytes": 4531,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-64/qualification/final-visible.png",
       "sha256": "4bd5a8239186052f322c0f4f18f8cbed73f2b89284a2dd462dab29b563c7c935",
       "bytes": 22208,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-64/qualification/hidden-candidate-close.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ShutdownQualification/HiddenPostUploadCandidate/ProcessExitCode"
     },
     {
       "category": "failure_shutdown_log",
       "path": "extent-selection/extent-64/qualification/hidden-candidate-close.stdout.log",
       "sha256": "81996e2a14e5b817bdc8ef26d0f6b067894ece82da97e5a8b5d2017f5bb439e9",
       "bytes": 1175,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ShutdownQualification/HiddenPostUploadCandidate/ProcessExitCode"
     },
     {
       "category": "semantic_localization_report",
       "path": "extent-selection/extent-64/qualification/manifest.json",
       "sha256": "b0b4d231f0c79ed15e87b4855c06d73a52e73a54ad8604069129e148ed91406c",
       "bytes": 5565,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "representative_frame",
       "path": "extent-selection/extent-64/qualification/post-upload-barrier-held.png",
       "sha256": "79042958e3fd5b7b1bb3d6b20f35376773ae6a59acad9c4ca2d51c79e611e1d1",
       "bytes": 20795,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/qualification/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-64/sample-01/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-64/sample-01/desktop-demo.stdout.log",
       "sha256": "a542c987029c56bfbf1f1f32cd3eb2d377074ddafce020a05186dee48e7215ad",
       "bytes": 3880,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-64/sample-01/manifest.json",
       "sha256": "5867ca246d500f70df0cbcdc5f2bfbfb011b03a80d58abca5d9237e71b944c67",
       "bytes": 3274,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-64/sample-02/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-64/sample-02/desktop-demo.stdout.log",
       "sha256": "7c55ac2ac0848d80de36c605af8b958bb853bc214f2e6c9c78bfc342c1b41c0d",
       "bytes": 3880,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-64/sample-02/manifest.json",
       "sha256": "131a5229642ee2cfb6165ff12d7678db89a276d02c642a86428d1db1e60d7451",
       "bytes": 3274,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-64/sample-03/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-64/sample-03/desktop-demo.stdout.log",
       "sha256": "172151cd8cdf97fee63316a6b9f1cafa85f2bbe6ce68ae3278a2192f83fc5e51",
       "bytes": 3880,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-64/sample-03/manifest.json",
       "sha256": "612eb47f6b61c00779148319119d09d639060c3a02f4870d0cd95c90de507294",
       "bytes": 3274,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-64/sample-04/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-64/sample-04/desktop-demo.stdout.log",
       "sha256": "662875336e64fd17f510bf9f466349f1686ca36d46a36d973da48493d9a6ee58",
       "bytes": 3880,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-64/sample-04/manifest.json",
       "sha256": "464f479542f0abca42e2c57fe1a8b4beb7bf4765c8d4e7f01744bc9f7461ae8e",
       "bytes": 3274,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "extent-selection/extent-64/sample-05/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "extent-selection/extent-64/sample-05/desktop-demo.stdout.log",
       "sha256": "0927239db5f10f5a68701f9fe1def22fe08fefa6d7dd185faa979f6343f58e0a",
       "bytes": 3880,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "extent-selection/extent-64/sample-05/manifest.json",
       "sha256": "d993c7b3fff16d3e6c90418e35730562d0d0f62dd2af54680b51c018ee5a1240",
       "bytes": 3274,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "extent-selection/extent-64/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "supporting_evidence",
       "path": "extent-selection/manifest.json",
       "sha256": "6aea7e359bbdf35bf91a26a53e70f72baec3590599191d43ca261a5e3ad57521",
       "bytes": 11039,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "semantic_localization_report",
       "path": "extent-selection/raster-qualification-tests.log",
       "sha256": "7962be9c05ad73ab3b6ed167945940243cdac10533c444be739486c64f22697e",
       "bytes": 6922,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "semantic_localization_report",
       "path": "extent-selection/selection-input.json",
       "sha256": "0627f558e1531dc3170d5eb789eaaf2ac5ceaf64517c8e8e3c7b4897d608c77e",
       "bytes": 1608,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "supporting_evidence",
       "path": "extent-selection/selection-report.log",
       "sha256": "025a312aab9925fcaed99d959c264edad729225b9cbe7e4c145366496ed31f60",
       "bytes": 324,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "semantic_localization_report",
       "path": "extent-selection/selection.json",
       "sha256": "d7e9cafccf8a2fb042bd9e498df3185b6a76e3b910dab4f2791d36ac55ed2237",
       "bytes": 2221,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
+    },
+    {
+      "category": "supporting_evidence",
+      "path": "process-verification/desktop-build.log",
+      "sha256": "4e5127f6763ee148417e66542e2c774041d5cb9ae6cc0a361f3249e7add60712",
+      "bytes": 73,
+      "process_exit_code": 0,
+      "process_outcome_source": "process-verification/process-outcomes.json#/processes/0/exit_code"
+    },
+    {
+      "category": "supporting_evidence",
+      "path": "process-verification/extent-selection.log",
+      "sha256": "5f8fc8ec140ac47f3e794933276e0f128a8395df56d8516a0b4271229373bcd2",
+      "bytes": 338,
+      "process_exit_code": 0,
+      "process_outcome_source": "process-verification/process-outcomes.json#/processes/2/exit_code"
+    },
+    {
+      "category": "supporting_evidence",
+      "path": "process-verification/process-outcomes.json",
+      "sha256": "f95732250c2d542d5bd47b583307b708d823fc95ae887da2b7cdda1c2ba5b949",
+      "bytes": 1202,
+      "process_exit_code": null,
+      "process_outcome_source": null
+    },
+    {
+      "category": "supporting_evidence",
+      "path": "process-verification/raster-qualification-tests.log",
+      "sha256": "2763fbad32d95690f9582c925608dff00e82bed1e62dd51e02774ce2bee1bd23",
+      "bytes": 7124,
+      "process_exit_code": 0,
+      "process_outcome_source": "process-verification/process-outcomes.json#/processes/1/exit_code"
+    },
+    {
+      "category": "supporting_evidence",
+      "path": "process-verification/selection-reproduced.json",
+      "sha256": "d7e9cafccf8a2fb042bd9e498df3185b6a76e3b910dab4f2791d36ac55ed2237",
+      "bytes": 2221,
+      "process_exit_code": 0,
+      "process_outcome_source": "process-verification/process-outcomes.json#/processes/2/exit_code"
     },
     {
       "category": "reproduction_instructions",
       "path": "README.md",
-      "sha256": "c3b1b26a61b0ca2692dd7d877b28d6d9daa06d1439e10e140c3881247ad3a244",
-      "bytes": 1775,
-      "process_exit_code": 0
+      "sha256": "e357adaa3e73bfc0347a1a144bf3a0834b931c46aa64332c84ce066d354567e1",
+      "bytes": 1850,
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "supporting_evidence",
       "path": "scale-characterization/build.log",
       "sha256": "4e5127f6763ee148417e66542e2c774041d5cb9ae6cc0a361f3249e7add60712",
       "bytes": 73,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "supporting_evidence",
       "path": "scale-characterization/manifest.json",
       "sha256": "5c528fed9898fc0e2501a0ab8635d911c25766c11c40177a8d32cb54788e702b",
       "bytes": 2623,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/raw-distributions.json",
       "sha256": "c39511feaf272052f58a1602fc5b9dc7bf387c7013338ab531d16d8bdc254163",
       "bytes": 41710,
-      "process_exit_code": 0
+      "process_exit_code": null,
+      "process_outcome_source": null
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-128/sample-01/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-128/sample-01/desktop-demo.stdout.log",
       "sha256": "ffc7bf4f079f9ae1974cfca8f0a62a781f2da2ed853b2cc76045570e48804043",
       "bytes": 4419,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-128/sample-01/manifest.json",
       "sha256": "f98ab578b8f73f7b2d1b96e8e81a26285939f2b4b5a59d3bd3d70e2b97dac09d",
       "bytes": 4526,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-128/sample-02/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-128/sample-02/desktop-demo.stdout.log",
       "sha256": "1fb451945a1348fbf7d4683799156b60d3dd75ecc2461a7f344fc1eab4500e14",
       "bytes": 4419,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-128/sample-02/manifest.json",
       "sha256": "b33b3228c25e1e25df229237ddbbb04e342e28e40f72c85a73d2b78badaff9f4",
       "bytes": 4525,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-128/sample-03/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-128/sample-03/desktop-demo.stdout.log",
       "sha256": "04f30f9becf048fc7ad93af8846b90e7ab0f712bd240b9c013178ba97d60b787",
       "bytes": 4419,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-128/sample-03/manifest.json",
       "sha256": "094f9ae89a7f107838ab5f2feaf9e5b17862a4a3d4466403cea6f7eedfb4bce8",
       "bytes": 4525,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-128/sample-04/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-128/sample-04/desktop-demo.stdout.log",
       "sha256": "3fb346a11c51dfe27ed547fdd5d7f8e7503ed37d996150f5c0370961644cc3ac",
       "bytes": 4419,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-128/sample-04/manifest.json",
       "sha256": "6b794b432b9bdf102d8ba4b4d99ca46a3b01810584a8475a6bcefd38a9ae34a1",
       "bytes": 4526,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-128/sample-05/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-128/sample-05/desktop-demo.stdout.log",
       "sha256": "cf3779d21160383c7c02b2c56a48ad2d9e170c4b762b2aab9d952e6fc9984033",
       "bytes": 4419,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-128/sample-05/manifest.json",
       "sha256": "b299008ccc7c758b6bdc501ade929946ef88e7691d7770e77d36501cb6fb00ed",
       "bytes": 4526,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-128/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-256/sample-01/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-256/sample-01/desktop-demo.stdout.log",
       "sha256": "d8a3506958c871d0273b51be361da666dc02052e57b666ba722a72871ecf6bf0",
       "bytes": 4427,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-256/sample-01/manifest.json",
       "sha256": "68037c9c7b538dcc0f6a9a5af0a87460cc390b4c042404809be86d17d7339729",
       "bytes": 4524,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-256/sample-02/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-256/sample-02/desktop-demo.stdout.log",
       "sha256": "8e8bf1d462230b543fb0be5ab71bf3630c31f6b867eb97e59debea8978f70d12",
       "bytes": 4427,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-256/sample-02/manifest.json",
       "sha256": "b6a7ae60d05521b9df45d376dbcbe82d2acdaa6324241bc6d008681570536895",
       "bytes": 4524,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-256/sample-03/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-256/sample-03/desktop-demo.stdout.log",
       "sha256": "6cf63a1a49680c387b1da4ff203959343b13f7362daa35b2f358f1f3938d67e2",
       "bytes": 4427,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-256/sample-03/manifest.json",
       "sha256": "daece920556e95c31fdfcb488255de2835ca1c4c2388dda2761f3d6f29054aa1",
       "bytes": 4524,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-256/sample-04/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-256/sample-04/desktop-demo.stdout.log",
       "sha256": "f52a1e3e33349fe25ead7e2bd9c6d7f06992a153d148a284fb04f10bc4b874f8",
       "bytes": 4427,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-256/sample-04/manifest.json",
       "sha256": "2f73b31e6b46331b01407ac4dbcda4a998c9a64226b3be074f420c6f2b1ad863",
       "bytes": 4523,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-256/sample-05/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-256/sample-05/desktop-demo.stdout.log",
       "sha256": "fbd2652772bb535c4674efc0d7793e30e0dc825a133d918012e5e66dd8658a32",
       "bytes": 4427,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-256/sample-05/manifest.json",
       "sha256": "976dc8d0aac9ae6eb1cceea3481c4e5108ec30743f2e796725cfd7eb305f8262",
       "bytes": 4523,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-256/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-64/sample-01/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-64/sample-01/desktop-demo.stdout.log",
       "sha256": "ad4ca23851d991cd603ab82d217233792fd90c687b8206ce983d683948575eb3",
       "bytes": 4398,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-64/sample-01/manifest.json",
       "sha256": "a3deef2957a56f8c980e7ad805cd0ce56d5d437d88299f30b0c55dc810795898",
       "bytes": 4510,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-01/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-64/sample-02/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-64/sample-02/desktop-demo.stdout.log",
       "sha256": "36cc62bea4ed5608af2fe93a1717f9de26d64086d75bd2ac180b2daac0e4a562",
       "bytes": 4397,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-64/sample-02/manifest.json",
       "sha256": "28c8e16a255ddc73f201814315e5010d3d936d488dad0eda2d33f32497975d36",
       "bytes": 4509,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-02/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-64/sample-03/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-64/sample-03/desktop-demo.stdout.log",
       "sha256": "ba7cfb22b550d96d4c78b4c6ee9067847b612be55b14edf27a45ef8e2b49001f",
       "bytes": 4399,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-64/sample-03/manifest.json",
       "sha256": "9ba7ee7d71ac222227e35faf01c7439d266650203281fd8023ed5ffc744d95cd",
       "bytes": 4509,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-03/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-64/sample-04/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-64/sample-04/desktop-demo.stdout.log",
       "sha256": "92c5009d05f300c2d18bc678bc42aa50c7eae4621010eb1ac568b76760c85735",
       "bytes": 4400,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-64/sample-04/manifest.json",
       "sha256": "5fc4a67a7cb73b57859767bbbcd6156c3b8c8e4d17ce9ca3bea64257beda8480",
       "bytes": 4512,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-04/manifest.json#/ProcessExitCode"
     },
     {
       "category": "validation_output",
       "path": "scale-characterization/scale-64/sample-05/desktop-demo.stderr.log",
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "bytes": 0,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "orchestration_timeline",
       "path": "scale-characterization/scale-64/sample-05/desktop-demo.stdout.log",
       "sha256": "28c932d261ad34579aaf84fff7d74ecb3453ab6d8ee5caf9c65d9ab77b34e498",
       "bytes": 4397,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-05/manifest.json#/ProcessExitCode"
     },
     {
       "category": "raw_measurement",
       "path": "scale-characterization/scale-64/sample-05/manifest.json",
       "sha256": "db1d10ff4cbbe0105be1fa31244f1301b6e2851080b53c531d916e3af763301f",
       "bytes": 4510,
-      "process_exit_code": 0
+      "process_exit_code": 0,
+      "process_outcome_source": "scale-characterization/scale-64/sample-05/manifest.json#/ProcessExitCode"
     }
   ]
 }

@@ -1,0 +1,94 @@
+{
+  "schema_version": 1,
+  "scope": "Descriptive comparison for the recorded development machine only.",
+  "selection_rule": [
+    "median_latency_milliseconds",
+    "p95_latency_milliseconds",
+    "peak_live_gpu_bytes",
+    "peak_live_gpu_resources"
+  ],
+  "candidates": [
+    {
+      "extent": 16,
+      "qualification": {
+        "semantic_correctness": true,
+        "localization": true,
+        "failure_retry": true,
+        "lifecycle": true,
+        "shutdown": true,
+        "resource_retirement": true,
+        "validation": true
+      },
+      "latency_samples_milliseconds": [
+        738.1322,
+        732.1741,
+        734.3968,
+        708.5266,
+        717.6007
+      ],
+      "latency_milliseconds": {
+        "count": 5,
+        "median": 732.1741,
+        "p95": 738.1322,
+        "maximum": 738.1322
+      },
+      "peak_live_gpu_bytes": 40088816,
+      "peak_live_gpu_resources": 1414
+    },
+    {
+      "extent": 32,
+      "qualification": {
+        "semantic_correctness": true,
+        "localization": true,
+        "failure_retry": true,
+        "lifecycle": true,
+        "shutdown": true,
+        "resource_retirement": true,
+        "validation": true
+      },
+      "latency_samples_milliseconds": [
+        874.8499,
+        846.6809,
+        838.262,
+        871.1,
+        941.3916
+      ],
+      "latency_milliseconds": {
+        "count": 5,
+        "median": 871.1,
+        "p95": 941.3916,
+        "maximum": 941.3916
+      },
+      "peak_live_gpu_bytes": 41313520,
+      "peak_live_gpu_resources": 302
+    },
+    {
+      "extent": 64,
+      "qualification": {
+        "semantic_correctness": true,
+        "localization": true,
+        "failure_retry": true,
+        "lifecycle": true,
+        "shutdown": true,
+        "resource_retirement": true,
+        "validation": true
+      },
+      "latency_samples_milliseconds": [
+        2743.8733,
+        2430.2603,
+        2401.8107,
+        2549.8682,
+        2638.4591
+      ],
+      "latency_milliseconds": {
+        "count": 5,
+        "median": 2549.8682,
+        "p95": 2743.8733,
+        "maximum": 2743.8733
+      },
+      "peak_live_gpu_bytes": 43762928,
+      "peak_live_gpu_resources": 64
+    }
+  ],
+  "selected_extent": 16
+}

@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-07-13T18:45:15.2379391Z",
+  "repository_revision": "0dc8f6f1d90a313d71569215ef6ccbefee5afe18",
+  "processes": [
+    {
+      "name": "desktop_build",
+      "command": "cargo build --locked --package desktop-demo",
+      "exit_code": 0,
+      "log": "desktop-build.log"
+    },
+    {
+      "name": "raster_qualification_tests",
+      "command": "cargo test --locked --package raster-render-path --all-targets",
+      "exit_code": 0,
+      "log": "raster-qualification-tests.log"
+    },
+    {
+      "name": "extent_selection",
+      "command": "cargo run --locked --package measurement-evidence --bin raster-region-extent-report -- E:\\Programming\\voxel-nexus\\artifacts\\raster-region-extent-selection-issue-47\\selection-input.json E:\\Programming\\voxel-nexus\\artifacts\\localized-raster-source-processes-issue-49\\selection-reproduced.json",
+      "exit_code": 0,
+      "log": "extent-selection.log"
+    },
+    {
+      "name": "selection_comparison",
+      "command": "SHA-256 compare reproduced selection.json with retained selection.json",
+      "exit_code": 0,
+      "log": "selection-reproduced.json"
+    }
+  ]
+}

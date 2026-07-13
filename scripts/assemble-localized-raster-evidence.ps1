@@ -3,7 +3,8 @@ param(
     [string]$EvidenceDirectory = "docs/evidence/localized-editable-raster/v1/development-machine",
     [string]$DemoEvidence = "artifacts/edit-burst-issue-46",
     [string]$ExtentEvidence = "artifacts/raster-region-extent-selection-issue-47",
-    [string]$ScaleEvidence = "artifacts/raster-region-scale-characterization-issue-48"
+    [string]$ScaleEvidence = "artifacts/raster-region-scale-characterization-issue-48",
+    [string]$SourceProcessEvidence = "artifacts/localized-raster-source-processes-issue-49"
 )
 
 Set-StrictMode -Version Latest
@@ -78,6 +79,7 @@ function Get-ArtifactCategory {
 $demoSource = Resolve-EvidenceDirectory $DemoEvidence
 $extentSource = Resolve-EvidenceDirectory $ExtentEvidence
 $scaleSource = Resolve-EvidenceDirectory $ScaleEvidence
+$sourceProcessSource = Resolve-EvidenceDirectory $SourceProcessEvidence
 
 if ([System.IO.Directory]::Exists($evidencePath)) {
     Remove-Item -LiteralPath $evidencePath -Recurse -Force
@@ -86,6 +88,7 @@ if ([System.IO.Directory]::Exists($evidencePath)) {
 Copy-Item -LiteralPath $demoSource -Destination (Join-Path $evidencePath "demo") -Recurse
 Copy-Item -LiteralPath $extentSource -Destination (Join-Path $evidencePath "extent-selection") -Recurse
 Copy-Item -LiteralPath $scaleSource -Destination (Join-Path $evidencePath "scale-characterization") -Recurse
+Copy-Item -LiteralPath $sourceProcessSource -Destination (Join-Path $evidencePath "process-verification") -Recurse
 
 $readme = @'
 # Localized editable raster evidence, schema v1
@@ -100,6 +103,7 @@ From a clean checkout with the Vulkan SDK and `VK_LAYER_KHRONOS_validation` avai
 pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 -EvidenceDirectory artifacts/edit-burst-issue-46
 pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 -EvidenceDirectory artifacts/raster-region-extent-selection-issue-47
 pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 -EvidenceDirectory artifacts/raster-region-scale-characterization-issue-48 -SelectionManifest artifacts/raster-region-extent-selection-issue-47/manifest.json
+pwsh -NoProfile -File scripts/verify-localized-raster-source-processes.ps1
 pwsh -NoProfile -File scripts/assemble-localized-raster-evidence.ps1
 ```
 
@@ -153,17 +157,73 @@ Write-Utf8File -Path (Join-Path $evidencePath "comparison.svg") -Contents ($svg 
 $demoManifest = Get-Content -Raw (Join-Path $evidencePath "demo/manifest.json") | ConvertFrom-Json
 $extentManifest = Get-Content -Raw (Join-Path $evidencePath "extent-selection/manifest.json") | ConvertFrom-Json
 $scaleManifest = Get-Content -Raw (Join-Path $evidencePath "scale-characterization/manifest.json") | ConvertFrom-Json
+$sourceProcessManifest = Get-Content -Raw (Join-Path $evidencePath "process-verification/process-outcomes.json") | ConvertFrom-Json
 $nvidiaController = @($extentManifest.machine.video_controllers | Where-Object { $_.Name -like "NVIDIA*" })[0]
+$runManifestCache = @{}
+
+function Get-ArtifactProcessOutcome {
+    param([string]$RelativePath)
+    $normalized = $RelativePath.Replace("\", "/")
+    if ($normalized.StartsWith("demo/", [StringComparison]::Ordinal)) {
+        return [pscustomobject]@{
+            ExitCode = [int]$demoManifest.ProcessExitCode
+            Source = "demo/manifest.json#/ProcessExitCode"
+        }
+    }
+    if ($normalized.StartsWith("process-verification/", [StringComparison]::Ordinal)) {
+        $processIndex = switch ($normalized) {
+            "process-verification/desktop-build.log" { 0 }
+            "process-verification/raster-qualification-tests.log" { 1 }
+            "process-verification/extent-selection.log" { 2 }
+            "process-verification/selection-reproduced.json" { 2 }
+            default { $null }
+        }
+        if ($null -eq $processIndex) {
+            return [pscustomobject]@{ ExitCode = $null; Source = $null }
+        }
+        return [pscustomobject]@{
+            ExitCode = [int]$sourceProcessManifest.processes[$processIndex].exit_code
+            Source = "process-verification/process-outcomes.json#/processes/$processIndex/exit_code"
+        }
+    }
+    if ($normalized -notmatch '^(extent-selection/extent-\d+/(?:qualification|sample-\d+)|scale-characterization/scale-\d+/sample-\d+)/') {
+        return [pscustomobject]@{ ExitCode = $null; Source = $null }
+    }
+    $runDirectory = $Matches[1]
+    $runManifestPath = "$runDirectory/manifest.json"
+    if (-not $runManifestCache.ContainsKey($runManifestPath)) {
+        $runManifestCache[$runManifestPath] = Get-Content -Raw (Join-Path $evidencePath $runManifestPath) | ConvertFrom-Json
+    }
+    $runManifest = $runManifestCache[$runManifestPath]
+    if ($normalized.Contains("active-cpu-close")) {
+        return [pscustomobject]@{
+            ExitCode = [int]$runManifest.ShutdownQualification.ActiveCpuWork.ProcessExitCode
+            Source = "$runManifestPath#/ShutdownQualification/ActiveCpuWork/ProcessExitCode"
+        }
+    }
+    if ($normalized.Contains("hidden-candidate-close")) {
+        return [pscustomobject]@{
+            ExitCode = [int]$runManifest.ShutdownQualification.HiddenPostUploadCandidate.ProcessExitCode
+            Source = "$runManifestPath#/ShutdownQualification/HiddenPostUploadCandidate/ProcessExitCode"
+        }
+    }
+    [pscustomobject]@{
+        ExitCode = [int]$runManifest.ProcessExitCode
+        Source = "$runManifestPath#/ProcessExitCode"
+    }
+}
 
 $artifacts = @()
 foreach ($file in Get-ChildItem -LiteralPath $evidencePath -Recurse -File | Where-Object { $_.Name -ne "manifest.json" -or $_.DirectoryName -ne $evidencePath } | Sort-Object FullName) {
     $relativePath = [System.IO.Path]::GetRelativePath($evidencePath, $file.FullName).Replace("\", "/")
+    $processOutcome = Get-ArtifactProcessOutcome $relativePath
     $artifacts += [ordered]@{
         category = Get-ArtifactCategory $relativePath
         path = $relativePath
         sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         bytes = [uint64]$file.Length
-        process_exit_code = 0
+        process_exit_code = $processOutcome.ExitCode
+        process_outcome_source = $processOutcome.Source
     }
 }
 
@@ -242,9 +302,19 @@ $manifest = [ordered]@{
         "pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 -EvidenceDirectory artifacts/edit-burst-issue-46",
         "pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 -EvidenceDirectory artifacts/raster-region-extent-selection-issue-47",
         "pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 -EvidenceDirectory artifacts/raster-region-scale-characterization-issue-48 -SelectionManifest artifacts/raster-region-extent-selection-issue-47/manifest.json",
+        "pwsh -NoProfile -File scripts/verify-localized-raster-source-processes.ps1",
         "pwsh -NoProfile -File scripts/assemble-localized-raster-evidence.ps1"
     )
     verification_command = "cargo run --locked --package localized-raster-evidence --bin verify-localized-raster-evidence -- docs/evidence/localized-editable-raster/v1/development-machine"
+    required_processes = @(for ($processIndex = 0; $processIndex -lt $sourceProcessManifest.processes.Count; $processIndex++) {
+        $process = $sourceProcessManifest.processes[$processIndex]
+        [ordered]@{
+            name = [string]$process.name
+            command = [string]$process.command
+            exit_code = [int]$process.exit_code
+            evidence = "process-verification/process-outcomes.json#/processes/$processIndex/exit_code"
+        }
+    })
     artifacts = $artifacts
 }
 Write-Utf8File -Path (Join-Path $evidencePath "manifest.json") -Contents (($manifest | ConvertTo-Json -Depth 16) + "`n")

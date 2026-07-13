@@ -19,7 +19,7 @@ fn retained_bundle_passes_all_verification_gates() -> Result<(), Box<dyn std::er
 
     let summary = verify_bundle(&root, &manifest)?;
 
-    assert_eq!(summary.artifacts, 141);
+    assert_eq!(summary.artifacts, 146);
     assert_eq!(summary.selected_extent, [16, 16, 16]);
     Ok(())
 }
@@ -57,6 +57,42 @@ fn verifier_rejects_a_source_command_that_disagrees_with_the_bundle_manifest()
 
     assert!(error.to_string().contains("demo/manifest.json"));
     assert!(error.to_string().contains("command"));
+    fs::remove_dir_all(destination_root)?;
+    Ok(())
+}
+
+#[test]
+fn verifier_rejects_a_retained_required_process_nonzero_exit()
+-> Result<(), Box<dyn std::error::Error>> {
+    let source_root = retained_bundle();
+    let mut manifest = read_manifest(&source_root.join("manifest.json"))?;
+    let destination_root = linked_bundle_directory()?;
+    link_artifacts(&source_root, &destination_root, &manifest)?;
+
+    let relative_path = "process-verification/process-outcomes.json";
+    let destination_path = destination_root.join(relative_path);
+    fs::remove_file(&destination_path)?;
+    let mut process_outcomes: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(source_root.join(relative_path))?)?;
+    let test_exit = process_outcomes
+        .pointer_mut("/processes/1/exit_code")
+        .ok_or("missing raster qualification process exit")?;
+    *test_exit = serde_json::Value::from(1_i32);
+    let changed = serde_json::to_vec_pretty(&process_outcomes)?;
+    fs::write(&destination_path, &changed)?;
+
+    let record = manifest
+        .artifacts
+        .iter_mut()
+        .find(|artifact| artifact.path == relative_path)
+        .ok_or("missing process outcome artifact record")?;
+    record.bytes = u64::try_from(changed.len())?;
+    record.sha256 = format!("{:x}", Sha256::digest(&changed));
+
+    let error = verify_bundle(&destination_root, &manifest)
+        .expect_err("nonzero retained required process exit must be rejected");
+
+    assert!(error.to_string().contains("process exit"));
     fs::remove_dir_all(destination_root)?;
     Ok(())
 }

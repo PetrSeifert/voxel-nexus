@@ -10,6 +10,7 @@ From a clean checkout with the Vulkan SDK and `VK_LAYER_KHRONOS_validation` avai
 pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 -EvidenceDirectory artifacts/edit-burst-issue-46
 pwsh -NoProfile -File scripts/qualify-raster-region-extents.ps1 -EvidenceDirectory artifacts/raster-region-extent-selection-issue-47
 pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 -EvidenceDirectory artifacts/raster-region-scale-characterization-issue-48 -SelectionManifest artifacts/raster-region-extent-selection-issue-47/manifest.json
+pwsh -NoProfile -File scripts/verify-localized-raster-source-processes.ps1
 pwsh -NoProfile -File scripts/assemble-localized-raster-evidence.ps1
 ```
 

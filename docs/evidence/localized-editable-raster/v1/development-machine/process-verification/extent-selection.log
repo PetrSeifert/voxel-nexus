@@ -1,0 +1,2 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running `target\debug\raster-region-extent-report.exe E:\Programming\voxel-nexus\artifacts\raster-region-extent-selection-issue-47\selection-input.json E:\Programming\voxel-nexus\artifacts\localized-raster-source-processes-issue-49\selection-reproduced.json`
