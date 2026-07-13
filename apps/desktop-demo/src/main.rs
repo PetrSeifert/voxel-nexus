@@ -539,6 +539,21 @@ fn format_convergence_overlay(
 }
 
 #[cfg(target_os = "windows")]
+fn should_start_edit_burst(
+    edit_burst_demo: bool,
+    awaiting_key: bool,
+    state: ElementState,
+    repeat: bool,
+    key: &Key,
+) -> bool {
+    edit_burst_demo
+        && awaiting_key
+        && state == ElementState::Pressed
+        && !repeat
+        && matches!(key, Key::Named(NamedKey::Space))
+}
+
+#[cfg(target_os = "windows")]
 fn voxel_value_identity(value: &VoxelValue) -> String {
     match value {
         VoxelValue::Empty => "empty".to_owned(),
@@ -1187,7 +1202,7 @@ impl DesktopApplication {
         }
     }
 
-    fn set_drawable_extent(&mut self, drawable_extent: ash::vk::Extent2D) {
+    fn set_drawable_extent(&mut self, drawable_extent: ash::vk::Extent2D) -> Result<(), String> {
         self.drawable_extent = drawable_extent;
         if let Some(backend) = &mut self.backend {
             backend.set_drawable_extent(drawable_extent);
@@ -1225,6 +1240,15 @@ impl DesktopApplication {
         {
             window.request_redraw();
         }
+        if let Some(overlay) = &self.text_overlay {
+            let scale_factor = self
+                .window
+                .as_ref()
+                .map(Window::scale_factor)
+                .unwrap_or(1.0);
+            overlay.layout(drawable_extent, scale_factor)?;
+        }
+        Ok(())
     }
 
     fn complete_preparation(&mut self, event_loop: &ActiveEventLoop) {
@@ -1885,7 +1909,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         height: drawable_size.height,
                     }
                 };
-                self.set_drawable_extent(drawable_extent);
+                if let Err(error) = self.set_drawable_extent(drawable_extent) {
+                    self.fail(event_loop, error);
+                }
             }
             WindowEvent::Occluded(occluded) => {
                 if occluded
@@ -1917,13 +1943,20 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         height: drawable_size.height,
                     }
                 };
-                self.set_drawable_extent(drawable_extent);
+                if let Err(error) = self.set_drawable_extent(drawable_extent) {
+                    self.fail(event_loop, error);
+                }
             }
-            WindowEvent::KeyboardInput { event, .. }
-                if event.state == ElementState::Pressed
-                    && matches!(event.logical_key, Key::Named(NamedKey::Space)) =>
-            {
-                self.start_edit_burst(event_loop);
+            WindowEvent::KeyboardInput { event, .. } => {
+                if should_start_edit_burst(
+                    self.render_configuration.edit_burst_demo,
+                    matches!(self.edit_burst_stage, Some(EditBurstStage::AwaitingKey(_))),
+                    event.state,
+                    event.repeat,
+                    &event.logical_key,
+                ) {
+                    self.start_edit_burst(event_loop);
+                }
             }
             WindowEvent::RedrawRequested => {
                 let frame_started_at = Instant::now();
@@ -2490,13 +2523,57 @@ fn main() -> ExitCode {
 mod measurement_tests {
     use super::{
         CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst,
-        format_convergence_overlay,
+        format_convergence_overlay, should_start_edit_burst,
     };
     use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
     use raster_render_path::RasterConvergenceStatus;
     use render_backend::FrameObservation;
     use std::time::{Duration, Instant};
     use voxel_frontend::{VoxelEditOutcome, VoxelFrontend, VoxelSceneRevision};
+    use winit::{
+        event::ElementState,
+        keyboard::{Key, NamedKey},
+    };
+
+    #[test]
+    fn only_one_non_repeated_space_press_can_start_an_awaiting_edit_burst() {
+        let space = Key::Named(NamedKey::Space);
+        assert!(should_start_edit_burst(
+            true,
+            true,
+            ElementState::Pressed,
+            false,
+            &space
+        ));
+        assert!(!should_start_edit_burst(
+            false,
+            true,
+            ElementState::Pressed,
+            false,
+            &space
+        ));
+        assert!(!should_start_edit_burst(
+            true,
+            false,
+            ElementState::Pressed,
+            false,
+            &space
+        ));
+        assert!(!should_start_edit_burst(
+            true,
+            true,
+            ElementState::Pressed,
+            true,
+            &space
+        ));
+        assert!(!should_start_edit_burst(
+            true,
+            true,
+            ElementState::Released,
+            false,
+            &space
+        ));
+    }
 
     #[test]
     fn in_client_overlay_text_reports_both_revisions_and_region_counts() {

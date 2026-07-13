@@ -14,7 +14,7 @@ impl WindowsTextOverlay {
         let RawWindowHandle::Win32(window_handle) = window_handle.as_raw() else {
             return Err("the Windows overlay parent has no Win32 handle".to_owned());
         };
-        let parent = window_handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
+        let parent_handle = window_handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
         let class_name = "STATIC\0".encode_utf16().collect::<Vec<_>>();
         let initial_text = "Voxel raster convergence\0"
             .encode_utf16()
@@ -27,11 +27,11 @@ impl WindowsTextOverlay {
                 windows_sys::Win32::UI::WindowsAndMessaging::WS_CHILD
                     | windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE
                     | windows_sys::Win32::UI::WindowsAndMessaging::WS_BORDER,
-                12,
-                12,
-                1120,
-                28,
-                parent,
+                0,
+                0,
+                1,
+                1,
+                parent_handle,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 std::ptr::null(),
@@ -43,8 +43,17 @@ impl WindowsTextOverlay {
                 std::io::Error::last_os_error()
             ));
         }
+        let overlay = Self { window };
+        let size = parent.inner_size();
+        overlay.layout(
+            vk::Extent2D {
+                width: size.width,
+                height: size.height,
+            },
+            parent.scale_factor(),
+        )?;
         println!("In-client convergence overlay created");
-        Ok(Self { window })
+        Ok(overlay)
     }
 
     pub fn set_text(&self, text: &str) -> Result<(), String> {
@@ -58,6 +67,54 @@ impl WindowsTextOverlay {
         if result == 0 {
             return Err(format!(
                 "could not update the in-client convergence overlay: {}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn layout(&self, extent: vk::Extent2D, scale_factor: f64) -> Result<(), String> {
+        if extent.width == 0 || extent.height == 0 {
+            return Ok(());
+        }
+        if !scale_factor.is_finite() || scale_factor <= 0.0 {
+            return Err(format!(
+                "the in-client convergence overlay scale factor is invalid: {scale_factor}"
+            ));
+        }
+        let margin = (12.0 * scale_factor).round();
+        let height = (28.0 * scale_factor).round();
+        if margin > f64::from(i32::MAX) || height > f64::from(i32::MAX) {
+            return Err(
+                "the in-client convergence overlay layout cannot be represented".to_owned(),
+            );
+        }
+        let margin = margin as i32;
+        let height = height as i32;
+        let horizontal_margin = u32::try_from(margin)
+            .ok()
+            .and_then(|margin| margin.checked_mul(2))
+            .ok_or_else(|| {
+                "the in-client convergence overlay margin cannot be represented".to_owned()
+            })?;
+        let width =
+            i32::try_from(extent.width.saturating_sub(horizontal_margin).max(1)).map_err(|_| {
+                "the in-client convergence overlay width cannot be represented".to_owned()
+            })?;
+        let result = unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::SetWindowPos(
+                self.window,
+                windows_sys::Win32::UI::WindowsAndMessaging::HWND_TOP,
+                margin,
+                margin,
+                width,
+                height,
+                windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOACTIVATE,
+            )
+        };
+        if result == 0 {
+            return Err(format!(
+                "could not lay out the in-client convergence overlay: {}",
                 std::io::Error::last_os_error()
             ));
         }
