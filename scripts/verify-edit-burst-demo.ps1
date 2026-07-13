@@ -29,8 +29,6 @@ $sceneDimensions = switch ($SceneScale) {
     128 { @(128, 64, 128) }
     256 { @(256, 128, 256) }
 }
-$commandSpacing = [Math]::Min(40, [Math]::Floor($sceneDimensions[0] / 3))
-$commandCoordinates = @(0, $commandSpacing, $commandSpacing * 2)
 
 Add-Type -AssemblyName System.Drawing
 Add-Type @"
@@ -428,6 +426,26 @@ try {
     if ($standardOutput -match "Edit burst overlay: .*Visible=(2|3)(\D|$)") {
         throw "An intermediate Voxel Scene Revision became visible."
     }
+    $commandMatches = [Regex]::Matches(
+        $standardOutput,
+        '(?m)^Edit burst command: order=(?<Order>\d+) volume=VoxelVolumeId\("canonical-volume"\) coordinate=VoxelCoordinate \{ x: (?<X>-?\d+), y: (?<Y>-?\d+), z: (?<Z>-?\d+) \} old=(?<Old>\S+) requested=occupied:VoxelMaterialId\("(?<Material>[^"]+)"\)\r?$'
+    )
+    if ($commandMatches.Count -ne 3) {
+        throw "The edit-burst proof did not report exactly three authoritative command definitions."
+    }
+    $commands = @($commandMatches | ForEach-Object {
+        $order = [int]$_.Groups["Order"].Value
+        [ordered]@{
+            Order = $order
+            Coordinate = @([int]$_.Groups["X"].Value, [int]$_.Groups["Y"].Value, [int]$_.Groups["Z"].Value)
+            Old = $_.Groups["Old"].Value
+            Requested = "occupied:$($_.Groups["Material"].Value)"
+            PublishedRevision = $order + 1
+        }
+    })
+    if (($commands.Order -join ",") -ne "1,2,3") {
+        throw "The edit-burst command definitions were not reported in order."
+    }
     $retirement = [Regex]::Match($standardOutput, "Superseded candidate rejected at commit: revision=3 retired_resources=(?<Count>\d+)")
     if (-not $retirement.Success -or [int]$retirement.Groups["Count"].Value -le 0) {
         throw "The superseded configured candidate did not report retired GPU resources."
@@ -481,6 +499,9 @@ try {
     if ($workDisposition.ScheduledRegions -lt $workDisposition.CompletedRegions) {
         throw "The characterization completed more Raster Regions than it scheduled."
     }
+    if ($workDisposition.CompletedRegions + $workDisposition.CancelledRegions + $workDisposition.StaleRegions -ne $workDisposition.ScheduledRegions) {
+        throw "The completed, cancelled, and stale dispositions do not partition the scheduled Raster Regions."
+    }
     if ($resourceDisposition.Installed.Resources -eq 0 -or $resourceDisposition.Hidden.Resources -eq 0 -or $resourceDisposition.Retired.Resources -eq 0) {
         throw "The characterization omitted installed, hidden, or retired GPU resources."
     }
@@ -489,6 +510,18 @@ try {
     }
     if ($cancellationEvents.Count -eq 0 -or $safeRetirementEvents.Count -eq 0) {
         throw "The characterization omitted cancellation or safe-retirement events."
+    }
+    [uint64]$safeRetiredBytes = 0
+    [uint64]$safeRetiredResources = 0
+    foreach ($safeRetirementEvent in $safeRetirementEvents) {
+        $safeRetiredBytes += [uint64]$safeRetirementEvent.Bytes
+        $safeRetiredResources += [uint64]$safeRetirementEvent.Resources
+    }
+    if ($safeRetiredBytes -ne $resourceDisposition.Retired.Bytes -or $safeRetiredResources -ne $resourceDisposition.Retired.Resources) {
+        throw "The safe-retirement events do not account for every retired GPU resource and byte."
+    }
+    if (@($safeRetirementEvents.Disposition | Sort-Object -Unique) -join "," -ne "replaced-installation,stale-candidate") {
+        throw "The characterization did not retain both stale-candidate and replaced-installation retirement events."
     }
     foreach ($title in @($cpuHeldTitle, $postUploadHeldTitle, $finalTitle)) {
         if ($title -notmatch "Affected=(?<Affected>\d+) Unaffected=(?<Unaffected>\d+)") {
@@ -559,11 +592,7 @@ try {
             InstalledComplete = $true
             ExpectedFinalRevision = 4
         }
-        Commands = @(
-            [ordered]@{ Order = 1; Coordinate = @(0, 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 2 },
-            [ordered]@{ Order = 2; Coordinate = @($commandCoordinates[1], 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 3 },
-            [ordered]@{ Order = 3; Coordinate = @($commandCoordinates[2], 0, 0); Old = "empty"; Requested = "occupied:canonical-warm"; PublishedRevision = 4 }
-        )
+        Commands = $commands
         CpuBarrier = [ordered]@{ ObsoleteRevision = 2; ScheduledBeforeHold = 1; ScheduledTotal = 1; Cancelled = $true }
         PostUploadBarrier = [ordered]@{ SupersededRevision = 3; RejectedAtCommit = $true; RetiredGpuResourceCount = [int]$retirement.Groups["Count"].Value }
         Measurement = [ordered]@{

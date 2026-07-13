@@ -551,7 +551,7 @@ struct RasterLifecycleControlState {
 }
 
 struct RasterQueuedOutcome {
-    submitted_at: Instant,
+    queued_at: Instant,
     outcome: VoxelEditOutcome,
 }
 
@@ -738,13 +738,22 @@ pub struct RasterLifecycleControlError;
 
 impl RasterLifecycleController {
     pub fn submit(&self, outcome: VoxelEditOutcome) -> Result<(), RasterLifecycleControlError> {
-        let submitted_at = Instant::now();
+        let submission_started_at = Instant::now();
         let mut state = self.state.lock().map_err(|_| RasterLifecycleControlError)?;
         state.pending_outcomes.push_back(RasterQueuedOutcome {
-            submitted_at,
+            queued_at: submission_started_at,
             outcome,
         });
-        let elapsed_milliseconds = submitted_at.elapsed().as_secs_f64() * 1_000.0;
+        let phase_boundary = Instant::now();
+        state
+            .pending_outcomes
+            .back_mut()
+            .ok_or(RasterLifecycleControlError)?
+            .queued_at = phase_boundary;
+        let elapsed_milliseconds = phase_boundary
+            .saturating_duration_since(submission_started_at)
+            .as_secs_f64()
+            * 1_000.0;
         if let Some(characterization) = &mut state.characterization {
             characterization.phases.submission_bookkeeping_milliseconds += elapsed_milliseconds;
         }
@@ -769,6 +778,17 @@ impl RasterLifecycleController {
             .lock()
             .map(|state| state.characterization.clone())
             .map_err(|_| RasterLifecycleControlError)
+    }
+
+    fn update_characterization(
+        &self,
+        update: impl FnOnce(&mut RasterConvergenceCharacterization),
+    ) -> Result<(), RasterLifecycleControlError> {
+        let mut state = self.state.lock().map_err(|_| RasterLifecycleControlError)?;
+        if let Some(characterization) = &mut state.characterization {
+            update(characterization);
+        }
+        Ok(())
     }
 
     pub fn post_upload_revision(
@@ -895,17 +915,21 @@ fn raster_gpu_resource_usage<'resources>(
     resources: impl IntoIterator<Item = &'resources RasterRegionGpuResources>,
 ) -> Result<RasterGpuResourceUsage, RasterLifecycleControlError> {
     let mut usage = RasterGpuResourceUsage::default();
-    for resources in resources {
+    for region_resources in resources {
         usage.bytes = usage
             .bytes
-            .checked_add(resources.vertex_buffer_bytes)
-            .and_then(|bytes| bytes.checked_add(resources.index_buffer_bytes))
+            .checked_add(region_resources.vertex_buffer_bytes)
+            .and_then(|bytes| bytes.checked_add(region_resources.index_buffer_bytes))
             .ok_or(RasterLifecycleControlError)?;
         usage.resources = usage
             .resources
-            .checked_add(usize::from(resources.vertex_buffer != vk::Buffer::null()))
+            .checked_add(usize::from(
+                region_resources.vertex_buffer != vk::Buffer::null(),
+            ))
             .and_then(|count| {
-                count.checked_add(usize::from(resources.index_buffer != vk::Buffer::null()))
+                count.checked_add(usize::from(
+                    region_resources.index_buffer != vk::Buffer::null(),
+                ))
             })
             .ok_or(RasterLifecycleControlError)?;
     }
@@ -1290,23 +1314,20 @@ impl RasterRenderPath {
             for queued in outcomes {
                 let acceptance_started_at = Instant::now();
                 queued_wait = queued_wait.saturating_add(
-                    acceptance_started_at.saturating_duration_since(queued.submitted_at),
+                    acceptance_started_at.saturating_duration_since(queued.queued_at),
                 );
                 self.accept_edit_outcome(queued.outcome)?;
                 submission_bookkeeping =
                     submission_bookkeeping.saturating_add(acceptance_started_at.elapsed());
             }
-            if let Some(characterization) = &mut controller
-                .state
-                .lock()
-                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
-                .characterization
-            {
-                characterization.phases.queued_wait_milliseconds +=
-                    queued_wait.as_secs_f64() * 1_000.0;
-                characterization.phases.submission_bookkeeping_milliseconds +=
-                    submission_bookkeeping.as_secs_f64() * 1_000.0;
-            }
+            controller
+                .update_characterization(|characterization| {
+                    characterization.phases.queued_wait_milliseconds +=
+                        queued_wait.as_secs_f64() * 1_000.0;
+                    characterization.phases.submission_bookkeeping_milliseconds +=
+                        submission_bookkeeping.as_secs_f64() * 1_000.0;
+                })
+                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
         }
         let Some(mut convergence) = self.convergence.take() else {
             return Ok(());
@@ -1317,14 +1338,13 @@ impl RasterRenderPath {
             let upload = convergence.upload_ready_with_optional_device(device, self)?;
             if matches!(upload, RasterConvergenceUpload::Uploaded { .. })
                 && let Some(controller) = &self.lifecycle_control
-                && let Some(characterization) = &mut controller
-                    .state
-                    .lock()
-                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
-                    .characterization
             {
-                characterization.phases.upload_milliseconds +=
-                    upload_started_at.elapsed().as_secs_f64() * 1_000.0;
+                let upload_milliseconds = upload_started_at.elapsed().as_secs_f64() * 1_000.0;
+                controller
+                    .update_characterization(|characterization| {
+                        characterization.phases.upload_milliseconds += upload_milliseconds;
+                    })
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             }
             if let Some(candidate) = &convergence.hidden_candidate {
                 self.observe_live_gpu_resources(
@@ -1335,16 +1355,15 @@ impl RasterRenderPath {
                 .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
                 let hidden = raster_gpu_resource_usage(candidate.successor_gpu_resources.iter())
                     .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
-                if let Some(controller) = &self.lifecycle_control
-                    && let Some(characterization) = &mut controller
-                        .state
-                        .lock()
-                        .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
-                        .characterization
-                {
-                    characterization.hidden.bytes = characterization.hidden.bytes.max(hidden.bytes);
-                    characterization.hidden.resources =
-                        characterization.hidden.resources.max(hidden.resources);
+                if let Some(controller) = &self.lifecycle_control {
+                    controller
+                        .update_characterization(|characterization| {
+                            characterization.hidden.bytes =
+                                characterization.hidden.bytes.max(hidden.bytes);
+                            characterization.hidden.resources =
+                                characterization.hidden.resources.max(hidden.resources);
+                        })
+                        .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
                 }
             }
             if matches!(
@@ -1375,6 +1394,10 @@ impl RasterRenderPath {
                 } => {
                     let stale_regions = u64::try_from(retirement.resource_count())
                         .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation)?;
+                    convergence.work_disposition.completed = convergence
+                        .work_disposition
+                        .completed
+                        .saturating_sub(stale_regions);
                     convergence.work_disposition.stale = convergence
                         .work_disposition
                         .stale
@@ -1400,15 +1423,14 @@ impl RasterRenderPath {
                     RasterSafeRetirementDisposition::ReplacedInstallation,
                 ),
             };
-            if let Some(controller) = &self.lifecycle_control
-                && let Some(characterization) = &mut controller
-                    .state
-                    .lock()
-                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
-                    .characterization
-            {
-                characterization.phases.frame_boundary_commit_milliseconds +=
-                    commit_started_at.elapsed().as_secs_f64() * 1_000.0;
+            if let Some(controller) = &self.lifecycle_control {
+                let commit_milliseconds = commit_started_at.elapsed().as_secs_f64() * 1_000.0;
+                controller
+                    .update_characterization(|characterization| {
+                        characterization.phases.frame_boundary_commit_milliseconds +=
+                            commit_milliseconds;
+                    })
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             }
             self.observe_live_gpu_resources(
                 self.region_resources
@@ -1424,26 +1446,24 @@ impl RasterRenderPath {
             let device = device.ok_or(RasterConvergenceError::ConfiguredResourcesRequireDevice)?;
             // The backend invokes this hook only after its sole in-flight frame fence has completed.
             unsafe { retirement.release_after_gpu_completion(device) };
-            if let Some(controller) = &self.lifecycle_control
-                && let Some(characterization) = &mut controller
-                    .state
-                    .lock()
-                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
-                    .characterization
-            {
-                characterization.retired.bytes =
-                    characterization.retired.bytes.saturating_add(retired.bytes);
-                characterization.retired.resources = characterization
-                    .retired
-                    .resources
-                    .saturating_add(retired.resources);
-                characterization
-                    .safe_retirements
-                    .push(RasterSafeRetirementEvent {
-                        revision: retirement_revision,
-                        disposition: retirement_disposition,
-                        resources: retired,
-                    });
+            if let Some(controller) = &self.lifecycle_control {
+                controller
+                    .update_characterization(|characterization| {
+                        characterization.retired.bytes =
+                            characterization.retired.bytes.saturating_add(retired.bytes);
+                        characterization.retired.resources = characterization
+                            .retired
+                            .resources
+                            .saturating_add(retired.resources);
+                        characterization
+                            .safe_retirements
+                            .push(RasterSafeRetirementEvent {
+                                revision: retirement_revision,
+                                disposition: retirement_disposition,
+                                resources: retired,
+                            });
+                    })
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             }
             Ok(())
         })();
@@ -3563,11 +3583,7 @@ impl RasterConvergence {
             .cpu_derivation_nanoseconds
             .load(Ordering::Relaxed);
         let cancelled = matches!(completion, RasterPreparationCompletion::Cancelled);
-        let cancelled_regions = if cancelled {
-            scheduled_regions.saturating_sub(completed_regions)
-        } else {
-            0
-        };
+        let cancelled_regions = u64::from(cancelled).saturating_mul(scheduled_regions);
         self.cpu_derivation = self
             .cpu_derivation
             .saturating_add(Duration::from_nanos(cpu_derivation_nanoseconds));
@@ -3575,15 +3591,11 @@ impl RasterConvergence {
             .work_disposition
             .scheduled
             .saturating_add(scheduled_regions);
-        self.work_disposition.completed = self
-            .work_disposition
-            .completed
-            .saturating_add(completed_regions);
-        self.work_disposition.cancelled = self
-            .work_disposition
-            .cancelled
-            .saturating_add(cancelled_regions);
         if cancelled {
+            self.work_disposition.cancelled = self
+                .work_disposition
+                .cancelled
+                .saturating_add(cancelled_regions);
             self.cancellation_observations
                 .push(RasterCancellationObservation {
                     revision,
@@ -3616,7 +3628,7 @@ impl RasterConvergence {
             return Ok(());
         }
         if !is_current || cancelled {
-            if !cancelled {
+            if !is_current && !cancelled {
                 self.work_disposition.stale = self
                     .work_disposition
                     .stale
@@ -3637,6 +3649,10 @@ impl RasterConvergence {
             revision,
             source: source.source,
         })?;
+        self.work_disposition.completed = self
+            .work_disposition
+            .completed
+            .saturating_add(completed_regions);
         active.status = RasterActivePreparationStatus::Ready { regions };
         self.active = Some(active);
         self.events
@@ -5601,6 +5617,43 @@ mod convergence_tests {
         assert_eq!(reset.work, RasterRegionWorkDisposition::default());
         assert!(reset.cancellation_observations.is_empty());
         assert!(reset.safe_retirements.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn submission_bookkeeping_ends_at_the_queued_wait_boundary()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(1, 1)?;
+        let mut render_path = render_path(&frontend)?;
+        let controller = render_path.enable_lifecycle_control(false);
+        controller.begin_characterization()?;
+        let observation_started_at = Instant::now();
+
+        controller.submit(changed(&frontend, 0)?)?;
+
+        let state = controller
+            .state
+            .lock()
+            .map_err(|_| "control state poisoned")?;
+        let queued_at = state
+            .pending_outcomes
+            .front()
+            .ok_or("submitted outcome was not queued")?
+            .queued_at;
+        let submission_bookkeeping = state
+            .characterization
+            .as_ref()
+            .ok_or("characterization did not start")?
+            .phases
+            .submission_bookkeeping_milliseconds;
+        assert!(queued_at >= observation_started_at);
+        assert!(
+            queued_at
+                .saturating_duration_since(observation_started_at)
+                .as_secs_f64()
+                * 1_000.0
+                >= submission_bookkeeping
+        );
         Ok(())
     }
 

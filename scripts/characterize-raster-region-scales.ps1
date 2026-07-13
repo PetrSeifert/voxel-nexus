@@ -73,17 +73,13 @@ try {
     $binaryPath = Join-Path $repositoryRoot "target/debug/desktop-demo.exe"
     $binarySha256 = (Get-FileHash -LiteralPath $binaryPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
-    $scaleDefinitions = @(
-        [ordered]@{ scale = 64; dimensions = @(64, 32, 64) },
-        [ordered]@{ scale = 128; dimensions = @(128, 64, 128) },
-        [ordered]@{ scale = 256; dimensions = @(256, 128, 256) }
-    )
+    $scales = @(64, 128, 256)
     $scaleReports = @()
-    foreach ($scaleDefinition in $scaleDefinitions) {
-        $scale = [int]$scaleDefinition.scale
+    foreach ($scale in $scales) {
         $scaleDirectory = Join-Path $evidencePath "scale-$scale"
         [System.IO.Directory]::CreateDirectory($scaleDirectory) | Out-Null
         $samples = @()
+        $scaleDimensions = $null
         for ($sample = 1; $sample -le $SampleCount; $sample++) {
             $sampleName = "sample-{0:D2}" -f $sample
             $samplePath = Join-Path $scaleDirectory $sampleName
@@ -101,6 +97,12 @@ try {
             $sampleManifest = Get-Content -Raw $sampleManifestPath | ConvertFrom-Json
             if ([int]$sampleManifest.SchemaVersion -ne 1 -or [int]$sampleManifest.CanonicalInput.Scale -ne $scale) {
                 throw "Scale $scale sample $sample has an inconsistent manifest schema or scale."
+            }
+            $sampleDimensions = @($sampleManifest.CanonicalInput.Dimensions | ForEach-Object { [int]$_ })
+            if ($null -eq $scaleDimensions) {
+                $scaleDimensions = $sampleDimensions
+            } elseif (($sampleDimensions -join ",") -ne ($scaleDimensions -join ",")) {
+                throw "Scale $scale sample $sample changed the canonical dimensions."
             }
             if ([int]$sampleManifest.CanonicalInput.RasterRegionExtent[0] -ne $selectedExtent) {
                 throw "Scale $scale sample $sample did not use the selected Raster Region extent."
@@ -144,7 +146,7 @@ try {
         }
         $scaleReports += [ordered]@{
             scale = $scale
-            dimensions = $scaleDefinition.dimensions
+            dimensions = $scaleDimensions
             samples = $samples
             raw_distributions = [ordered]@{
                 phases_milliseconds = [ordered]@{
@@ -207,7 +209,7 @@ try {
             binary_sha256 = $binarySha256
         }
         sample_count_per_scale = $SampleCount
-        scales = $scaleDefinitions
+        scales = @($scaleReports | ForEach-Object { [ordered]@{ scale = $_.scale; dimensions = $_.dimensions } })
         raw_distributions = "raw-distributions.json"
         machine = [ordered]@{
             operating_system = (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber)

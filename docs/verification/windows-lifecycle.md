@@ -49,7 +49,7 @@ To characterize that machine-readable selected extent at all three canonical sca
 ```powershell
 pwsh -NoProfile -File scripts/characterize-raster-region-scales.ps1 `
     -EvidenceDirectory artifacts/raster-region-scale-characterization `
-    -SelectionManifest artifacts/raster-region-extent-selection/manifest.json `
+    -SelectionManifest artifacts/raster-region-extent-selection-issue-47/manifest.json `
     -SampleCount 5
 ```
 
