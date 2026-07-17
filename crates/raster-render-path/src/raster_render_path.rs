@@ -1,7 +1,9 @@
 use ash::vk;
 use render_backend::{
-    PresentationConfigurationId, RenderPath, RenderPathAttachmentIdentity, RenderPathDeviceContext,
-    RenderPathFrameContext, RenderPathResult, RenderPathTarget,
+    CameraStateRevision, PresentationConfigurationId, RenderPath, RenderPathAttachmentIdentity,
+    RenderPathDeviceContext, RenderPathFrameContext, RenderPathReadiness, RenderPathResult,
+    RenderPathRetirement, RenderPathStamp, RenderPathStrategy, RenderPathTarget,
+    SwitchableRenderPath,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
@@ -519,6 +521,7 @@ pub struct RasterArtifactInstallationError {
 }
 
 struct RasterArtifactInstallationState {
+    expected_scene_identity: Option<VoxelSceneId>,
     expected_revision: VoxelSceneRevision,
     staged_artifact: Option<RasterArtifact>,
     artifact_was_published: bool,
@@ -533,7 +536,13 @@ pub struct RasterArtifactInstaller {
 
 #[derive(Clone)]
 pub struct RasterCameraController {
-    camera_pose: Arc<Mutex<CameraPose>>,
+    state: Arc<Mutex<RasterCameraState>>,
+}
+
+#[derive(Clone, Copy)]
+struct RasterCameraState {
+    pose: CameraPose,
+    revision: CameraStateRevision,
 }
 
 struct RasterLifecycleControlState {
@@ -894,19 +903,37 @@ impl RasterLifecycleController {
 pub struct RasterCameraControlError;
 
 impl RasterCameraController {
-    pub fn set_pose(&self, camera_pose: CameraPose) -> Result<(), RasterCameraControlError> {
-        let mut current_pose = self
-            .camera_pose
-            .lock()
-            .map_err(|_| RasterCameraControlError)?;
-        *current_pose = camera_pose;
+    fn new(camera_pose: CameraPose, revision: CameraStateRevision) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(RasterCameraState {
+                pose: camera_pose,
+                revision,
+            })),
+        }
+    }
+
+    pub fn set_state(
+        &self,
+        camera_pose: CameraPose,
+        revision: CameraStateRevision,
+    ) -> Result<(), RasterCameraControlError> {
+        let mut state = self.state.lock().map_err(|_| RasterCameraControlError)?;
+        state.pose = camera_pose;
+        state.revision = revision;
         Ok(())
     }
 
     pub fn pose(&self) -> Result<CameraPose, RasterCameraControlError> {
-        self.camera_pose
+        self.state
             .lock()
-            .map(|camera_pose| *camera_pose)
+            .map(|state| state.pose)
+            .map_err(|_| RasterCameraControlError)
+    }
+
+    fn state(&self) -> Result<RasterCameraState, RasterCameraControlError> {
+        self.state
+            .lock()
+            .map(|state| *state)
             .map_err(|_| RasterCameraControlError)
     }
 }
@@ -939,6 +966,13 @@ fn raster_gpu_resource_usage<'resources>(
 #[derive(Debug, Error, Eq, PartialEq)]
 pub enum RasterArtifactInstallerError {
     #[error(
+        "complete raster artifact Voxel Scene identity mismatch: expected {expected:?}, received {actual:?}"
+    )]
+    SceneIdentityMismatch {
+        expected: VoxelSceneId,
+        actual: VoxelSceneId,
+    },
+    #[error(
         "complete raster artifact revision mismatch: expected Voxel Scene Revision {expected}, received {actual}"
     )]
     RevisionMismatch {
@@ -968,10 +1002,19 @@ impl RasterArtifactInstaller {
         artifact: RasterArtifact,
     ) -> Result<(), RasterArtifactInstallerError> {
         let actual = artifact.source_revision();
+        let actual_scene_identity = artifact.scene_identity().clone();
         let mut state = self
             .state
             .lock()
             .map_err(|_| RasterArtifactInstallerError::StateUnavailable)?;
+        if let Some(expected) = &state.expected_scene_identity
+            && expected != &actual_scene_identity
+        {
+            return Err(RasterArtifactInstallerError::SceneIdentityMismatch {
+                expected: expected.clone(),
+                actual: actual_scene_identity,
+            });
+        }
         if actual != state.expected_revision {
             return Err(RasterArtifactInstallerError::RevisionMismatch {
                 expected: state.expected_revision,
@@ -1051,9 +1094,122 @@ pub struct RasterRenderPath {
     configured_attachments: Vec<RenderPathAttachmentIdentity>,
     configuration_id: Option<PresentationConfigurationId>,
     camera_constants: [f32; 16],
+    acknowledged_camera_revision: CameraStateRevision,
     installed_regions: Vec<RasterRegionInstallation>,
     convergence: Option<RasterConvergence>,
     lifecycle_control: Option<RasterLifecycleController>,
+}
+
+pub struct RasterRenderPathAdapter {
+    render_path: RasterRenderPath,
+    scene_identity: VoxelSceneId,
+    initial_revision: VoxelSceneRevision,
+}
+
+impl RasterRenderPathAdapter {
+    pub fn awaiting_artifact_with_camera_control(
+        camera_pose: CameraPose,
+        camera_state_revision: CameraStateRevision,
+        scene_identity: VoxelSceneId,
+        expected_source_revision: VoxelSceneRevision,
+    ) -> (Self, RasterArtifactInstaller, RasterCameraController) {
+        let (render_path, artifact_installer, camera_controller) =
+            RasterRenderPath::awaiting_artifact_with_camera_revision(
+                camera_pose,
+                camera_state_revision,
+                Some(scene_identity.clone()),
+                expected_source_revision,
+            );
+        (
+            Self {
+                render_path,
+                scene_identity,
+                initial_revision: expected_source_revision,
+            },
+            artifact_installer,
+            camera_controller,
+        )
+    }
+
+    pub fn enable_lifecycle_control(
+        &mut self,
+        hold_post_upload: bool,
+    ) -> RasterLifecycleController {
+        self.render_path.enable_lifecycle_control(hold_post_upload)
+    }
+
+    fn required_revision(&self) -> VoxelSceneRevision {
+        self.render_path
+            .required_revision()
+            .or(self.render_path.expected_source_revision)
+            .unwrap_or(self.initial_revision)
+    }
+
+    fn visible_revision(&self) -> VoxelSceneRevision {
+        self.render_path
+            .visible_revision()
+            .or(self.render_path.installed_source_revision)
+            .unwrap_or(self.initial_revision)
+    }
+}
+
+impl RenderPath for RasterRenderPathAdapter {
+    fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        self.render_path.release(device)
+    }
+
+    fn configure(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+        target: RenderPathTarget<'_>,
+    ) -> RenderPathResult<()> {
+        self.render_path.configure(device, target)
+    }
+
+    fn advance_frame_boundary(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+        target: RenderPathTarget<'_>,
+    ) -> RenderPathResult<()> {
+        self.render_path.advance_frame_boundary(device, target)
+    }
+
+    fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        self.render_path.shutdown(device)
+    }
+
+    fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
+        self.render_path.record(frame)
+    }
+}
+
+impl SwitchableRenderPath for RasterRenderPathAdapter {
+    fn stamp(&self) -> RenderPathStamp {
+        let readiness = if self.render_path.installed_source_revision.is_some()
+            && self.render_path.configuration_id.is_some()
+        {
+            RenderPathReadiness::Recordable
+        } else {
+            RenderPathReadiness::Preparing
+        };
+        RenderPathStamp::new(
+            RenderPathStrategy::Raster,
+            self.scene_identity.clone(),
+            self.required_revision(),
+            self.visible_revision(),
+            self.render_path.acknowledged_camera_revision,
+            self.render_path.configuration_id,
+            readiness,
+        )
+    }
+
+    fn retire_at_frame_boundary(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+    ) -> RenderPathResult<RenderPathRetirement> {
+        self.render_path.shutdown(device)?;
+        Ok(RenderPathRetirement::Complete)
+    }
 }
 
 impl Default for RasterRenderPath {
@@ -1066,14 +1222,13 @@ impl Default for RasterRenderPath {
             0.1,
             100.0,
         );
+        let camera_state_revision = CameraStateRevision::new(1);
         Self {
             artifact: None,
             installation: None,
             expected_source_revision: None,
             installed_source_revision: None,
-            camera_control: RasterCameraController {
-                camera_pose: Arc::new(Mutex::new(camera_pose)),
-            },
+            camera_control: RasterCameraController::new(camera_pose, camera_state_revision),
             region_resources: Vec::new(),
             depth_image: vk::Image::null(),
             depth_memory: vk::DeviceMemory::null(),
@@ -1085,6 +1240,7 @@ impl Default for RasterRenderPath {
             configured_attachments: Vec::new(),
             configuration_id: None,
             camera_constants: [0.0; 16],
+            acknowledged_camera_revision: camera_state_revision,
             installed_regions: Vec::new(),
             convergence: None,
             lifecycle_control: None,
@@ -1103,9 +1259,7 @@ impl RasterRenderPath {
 
     pub fn with_camera_pose(camera_pose: CameraPose) -> Self {
         Self {
-            camera_control: RasterCameraController {
-                camera_pose: Arc::new(Mutex::new(camera_pose)),
-            },
+            camera_control: RasterCameraController::new(camera_pose, CameraStateRevision::new(1)),
             ..Self::default()
         }
     }
@@ -1123,8 +1277,23 @@ impl RasterRenderPath {
         camera_pose: CameraPose,
         expected_source_revision: VoxelSceneRevision,
     ) -> (Self, RasterArtifactInstaller, RasterCameraController) {
+        Self::awaiting_artifact_with_camera_revision(
+            camera_pose,
+            CameraStateRevision::new(1),
+            None,
+            expected_source_revision,
+        )
+    }
+
+    fn awaiting_artifact_with_camera_revision(
+        camera_pose: CameraPose,
+        camera_state_revision: CameraStateRevision,
+        expected_scene_identity: Option<VoxelSceneId>,
+        expected_source_revision: VoxelSceneRevision,
+    ) -> (Self, RasterArtifactInstaller, RasterCameraController) {
         let installer = RasterArtifactInstaller {
             state: Arc::new(Mutex::new(RasterArtifactInstallationState {
+                expected_scene_identity,
                 expected_revision: expected_source_revision,
                 staged_artifact: None,
                 artifact_was_published: false,
@@ -1132,11 +1301,10 @@ impl RasterRenderPath {
                 inject_upload_failure: false,
             })),
         };
-        let camera_control = RasterCameraController {
-            camera_pose: Arc::new(Mutex::new(camera_pose)),
-        };
+        let camera_control = RasterCameraController::new(camera_pose, camera_state_revision);
         let render_path = Self {
             camera_control: camera_control.clone(),
+            acknowledged_camera_revision: camera_state_revision,
             installation: Some(installer.clone()),
             expected_source_revision: Some(expected_source_revision),
             ..Self::default()
@@ -4561,9 +4729,10 @@ impl RenderPath for RasterRenderPath {
     fn advance_frame_boundary(
         &mut self,
         device: RenderPathDeviceContext<'_>,
-        _target: RenderPathTarget<'_>,
+        target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
         self.advance_convergence_at_frame_boundary(Some(&device))?;
+        self.update_camera_constants(target.extent())?;
         Ok(())
     }
 
@@ -4732,10 +4901,14 @@ impl RasterRenderPath {
             self.configured_attachments.push(attachment.identity());
         }
         self.configuration_id = Some(target.configuration_id());
-        self.camera_constants = self
-            .camera_control
-            .pose()?
-            .view_projection([target.extent().width, target.extent().height])?;
+        self.update_camera_constants(target.extent())?;
+        Ok(())
+    }
+
+    fn update_camera_constants(&mut self, extent: vk::Extent2D) -> Result<(), RasterResourceError> {
+        let state = self.camera_control.state()?;
+        self.camera_constants = state.pose.view_projection([extent.width, extent.height])?;
+        self.acknowledged_camera_revision = state.revision;
         Ok(())
     }
 
@@ -5029,10 +5202,7 @@ impl RasterRenderPath {
                 },
             },
         ];
-        self.camera_constants = self
-            .camera_control
-            .pose()?
-            .view_projection([target.extent().width, target.extent().height])?;
+        self.update_camera_constants(target.extent())?;
         let render_pass_info = vk::RenderPassBeginInfo::default()
             .render_pass(self.render_pass)
             .framebuffer(framebuffer)

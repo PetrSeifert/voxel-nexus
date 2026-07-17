@@ -12,6 +12,10 @@ impl CameraStateRevision {
     pub fn new(revision: u64) -> Self {
         Self(revision)
     }
+
+    pub fn checked_successor(self) -> Option<Self> {
+        self.0.checked_add(1).map(Self)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,12 +66,24 @@ impl RenderPathStamp {
         self.strategy
     }
 
+    pub fn scene_identity(&self) -> &VoxelSceneId {
+        &self.scene_identity
+    }
+
     pub fn required_revision(&self) -> VoxelSceneRevision {
         self.required_revision
     }
 
     pub fn visible_revision(&self) -> VoxelSceneRevision {
         self.visible_revision
+    }
+
+    pub fn camera_state_revision(&self) -> CameraStateRevision {
+        self.camera_state_revision
+    }
+
+    pub fn presentation_configuration(&self) -> Option<PresentationConfigurationId> {
+        self.presentation_configuration
     }
 
     pub fn readiness(&self) -> RenderPathReadiness {
@@ -174,6 +190,37 @@ pub struct RenderPathRoleStatus {
     retiring: Option<RenderPathStrategy>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenderPathSwitchDiagnostics {
+    roles: RenderPathRoleStatus,
+    presenting: RenderPathStamp,
+    replacement: Option<RenderPathStamp>,
+    retiring: Option<RenderPathStamp>,
+    events: Vec<RenderPathSwitchEvent>,
+}
+
+impl RenderPathSwitchDiagnostics {
+    pub fn roles(&self) -> RenderPathRoleStatus {
+        self.roles
+    }
+
+    pub fn presenting(&self) -> &RenderPathStamp {
+        &self.presenting
+    }
+
+    pub fn replacement(&self) -> Option<&RenderPathStamp> {
+        self.replacement.as_ref()
+    }
+
+    pub fn retiring(&self) -> Option<&RenderPathStamp> {
+        self.retiring.as_ref()
+    }
+
+    pub fn events(&self) -> &[RenderPathSwitchEvent] {
+        &self.events
+    }
+}
+
 impl RenderPathRoleStatus {
     pub fn presenting(&self) -> RenderPathStrategy {
         self.presenting
@@ -258,6 +305,19 @@ impl RenderPathSwitchOwner {
         &self.events
     }
 
+    pub fn diagnostics(&self) -> RenderPathSwitchDiagnostics {
+        RenderPathSwitchDiagnostics {
+            roles: self.role_status(),
+            presenting: self.presenting.stamp(),
+            replacement: self
+                .replacement
+                .as_ref()
+                .map(|replacement| replacement.stamp()),
+            retiring: self.retiring.as_ref().map(|retiring| retiring.stamp()),
+            events: self.events.clone(),
+        }
+    }
+
     fn handoff_mismatch(&self) -> Option<RenderPathHandoffMismatch> {
         let presenting = self.presenting.stamp();
         let replacement = self
@@ -299,6 +359,10 @@ impl RenderPathSwitchOwner {
 }
 
 impl RenderPath for RenderPathSwitchOwner {
+    fn switch_diagnostics(&self) -> Option<RenderPathSwitchDiagnostics> {
+        Some(self.diagnostics())
+    }
+
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         self.presenting.release(device)?;
         if let Some(replacement) = self.replacement.as_mut() {

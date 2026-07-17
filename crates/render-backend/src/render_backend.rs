@@ -10,8 +10,9 @@ mod render_path_switching;
 
 pub use render_path_switching::{
     CameraStateRevision, RenderPathHandoffMismatch, RenderPathReadiness, RenderPathRetirement,
-    RenderPathRoleStatus, RenderPathStamp, RenderPathStrategy, RenderPathSwitchEvent,
-    RenderPathSwitchOwner, RenderPathSwitchRequestError, SwitchableRenderPath,
+    RenderPathRoleStatus, RenderPathStamp, RenderPathStrategy, RenderPathSwitchDiagnostics,
+    RenderPathSwitchEvent, RenderPathSwitchOwner, RenderPathSwitchRequestError,
+    SwitchableRenderPath,
 };
 
 const VALIDATION_LAYER_NAME: &CStr = c"VK_LAYER_KHRONOS_validation";
@@ -768,6 +769,10 @@ impl RenderPathFrameContext<'_> {
 }
 
 pub trait RenderPath {
+    fn switch_diagnostics(&self) -> Option<RenderPathSwitchDiagnostics> {
+        None
+    }
+
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()>;
 
     fn configure(
@@ -1020,6 +1025,10 @@ impl RenderBackend {
 
     pub fn runtime_context(&self) -> &RuntimeContext {
         &self.runtime_context
+    }
+
+    pub fn render_path_switch_diagnostics(&self) -> Option<RenderPathSwitchDiagnostics> {
+        self.path.switch_diagnostics()
     }
 
     pub fn validation_error_count(&self) -> usize {

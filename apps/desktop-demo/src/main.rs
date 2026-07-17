@@ -5,18 +5,22 @@ use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 #[cfg(target_os = "windows")]
 use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionIdentity};
+#[cfg(target_os = "windows")]
+use raster_render_path::RasterRenderPathAdapter;
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
     RasterCameraController, RasterConvergenceCharacterization, RasterConvergenceStatus,
     RasterLifecycleController, RasterPreparationBarrier, RasterPreparationBarrierRelease,
-    RasterRenderPath, RasterSafeRetirementDisposition,
+    RasterSafeRetirementDisposition,
+};
+#[cfg(target_os = "windows")]
+use render_backend::{
+    CameraStateRevision, FrameOutcome, RenderBackend, RenderBackendOptions, RenderPathSwitchOwner,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
 };
-#[cfg(target_os = "windows")]
-use render_backend::{FrameOutcome, RenderBackend, RenderBackendOptions};
 #[cfg(target_os = "windows")]
 use std::collections::VecDeque;
 #[cfg(target_os = "windows")]
@@ -887,6 +891,8 @@ struct DesktopApplication {
     preparation_release: Option<RasterPreparationBarrierRelease>,
     artifact_installer: Option<RasterArtifactInstaller>,
     camera_controller: Option<RasterCameraController>,
+    camera_state: CameraPose,
+    camera_state_revision: CameraStateRevision,
     published_revision: Option<VoxelSceneRevision>,
     first_matching_frame_presented: bool,
     pending_camera_report: Option<String>,
@@ -920,6 +926,7 @@ impl DesktopApplication {
         render_configuration: DesktopRenderConfiguration,
         event_proxy: EventLoopProxy<DesktopEvent>,
     ) -> Result<Self, String> {
+        let camera_state = render_configuration.camera_pose();
         let measurement = render_configuration
             .measurement
             .as_ref()
@@ -938,6 +945,8 @@ impl DesktopApplication {
             preparation_release: None,
             artifact_installer: None,
             camera_controller: None,
+            camera_state,
+            camera_state_revision: CameraStateRevision::new(1),
             published_revision: None,
             first_matching_frame_presented: false,
             pending_camera_report: None,
@@ -1607,11 +1616,7 @@ impl DesktopApplication {
     }
 
     fn select_camera(&mut self, event_loop: &ActiveEventLoop, selection: DesktopCameraSelection) {
-        let Some(camera_controller) = &self.camera_controller else {
-            self.fail(event_loop, "the raster camera controller is unavailable");
-            return;
-        };
-        if let Err(error) = camera_controller.set_pose(selection.pose()) {
+        if let Err(error) = self.publish_camera_state(selection.pose()) {
             self.fail(event_loop, error);
             return;
         }
@@ -1655,11 +1660,7 @@ impl DesktopApplication {
                 return;
             }
         };
-        let Some(camera_controller) = &self.camera_controller else {
-            self.fail(event_loop, "the raster camera controller is unavailable");
-            return;
-        };
-        if let Err(error) = camera_controller.set_pose(pose) {
+        if let Err(error) = self.publish_camera_state(pose) {
             self.fail(event_loop, error);
             return;
         }
@@ -1667,6 +1668,21 @@ impl DesktopApplication {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+
+    fn publish_camera_state(&mut self, pose: CameraPose) -> Result<(), String> {
+        let next_revision = self
+            .camera_state_revision
+            .checked_successor()
+            .ok_or_else(|| "the Camera State Revision identity overflowed".to_owned())?;
+        self.camera_controller
+            .as_ref()
+            .ok_or_else(|| "the raster camera controller is unavailable".to_owned())?
+            .set_state(pose, next_revision)
+            .map_err(|error| error.to_string())?;
+        self.camera_state = pose;
+        self.camera_state_revision = next_revision;
+        Ok(())
     }
 }
 
@@ -1821,8 +1837,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
         }
         let (mut render_path, artifact_installer, camera_controller) =
-            RasterRenderPath::awaiting_artifact_with_camera_control(
-                self.render_configuration.camera_pose(),
+            RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
+                self.camera_state,
+                self.camera_state_revision,
+                view.scene_id().clone(),
                 published_revision,
             );
         if self.render_configuration.hold_post_upload_candidate
@@ -1864,6 +1882,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         } else {
             RenderBackendOptions::default()
         };
+        let render_path = RenderPathSwitchOwner::new(Box::new(render_path));
         let backend = match RenderBackend::initialize_with_options(
             c"Voxel Nexus Desktop Demo",
             &adapter,
@@ -1878,6 +1897,23 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 return;
             }
         };
+        let switching_diagnostics = match backend.render_path_switch_diagnostics() {
+            Some(diagnostics) => diagnostics,
+            None => {
+                self.application_error =
+                    Some("Render Path switching diagnostics are unavailable".to_owned());
+                event_loop.exit();
+                return;
+            }
+        };
+        println!(
+            "Presenting Render Path: {:?}; Required={} Visible={} CameraStateRevision={:?} Readiness={:?}",
+            switching_diagnostics.presenting().strategy(),
+            switching_diagnostics.presenting().required_revision(),
+            switching_diagnostics.presenting().visible_revision(),
+            switching_diagnostics.presenting().camera_state_revision(),
+            switching_diagnostics.presenting().readiness(),
+        );
         let presentation_extent = match backend.presentation_extent() {
             Some(extent) => extent,
             None => {
@@ -2374,10 +2410,6 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         return;
                     }
                 };
-                let Some(camera_controller) = &self.camera_controller else {
-                    self.fail(event_loop, "the raster camera controller is unavailable");
-                    return;
-                };
                 let pose = match movement.pose_at_step(0) {
                     Ok(pose) => pose,
                     Err(error) => {
@@ -2385,7 +2417,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         return;
                     }
                 };
-                if let Err(error) = camera_controller.set_pose(pose) {
+                if let Err(error) = self.publish_camera_state(pose) {
                     self.fail(event_loop, error);
                     return;
                 }
