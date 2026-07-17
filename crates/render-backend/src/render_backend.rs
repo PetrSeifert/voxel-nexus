@@ -6,6 +6,14 @@ use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 
+mod render_path_switching;
+
+pub use render_path_switching::{
+    CameraStateRevision, RenderPathHandoffMismatch, RenderPathReadiness, RenderPathRetirement,
+    RenderPathRoleStatus, RenderPathStamp, RenderPathStrategy, RenderPathSwitchEvent,
+    RenderPathSwitchOwner, RenderPathSwitchRequestError, SwitchableRenderPath,
+};
+
 const VALIDATION_LAYER_NAME: &CStr = c"VK_LAYER_KHRONOS_validation";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -360,6 +368,7 @@ impl RenderPathAttachment<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct RenderPathTarget<'target> {
     configuration_id: PresentationConfigurationId,
     format: vk::Format,
@@ -418,6 +427,7 @@ impl RenderPathFrameTarget<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct RenderPathDeviceContext<'device> {
     device: &'device ash::Device,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
