@@ -2592,6 +2592,7 @@ fn render_path_failure_diagnostic(
     let phase = match arguments.next().as_deref() {
         Some("release") => Ok(RenderPathPhase::Release),
         Some("configure") => Ok(RenderPathPhase::Configure),
+        Some("advance-frame-boundary") => Ok(RenderPathPhase::AdvanceFrameBoundary),
         Some("record") => Ok(RenderPathPhase::Record),
         Some("shutdown") => Ok(RenderPathPhase::Shutdown),
         Some("upload") => {
@@ -2603,10 +2604,10 @@ fn render_path_failure_diagnostic(
             .to_string()));
         }
         Some(phase) => Err(format!(
-            "unknown Render Path phase {phase:?}; expected release, configure, record, shutdown, or upload"
+            "unknown Render Path phase {phase:?}; expected release, configure, advance-frame-boundary, record, shutdown, or upload"
         )),
         None => Err(
-            "missing Render Path phase; expected release, configure, record, shutdown, or upload"
+            "missing Render Path phase; expected release, configure, advance-frame-boundary, record, shutdown, or upload"
                 .to_owned(),
         ),
     };

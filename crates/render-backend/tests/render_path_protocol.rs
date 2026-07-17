@@ -48,6 +48,10 @@ fn every_render_path_phase_preserves_phase_and_source_context() {
     for (phase, phase_name) in [
         (RenderPathPhase::Release, "release"),
         (RenderPathPhase::Configure, "configure"),
+        (
+            RenderPathPhase::AdvanceFrameBoundary,
+            "advance frame boundary",
+        ),
         (RenderPathPhase::Record, "record"),
         (RenderPathPhase::Shutdown, "shutdown"),
     ] {

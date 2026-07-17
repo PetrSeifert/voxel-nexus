@@ -4558,9 +4558,10 @@ impl RenderPath for RasterRenderPath {
         Ok(())
     }
 
-    fn commit_frame_boundary(
+    fn advance_frame_boundary(
         &mut self,
         device: RenderPathDeviceContext<'_>,
+        _target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
         self.advance_convergence_at_frame_boundary(Some(&device))?;
         Ok(())

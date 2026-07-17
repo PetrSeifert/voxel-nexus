@@ -316,6 +316,7 @@ pub fn run_render_path_phase<T>(
 pub enum RenderPathPhase {
     Release,
     Configure,
+    AdvanceFrameBoundary,
     Record,
     Shutdown,
 }
@@ -325,6 +326,7 @@ impl fmt::Display for RenderPathPhase {
         formatter.write_str(match self {
             Self::Release => "release",
             Self::Configure => "configure",
+            Self::AdvanceFrameBoundary => "advance frame boundary",
             Self::Record => "record",
             Self::Shutdown => "shutdown",
         })
@@ -764,9 +766,10 @@ pub trait RenderPath {
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()>;
 
-    fn commit_frame_boundary(
+    fn advance_frame_boundary(
         &mut self,
         _device: RenderPathDeviceContext<'_>,
+        _target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
         Ok(())
     }
@@ -1295,6 +1298,71 @@ enum PresentationOutcome {
     Invalidated,
 }
 
+trait FrameBoundaryOperations {
+    type Acquired;
+
+    fn wait_for_preceding_frame(&mut self) -> Result<(), BackendError>;
+
+    fn advance_render_path(&mut self) -> Result<(), BackendError>;
+
+    fn acquire_image(&mut self) -> Result<Self::Acquired, BackendError>;
+}
+
+fn run_frame_boundary_operations<Operations: FrameBoundaryOperations>(
+    operations: &mut Operations,
+) -> Result<Operations::Acquired, BackendError> {
+    operations.wait_for_preceding_frame()?;
+    operations.advance_render_path()?;
+    operations.acquire_image()
+}
+
+struct VulkanFrameBoundaryOperations<'frame> {
+    presentation: &'frame mut PresentationResources,
+    path: &'frame mut dyn RenderPath,
+    memory_properties: vk::PhysicalDeviceMemoryProperties,
+}
+
+impl FrameBoundaryOperations for VulkanFrameBoundaryOperations<'_> {
+    type Acquired = Option<(u32, bool)>;
+
+    fn wait_for_preceding_frame(&mut self) -> Result<(), BackendError> {
+        unsafe {
+            self.presentation
+                .device
+                .wait_for_fences(&[self.presentation.frame_fence], true, u64::MAX)
+                .map_err(BackendError::WaitForFrame)?;
+        }
+        self.presentation.collect_timestamp_observation()
+    }
+
+    fn advance_render_path(&mut self) -> Result<(), BackendError> {
+        run_render_path_phase(RenderPathPhase::AdvanceFrameBoundary, || {
+            self.path.advance_frame_boundary(
+                RenderPathDeviceContext {
+                    device: &self.presentation.device,
+                    memory_properties: self.memory_properties,
+                },
+                self.presentation.render_path_target(),
+            )
+        })
+    }
+
+    fn acquire_image(&mut self) -> Result<Self::Acquired, BackendError> {
+        match unsafe {
+            self.presentation.swapchain_loader.acquire_next_image(
+                self.presentation.swapchain,
+                u64::MAX,
+                self.presentation.image_available,
+                vk::Fence::null(),
+            )
+        } {
+            Ok(acquired_image) => Ok(Some(acquired_image)),
+            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => Ok(None),
+            Err(error) => Err(BackendError::AcquireSwapchainImage(error)),
+        }
+    }
+}
+
 impl PresentationResources {
     fn new(
         presentation: &InstanceSurface,
@@ -1467,31 +1535,13 @@ impl PresentationResources {
         submitted_frame_sequence: u64,
     ) -> Result<PresentationOutcome, BackendError> {
         self.last_submitted_frame_sequence = None;
-        unsafe {
-            self.device
-                .wait_for_fences(&[self.frame_fence], true, u64::MAX)
-                .map_err(BackendError::WaitForFrame)?;
-        }
-        self.collect_timestamp_observation()?;
-        run_render_path_phase(RenderPathPhase::Record, || {
-            path.commit_frame_boundary(RenderPathDeviceContext {
-                device: &self.device,
-                memory_properties,
-            })
+        let acquired_image = run_frame_boundary_operations(&mut VulkanFrameBoundaryOperations {
+            presentation: self,
+            path,
+            memory_properties,
         })?;
-        let (image_index, acquire_suboptimal) = match unsafe {
-            self.swapchain_loader.acquire_next_image(
-                self.swapchain,
-                u64::MAX,
-                self.image_available,
-                vk::Fence::null(),
-            )
-        } {
-            Ok(acquired_image) => acquired_image,
-            Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-                return Ok(PresentationOutcome::Invalidated);
-            }
-            Err(error) => return Err(BackendError::AcquireSwapchainImage(error)),
+        let Some((image_index, acquire_suboptimal)) = acquired_image else {
+            return Ok(PresentationOutcome::Invalidated);
         };
         let image_index_usize = usize::try_from(image_index)
             .map_err(|_| BackendError::SubmitFrame(vk::Result::ERROR_UNKNOWN))?;
@@ -2115,7 +2165,104 @@ fn drawable_extent_is_zero(extent: vk::Extent2D) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::BackendFrameSequences;
+    use super::{
+        BackendError, BackendFrameSequences, FrameBoundaryOperations, run_frame_boundary_operations,
+    };
+    use ash::vk;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct TargetSnapshot {
+        configuration_id: u64,
+        format: vk::Format,
+        extent: vk::Extent2D,
+        attachment_count: usize,
+    }
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum FrameBoundaryEvent {
+        Wait,
+        Advance(TargetSnapshot),
+        Acquire,
+    }
+
+    struct ProofFrameBoundaryOperations {
+        current_target: TargetSnapshot,
+        events: Vec<FrameBoundaryEvent>,
+        advance_error: Option<BackendError>,
+    }
+
+    impl FrameBoundaryOperations for ProofFrameBoundaryOperations {
+        type Acquired = u32;
+
+        fn wait_for_preceding_frame(&mut self) -> Result<(), BackendError> {
+            self.events.push(FrameBoundaryEvent::Wait);
+            Ok(())
+        }
+
+        fn advance_render_path(&mut self) -> Result<(), BackendError> {
+            self.events
+                .push(FrameBoundaryEvent::Advance(self.current_target));
+            match self.advance_error.take() {
+                Some(error) => Err(error),
+                None => Ok(()),
+            }
+        }
+
+        fn acquire_image(&mut self) -> Result<Self::Acquired, BackendError> {
+            self.events.push(FrameBoundaryEvent::Acquire);
+            Ok(2)
+        }
+    }
+
+    fn target_snapshot(configuration_id: u64, width: u32, height: u32) -> TargetSnapshot {
+        TargetSnapshot {
+            configuration_id,
+            format: vk::Format::B8G8R8A8_SRGB,
+            extent: vk::Extent2D { width, height },
+            attachment_count: 3,
+        }
+    }
+
+    #[test]
+    fn frame_boundary_waits_then_advances_the_current_complete_target_before_acquisition()
+    -> Result<(), BackendError> {
+        let mut operations = ProofFrameBoundaryOperations {
+            current_target: target_snapshot(1, 800, 600),
+            events: Vec::new(),
+            advance_error: None,
+        };
+        let recreated_target = target_snapshot(2, 1200, 700);
+        operations.current_target = recreated_target;
+
+        assert_eq!(run_frame_boundary_operations(&mut operations)?, 2);
+        assert_eq!(
+            operations.events,
+            vec![
+                FrameBoundaryEvent::Wait,
+                FrameBoundaryEvent::Advance(recreated_target),
+                FrameBoundaryEvent::Acquire,
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn frame_boundary_failure_prevents_image_acquisition() {
+        let mut operations = ProofFrameBoundaryOperations {
+            current_target: target_snapshot(2, 1200, 700),
+            events: Vec::new(),
+            advance_error: Some(BackendError::FrameSequenceIdentityExhausted),
+        };
+
+        assert!(run_frame_boundary_operations(&mut operations).is_err());
+        assert_eq!(
+            operations.events,
+            vec![
+                FrameBoundaryEvent::Wait,
+                FrameBoundaryEvent::Advance(target_snapshot(2, 1200, 700)),
+            ]
+        );
+    }
 
     #[test]
     fn backend_frame_sequences_remain_monotonic_across_presentation_generations()
