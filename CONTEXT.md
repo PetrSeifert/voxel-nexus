@@ -45,7 +45,7 @@ The newest Voxel Scene Revision that a Render Path is obligated to make visible.
 _Avoid_: Target revision, requested revision
 
 **Visible Voxel Scene Revision**:
-The one Voxel Scene Revision represented by the complete installed raster collection used to produce frames. It remains unchanged until a required revision is installed atomically.
+The one Voxel Scene Revision represented by a Render Path's complete installed state used to produce frames. It remains unchanged until a required revision is installed atomically.
 _Avoid_: Current revision, rendered version
 
 **Voxel Change Set**:
@@ -67,6 +67,34 @@ _Avoid_: Storage backend, voxel format
 **Render Path**:
 A complete strategy for turning a voxel scene into an image, such as rasterization or ray traversal.
 _Avoid_: Pipeline
+
+**Camera State**:
+The renderer-independent eye, target, up direction, vertical field of view, near plane, and far plane used by Render Paths to produce an image.
+_Avoid_: Raster camera, camera settings
+
+**Camera State Revision**:
+The monotonically ordered identity of an accepted Camera State. A Render Path handoff requires both paths to acknowledge the same latest revision.
+_Avoid_: Camera version, camera frame
+
+**Semantic Ray**:
+A finite scene-space ray segment evaluated against one Voxel Scene View independently of any Render Path representation.
+_Avoid_: Screen ray, DDA ray
+
+**Semantic Ray Observation**:
+A Voxel Scene Revision-attributed miss or nearest occupied-voxel contact for one Semantic Ray, identifying the Voxel Volume, local coordinate, Voxel Material, and whether the ray entered through an outward face or started inside the occupied value.
+_Avoid_: Pixel sample, shader hit
+
+**Presenting Render Path**:
+The Render Path whose complete installed state is designated to produce presented frames. A Render Path switch preserves it until a replacement is ready to take over.
+_Avoid_: Active path, current path
+
+**Replacement Render Path**:
+A Render Path being prepared at a fixed Voxel Scene Revision to take over from the Presenting Render Path. It does not produce presented frames before the handoff.
+_Avoid_: Candidate path, inactive path
+
+**Retiring Render Path**:
+A former Presenting Render Path retained after handoff until cleanup proves that it owns no resources or workers. It never produces another presented frame.
+_Avoid_: Inactive path, old path
 
 **Render Backend**:
 The graphics execution layer shared by render paths.

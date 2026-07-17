@@ -1,0 +1,4 @@
+interface:
+  display_name: "Devlog Workflow"
+  short_description: "Track milestone work and prepare devlogs"
+  default_prompt: "Use $devlog-workflow to show the active milestone and prepare its devlog inventory."
