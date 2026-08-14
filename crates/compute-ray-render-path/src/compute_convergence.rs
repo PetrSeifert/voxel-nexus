@@ -1,12 +1,302 @@
 use crate::{ComputeSceneBuildError, ComputeSceneBundle};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use thiserror::Error;
 use voxel_frontend::{VoxelEditOutcome, VoxelSceneId, VoxelSceneRevision, VoxelSceneView};
 
 const RETAINED_EVENT_CAPACITY: usize = 64;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ComputePreparationBarrierObservation {
+    reached_revision: Option<VoxelSceneRevision>,
+    completed_block_count: usize,
+    finished: bool,
+    cancelled: bool,
+}
+
+impl ComputePreparationBarrierObservation {
+    pub fn reached_revision(self) -> Option<VoxelSceneRevision> {
+        self.reached_revision
+    }
+
+    pub fn completed_block_count(self) -> usize {
+        self.completed_block_count
+    }
+
+    pub fn finished(self) -> bool {
+        self.finished
+    }
+
+    pub fn cancelled(self) -> bool {
+        self.cancelled
+    }
+}
+
+#[derive(Default)]
+struct ComputePreparationBarrierState {
+    reached_revision: Option<VoxelSceneRevision>,
+    completed_block_count: usize,
+    released: bool,
+    finished: bool,
+    cancelled: bool,
+}
+
+struct ComputePreparationBarrierShared {
+    hold_after_completed_blocks: usize,
+    state: Mutex<ComputePreparationBarrierState>,
+    released: Condvar,
+}
+
+impl ComputePreparationBarrierShared {
+    fn observation(&self) -> Result<ComputePreparationBarrierObservation, ()> {
+        self.state
+            .lock()
+            .map(|state| ComputePreparationBarrierObservation {
+                reached_revision: state.reached_revision,
+                completed_block_count: state.completed_block_count,
+                finished: state.finished,
+                cancelled: state.cancelled,
+            })
+            .map_err(|_| ())
+    }
+
+    fn complete_block_and_wait(&self, revision: VoxelSceneRevision) -> Result<(), ()> {
+        let mut state = self.state.lock().map_err(|_| ())?;
+        if state.reached_revision.is_some() {
+            return Ok(());
+        }
+        state.completed_block_count = state.completed_block_count.checked_add(1).ok_or(())?;
+        if state.completed_block_count != self.hold_after_completed_blocks {
+            return Ok(());
+        }
+        state.reached_revision = Some(revision);
+        while !state.released {
+            state = self.released.wait(state).map_err(|_| ())?;
+        }
+        Ok(())
+    }
+
+    fn finish(&self, revision: VoxelSceneRevision, cancelled: bool) -> Result<(), ()> {
+        let mut state = self.state.lock().map_err(|_| ())?;
+        if state.reached_revision == Some(revision) {
+            state.finished = true;
+            state.cancelled = cancelled;
+        }
+        Ok(())
+    }
+
+    fn release(&self) -> Result<(), ()> {
+        let mut state = self.state.lock().map_err(|_| ())?;
+        state.released = true;
+        self.released.notify_all();
+        Ok(())
+    }
+}
+
+struct ComputeConvergenceControlState {
+    pending_outcome: Option<VoxelEditOutcome>,
+    status: ComputeConvergenceStatus,
+    events: VecDeque<ComputeConvergenceEvent>,
+    preparation_barrier: Option<Arc<ComputePreparationBarrierShared>>,
+    post_upload_held: bool,
+    post_upload_revision: Option<VoxelSceneRevision>,
+}
+
+#[derive(Clone)]
+pub struct ComputeConvergenceController {
+    state: Arc<Mutex<ComputeConvergenceControlState>>,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum ComputeConvergenceControlError {
+    #[error("the compute convergence control state is unavailable")]
+    Unavailable,
+    #[error("a compute edit outcome is already pending at the frame boundary")]
+    PendingOutcome,
+    #[error("the compute preparation barrier needs a positive completed-block count")]
+    InvalidCompletedBlockCount,
+    #[error("the compute preparation barrier has not been configured")]
+    PreparationBarrierUnavailable,
+}
+
+impl ComputeConvergenceController {
+    fn new(status: ComputeConvergenceStatus, hold_post_upload: bool) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ComputeConvergenceControlState {
+                pending_outcome: None,
+                status,
+                events: VecDeque::new(),
+                preparation_barrier: None,
+                post_upload_held: hold_post_upload,
+                post_upload_revision: None,
+            })),
+        }
+    }
+
+    pub fn submit(&self, outcome: VoxelEditOutcome) -> Result<(), ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if state.pending_outcome.is_some() {
+            return Err(ComputeConvergenceControlError::PendingOutcome);
+        }
+        state.pending_outcome = Some(outcome);
+        Ok(())
+    }
+
+    pub fn status(&self) -> Result<ComputeConvergenceStatus, ComputeConvergenceControlError> {
+        self.state
+            .lock()
+            .map(|state| state.status)
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)
+    }
+
+    pub fn drain_events(
+        &self,
+    ) -> Result<Vec<ComputeConvergenceEvent>, ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        Ok(state.events.drain(..).collect())
+    }
+
+    pub fn hold_next_preparation_after_blocks(
+        &self,
+        completed_block_count: usize,
+    ) -> Result<(), ComputeConvergenceControlError> {
+        if completed_block_count == 0 {
+            return Err(ComputeConvergenceControlError::InvalidCompletedBlockCount);
+        }
+        let barrier = Arc::new(ComputePreparationBarrierShared {
+            hold_after_completed_blocks: completed_block_count,
+            state: Mutex::new(ComputePreparationBarrierState::default()),
+            released: Condvar::new(),
+        });
+        self.state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?
+            .preparation_barrier = Some(barrier);
+        Ok(())
+    }
+
+    pub fn preparation_barrier_observation(
+        &self,
+    ) -> Result<Option<ComputePreparationBarrierObservation>, ComputeConvergenceControlError> {
+        let barrier = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?
+            .preparation_barrier
+            .clone();
+        barrier
+            .map(|barrier| {
+                barrier
+                    .observation()
+                    .map_err(|_| ComputeConvergenceControlError::Unavailable)
+            })
+            .transpose()
+    }
+
+    pub fn release_preparation_barrier(&self) -> Result<(), ComputeConvergenceControlError> {
+        let barrier = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?
+            .preparation_barrier
+            .clone()
+            .ok_or(ComputeConvergenceControlError::PreparationBarrierUnavailable)?;
+        barrier
+            .release()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)
+    }
+
+    pub fn post_upload_revision(
+        &self,
+    ) -> Result<Option<VoxelSceneRevision>, ComputeConvergenceControlError> {
+        self.state
+            .lock()
+            .map(|state| state.post_upload_revision)
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)
+    }
+
+    pub fn release_post_upload(&self) -> Result<(), ComputeConvergenceControlError> {
+        self.state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?
+            .post_upload_held = false;
+        Ok(())
+    }
+
+    pub(crate) fn take_pending_outcome(
+        &self,
+    ) -> Result<Option<VoxelEditOutcome>, ComputeConvergenceControlError> {
+        self.state
+            .lock()
+            .map(|mut state| state.pending_outcome.take())
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)
+    }
+
+    fn preparation_barrier(
+        &self,
+    ) -> Result<Option<Arc<ComputePreparationBarrierShared>>, ComputeConvergenceControlError> {
+        self.state
+            .lock()
+            .map(|state| state.preparation_barrier.clone())
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)
+    }
+
+    pub(crate) fn synchronize(
+        &self,
+        status: ComputeConvergenceStatus,
+        events: Vec<ComputeConvergenceEvent>,
+    ) -> Result<(), ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        state.status = status;
+        for event in events {
+            if state.events.len() == RETAINED_EVENT_CAPACITY {
+                state.events.pop_front();
+            }
+            state.events.push_back(event);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn hold_post_upload(
+        &self,
+        revision: VoxelSceneRevision,
+    ) -> Result<bool, ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if !state.post_upload_held {
+            return Ok(false);
+        }
+        state.post_upload_revision = Some(revision);
+        Ok(true)
+    }
+
+    pub(crate) fn clear_post_upload_revision(
+        &self,
+        revision: VoxelSceneRevision,
+    ) -> Result<(), ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if state.post_upload_revision == Some(revision) {
+            state.post_upload_revision = None;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComputeConvergenceGeneration(u64);
@@ -229,6 +519,8 @@ pub enum ComputeConvergenceError {
         expected: VoxelSceneRevision,
         actual: VoxelSceneRevision,
     },
+    #[error(transparent)]
+    Control(#[from] ComputeConvergenceControlError),
 }
 
 #[derive(Clone)]
@@ -259,6 +551,7 @@ struct ComputeActivePreparation {
     completion_receiver: mpsc::Receiver<ComputePreparationCompletion>,
     worker: Option<JoinHandle<()>>,
     status: ComputeActivePreparationStatus,
+    preparation_barrier: Option<Arc<ComputePreparationBarrierShared>>,
 }
 
 impl ComputeActivePreparation {
@@ -316,6 +609,7 @@ pub(crate) struct ComputeConvergence {
     paused: Option<(ComputeConvergenceGeneration, ComputePreparationTarget)>,
     hidden: Option<ComputeHiddenCandidate>,
     events: ComputeConvergenceEvents,
+    control: Option<ComputeConvergenceController>,
 }
 
 impl ComputeConvergence {
@@ -333,7 +627,17 @@ impl ComputeConvergence {
             paused: None,
             hidden: None,
             events: ComputeConvergenceEvents::new(),
+            control: None,
         }
+    }
+
+    pub(crate) fn enable_control(
+        &mut self,
+        hold_post_upload: bool,
+    ) -> ComputeConvergenceController {
+        let controller = ComputeConvergenceController::new(self.status(), hold_post_upload);
+        self.control = Some(controller.clone());
+        controller
     }
 
     pub(crate) fn installed_bundle(&self) -> &ComputeSceneBundle {
@@ -527,20 +831,29 @@ impl ComputeConvergence {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
+        let barrier_error = self.active.as_ref().and_then(|active| {
+            active
+                .preparation_barrier
+                .as_ref()
+                .and_then(|barrier| barrier.release().err())
+                .map(|_| "the compute convergence preparation barrier is unavailable".to_owned())
+        });
         let active = self.active.take();
         self.pending = None;
         self.paused = None;
         self.hidden = None;
-        if let Some(mut active) = active
+        let worker_error = if let Some(mut active) = active
             && let Some(worker) = active.worker.take()
             && worker.join().is_err()
         {
-            return Err(format!(
+            Some(format!(
                 "compute convergence worker terminated for Voxel Scene Revision {}",
                 active.target.view.revision()
-            ));
-        }
-        Ok(())
+            ))
+        } else {
+            None
+        };
+        barrier_error.or(worker_error).map_or(Ok(()), Err)
     }
 
     fn schedule_target(
@@ -559,7 +872,9 @@ impl ComputeConvergence {
                 .as_ref()
                 .map(|active| (active.generation, active.target.clone()));
             drop(prior);
-            let preparation = Self::start_preparation(generation, target, &mut self.events);
+            let preparation_barrier = self.preparation_barrier()?;
+            let preparation =
+                Self::start_preparation(generation, target, &mut self.events, preparation_barrier);
             match preparation {
                 Ok(preparation) => {
                     if let Some(stamp) = prior_stamp {
@@ -588,7 +903,9 @@ impl ComputeConvergence {
             self.paused = None;
             return Ok(());
         }
-        let preparation = Self::start_preparation(generation, target, &mut self.events)?;
+        let preparation_barrier = self.preparation_barrier()?;
+        let preparation =
+            Self::start_preparation(generation, target, &mut self.events, preparation_barrier)?;
         self.pending = None;
         self.paused = None;
         self.active = Some(preparation);
@@ -599,6 +916,7 @@ impl ComputeConvergence {
         generation: ComputeConvergenceGeneration,
         target: ComputePreparationTarget,
         events: &mut ComputeConvergenceEvents,
+        preparation_barrier: Option<Arc<ComputePreparationBarrierShared>>,
     ) -> Result<ComputeActivePreparation, ComputeConvergenceError> {
         let stamp = target.stamp(generation);
         let cancellation = Arc::new(AtomicBool::new(false));
@@ -608,10 +926,28 @@ impl ComputeConvergence {
             .spawn({
                 let view = target.view.clone();
                 let cancellation = Arc::clone(&cancellation);
+                let preparation_barrier = preparation_barrier.clone();
                 move || {
-                    let result = ComputeSceneBundle::from_view_until_cancelled(&view, || {
-                        cancellation.load(Ordering::Acquire)
-                    });
+                    let mut result = ComputeSceneBundle::from_view_with_block_completion(
+                        &view,
+                        || cancellation.load(Ordering::Acquire),
+                        || {
+                            preparation_barrier
+                                .as_ref()
+                                .map(|barrier| {
+                                    barrier.complete_block_and_wait(view.revision()).map_err(|_| {
+                                        ComputeSceneBuildError::PreparationBarrier
+                                    })
+                                })
+                                .unwrap_or(Ok(()))
+                        },
+                    );
+                    if let Some(barrier) = &preparation_barrier {
+                        let cancelled = matches!(result, Err(ComputeSceneBuildError::Cancelled));
+                        if barrier.finish(view.revision(), cancelled).is_err() {
+                            result = Err(ComputeSceneBuildError::PreparationBarrier);
+                        }
+                    }
                     if completion_sender
                         .send(ComputePreparationCompletion::Completed(result))
                         .is_err()
@@ -635,6 +971,7 @@ impl ComputeConvergence {
             completion_receiver,
             worker: Some(worker),
             status: ComputeActivePreparationStatus::Running,
+            preparation_barrier,
         })
     }
 
@@ -746,7 +1083,25 @@ impl ComputeConvergence {
         let Some((generation, target)) = self.pending.take() else {
             return;
         };
-        match Self::start_preparation(generation, target.clone(), &mut self.events) {
+        let preparation_barrier = match self.preparation_barrier() {
+            Ok(barrier) => barrier,
+            Err(error) => {
+                let stamp = target.stamp(generation);
+                self.pending = Some((generation, target));
+                self.record_failure(
+                    stamp,
+                    ComputeConvergenceFailurePhase::Preparation,
+                    error.to_string(),
+                );
+                return;
+            }
+        };
+        match Self::start_preparation(
+            generation,
+            target.clone(),
+            &mut self.events,
+            preparation_barrier,
+        ) {
             Ok(preparation) => self.active = Some(preparation),
             Err(error) => {
                 let stamp = target.stamp(generation);
@@ -767,6 +1122,16 @@ impl ComputeConvergence {
             .or_else(|| self.active.as_ref().map(|active| &active.target))
             .or_else(|| self.hidden.as_ref().map(|candidate| &candidate.target))
             .or_else(|| self.paused.as_ref().map(|(_, target)| target))
+    }
+
+    fn preparation_barrier(
+        &self,
+    ) -> Result<Option<Arc<ComputePreparationBarrierShared>>, ComputeConvergenceControlError> {
+        self.control
+            .as_ref()
+            .map(ComputeConvergenceController::preparation_barrier)
+            .transpose()
+            .map(Option::flatten)
     }
 
     fn record_failure(
@@ -943,6 +1308,90 @@ mod tests {
                 disposition: ComputeCandidateDisposition::SupersededAfterUpload,
             } if stamp.revision() == VoxelSceneRevision::new(12)
         )));
+        Ok(())
+    }
+
+    #[test]
+    fn deterministic_burst_bounds_revision_two_and_installs_only_revision_four()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("burst", 1, VoxelExtent::new(65, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        let controller = convergence.enable_control(true);
+        controller.hold_next_preparation_after_blocks(1)?;
+        controller.submit(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+        let revision_two = controller
+            .take_pending_outcome()?
+            .ok_or("revision 2 was not queued")?;
+        convergence.accept(revision_two)?;
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline
+            && !controller
+                .preparation_barrier_observation()?
+                .is_some_and(|observation| {
+                    observation.reached_revision() == Some(VoxelSceneRevision::new(2))
+                })
+        {
+            thread::yield_now();
+        }
+        let held = controller
+            .preparation_barrier_observation()?
+            .ok_or("revision 2 did not reach the preparation barrier")?;
+        assert_eq!(held.completed_block_count(), 1);
+
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(64, 0, 0))?)?;
+        controller.release_preparation_barrier()?;
+        let mut observed = drain_until_ready(&mut convergence, VoxelSceneRevision::new(3))?;
+        let cancelled = controller
+            .preparation_barrier_observation()?
+            .ok_or("revision 2 preparation observation disappeared")?;
+        assert_eq!(cancelled.completed_block_count(), 1);
+        assert!(cancelled.finished());
+        assert!(cancelled.cancelled());
+
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        assert!(controller.hold_post_upload(VoxelSceneRevision::new(3))?);
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(63, 0, 0))?)?;
+        convergence.retain_ready_candidate();
+        observed.extend(drain_until_ready(
+            &mut convergence,
+            VoxelSceneRevision::new(4),
+        )?);
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        let retired = convergence
+            .install_hidden(VoxelSceneRevision::new(1))?
+            .ok_or("revision 4 was not installed")?;
+        observed.extend(convergence.drain_events());
+
+        assert_eq!(retired.revision(), VoxelSceneRevision::new(1));
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(4)
+        );
+        assert!(observed.iter().any(|event| matches!(
+            event,
+            ComputeConvergenceEvent::CandidateDiscarded {
+                stamp,
+                disposition: ComputeCandidateDisposition::SupersededBeforeUpload,
+            } if stamp.revision() == VoxelSceneRevision::new(2)
+        )));
+        assert!(observed.iter().any(|event| matches!(
+            event,
+            ComputeConvergenceEvent::CandidateDiscarded {
+                stamp,
+                disposition: ComputeCandidateDisposition::SupersededAfterUpload,
+            } if stamp.revision() == VoxelSceneRevision::new(3)
+        )));
+        let installed = observed
+            .iter()
+            .filter_map(|event| match event {
+                ComputeConvergenceEvent::CandidateInstalled { stamp } => Some(stamp.revision()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(installed, vec![VoxelSceneRevision::new(4)]);
         Ok(())
     }
 

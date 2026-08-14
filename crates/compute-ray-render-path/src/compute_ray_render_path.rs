@@ -14,10 +14,11 @@ mod compute_convergence;
 mod compute_scene;
 
 pub use compute_convergence::{
-    ComputeCandidateDisposition, ComputeConvergenceAcceptance, ComputeConvergenceError,
-    ComputeConvergenceEvent, ComputeConvergenceFailure, ComputeConvergenceFailurePhase,
-    ComputeConvergenceGeneration, ComputeConvergenceRetry, ComputeConvergenceStatus,
-    ComputeConvergenceWorkStamp,
+    ComputeCandidateDisposition, ComputeConvergenceAcceptance, ComputeConvergenceControlError,
+    ComputeConvergenceController, ComputeConvergenceError, ComputeConvergenceEvent,
+    ComputeConvergenceFailure, ComputeConvergenceFailurePhase, ComputeConvergenceGeneration,
+    ComputeConvergenceRetry, ComputeConvergenceStatus, ComputeConvergenceWorkStamp,
+    ComputePreparationBarrierObservation,
 };
 pub use compute_scene::{ComputeSceneBuildError, ComputeSceneBundle, ComputeVolumeHeader};
 
@@ -356,6 +357,8 @@ pub fn qualify_compute_render_path(
 enum ComputeRenderPathError {
     #[error(transparent)]
     Convergence(#[from] ComputeConvergenceError),
+    #[error(transparent)]
+    ConvergenceControl(#[from] ComputeConvergenceControlError),
     #[error("compute convergence shutdown failed: {0}")]
     ConvergenceShutdown(String),
     #[error(transparent)]
@@ -424,6 +427,8 @@ enum ComputeRenderPathError {
     StaleFrameTarget,
     #[error("the frame target has no configured composite framebuffer")]
     MissingFramebuffer,
+    #[error("the compute convergence hidden candidate is unavailable")]
+    MissingHiddenCandidate,
 }
 
 pub struct ComputeRayRenderPathAdapter {
@@ -477,6 +482,18 @@ impl ComputeRayRenderPathAdapter {
 
     pub fn drain_convergence_events(&mut self) -> Vec<ComputeConvergenceEvent> {
         self.render_path.convergence.drain_events()
+    }
+
+    pub fn enable_convergence_control(
+        &mut self,
+        hold_post_upload: bool,
+    ) -> ComputeConvergenceController {
+        let controller = self
+            .render_path
+            .convergence
+            .enable_control(hold_post_upload);
+        self.render_path.convergence_control = Some(controller.clone());
+        controller
     }
 }
 
@@ -567,6 +584,8 @@ struct ComputeRayRenderPath {
     scene_buffer: vk::Buffer,
     scene_memory: vk::DeviceMemory,
     scene_gpu_revision: VoxelSceneRevision,
+    hidden_scene_gpu_resources: Option<ComputeHiddenSceneGpuResources>,
+    convergence_control: Option<ComputeConvergenceController>,
     camera_buffer: vk::Buffer,
     camera_memory: vk::DeviceMemory,
     descriptor_set_layout: vk::DescriptorSetLayout,
@@ -599,6 +618,8 @@ impl ComputeRayRenderPath {
             scene_buffer: vk::Buffer::null(),
             scene_memory: vk::DeviceMemory::null(),
             scene_gpu_revision,
+            hidden_scene_gpu_resources: None,
+            convergence_control: None,
             camera_buffer: vk::Buffer::null(),
             camera_memory: vk::DeviceMemory::null(),
             descriptor_set_layout: vk::DescriptorSetLayout::null(),
@@ -1161,35 +1182,66 @@ impl ComputeRayRenderPath {
             return Err(ComputeRenderPathError::StaleFrameTarget);
         }
         self.convergence.retain_ready_candidate();
+        let hidden_stamp = self.convergence.status().hidden();
+        let retained_gpu_stamp = self
+            .hidden_scene_gpu_resources
+            .as_ref()
+            .map(|candidate| candidate.stamp);
+        if retained_gpu_stamp.is_some()
+            && retained_gpu_stamp != hidden_stamp
+            && let Some(candidate) = self.hidden_scene_gpu_resources.take()
+        {
+            if let Some(control) = &self.convergence_control {
+                control.clear_post_upload_revision(candidate.stamp.revision())?;
+            }
+            release_scene_gpu_resources(device, candidate.resources);
+        }
         let Some(candidate_bundle) = self.convergence.hidden_bundle() else {
             return Ok(());
         };
         let candidate_revision = candidate_bundle.revision();
-        let candidate_range = match scene_storage_byte_size(device, candidate_bundle) {
-            Ok(range) => range,
-            Err(error) => {
-                self.convergence
-                    .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
-                return Err(error);
-            }
-        };
-        let candidate_resources = match create_scene_gpu_resources(device, candidate_bundle) {
-            Ok(resources) => resources,
-            Err(error) => {
-                self.convergence
-                    .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
-                return Err(error);
-            }
-        };
-        self.convergence.mark_hidden_uploaded();
+        let candidate_stamp = hidden_stamp.ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
+        if self.hidden_scene_gpu_resources.is_none() {
+            let candidate_range = match scene_storage_byte_size(device, candidate_bundle) {
+                Ok(range) => range,
+                Err(error) => {
+                    self.convergence
+                        .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
+                    return Err(error);
+                }
+            };
+            let candidate_resources = match create_scene_gpu_resources(device, candidate_bundle) {
+                Ok(resources) => resources,
+                Err(error) => {
+                    self.convergence
+                        .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
+                    return Err(error);
+                }
+            };
+            self.hidden_scene_gpu_resources = Some(ComputeHiddenSceneGpuResources {
+                stamp: candidate_stamp,
+                resources: candidate_resources,
+                range: candidate_range,
+            });
+            self.convergence.mark_hidden_uploaded();
+        }
+        if let Some(control) = &self.convergence_control
+            && control.hold_post_upload(candidate_revision)?
+        {
+            return Ok(());
+        }
         let retired_bundle = match self.convergence.install_hidden(self.scene_gpu_revision) {
             Ok(Some(bundle)) => bundle,
             Ok(None) => {
-                release_scene_gpu_resources(device, candidate_resources);
+                if let Some(candidate) = self.hidden_scene_gpu_resources.take() {
+                    release_scene_gpu_resources(device, candidate.resources);
+                }
                 return Ok(());
             }
             Err(error) => {
-                release_scene_gpu_resources(device, candidate_resources);
+                if let Some(candidate) = self.hidden_scene_gpu_resources.take() {
+                    release_scene_gpu_resources(device, candidate.resources);
+                }
                 self.convergence.fail_hidden(
                     ComputeConvergenceFailurePhase::Installation,
                     error.to_string(),
@@ -1197,10 +1249,14 @@ impl ComputeRayRenderPath {
                 return Err(error.into());
             }
         };
+        let candidate = self
+            .hidden_scene_gpu_resources
+            .take()
+            .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
         let scene_buffer = [vk::DescriptorBufferInfo::default()
-            .buffer(candidate_resources.buffer)
+            .buffer(candidate.resources.buffer)
             .offset(0)
-            .range(candidate_range)];
+            .range(candidate.range)];
         let writes = [vk::WriteDescriptorSet::default()
             .dst_set(self.descriptor_set)
             .dst_binding(2)
@@ -1208,10 +1264,13 @@ impl ComputeRayRenderPath {
             .buffer_info(&scene_buffer)];
         unsafe { device.update_descriptor_sets(&writes) };
         let retired_resources = ComputeSceneGpuResources {
-            buffer: std::mem::replace(&mut self.scene_buffer, candidate_resources.buffer),
-            memory: std::mem::replace(&mut self.scene_memory, candidate_resources.memory),
+            buffer: std::mem::replace(&mut self.scene_buffer, candidate.resources.buffer),
+            memory: std::mem::replace(&mut self.scene_memory, candidate.resources.memory),
         };
         self.scene_gpu_revision = candidate_revision;
+        if let Some(control) = &self.convergence_control {
+            control.clear_post_upload_revision(candidate_revision)?;
+        }
         release_scene_gpu_resources(device, retired_resources);
         drop(retired_bundle);
         Ok(())
@@ -1284,6 +1343,9 @@ impl ComputeRayRenderPath {
     }
 
     fn release_scene_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
+        if let Some(candidate) = self.hidden_scene_gpu_resources.take() {
+            release_scene_gpu_resources(device, candidate.resources);
+        }
         unsafe {
             if self.scene_buffer != vk::Buffer::null() {
                 device.destroy_buffer(self.scene_buffer);
@@ -1343,8 +1405,24 @@ impl RenderPath for ComputeRayRenderPath {
         device: RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
-        self.advance_convergence_at_frame_boundary(&device, target)
-            .map_err(|error| Box::new(error) as _)
+        let controlled_outcome = self
+            .convergence_control
+            .as_ref()
+            .map(ComputeConvergenceController::take_pending_outcome)
+            .transpose()?
+            .flatten();
+        if let Some(outcome) = controlled_outcome {
+            self.convergence.accept(outcome)?;
+        }
+        let convergence_result = self.advance_convergence_at_frame_boundary(&device, target);
+        let control_result = self.convergence_control.as_ref().map(|control| {
+            control.synchronize(self.convergence.status(), self.convergence.drain_events())
+        });
+        convergence_result?;
+        if let Some(control_result) = control_result {
+            control_result?;
+        }
+        Ok(())
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
@@ -1356,6 +1434,12 @@ impl RenderPath for ComputeRayRenderPath {
 struct ComputeSceneGpuResources {
     buffer: vk::Buffer,
     memory: vk::DeviceMemory,
+}
+
+struct ComputeHiddenSceneGpuResources {
+    stamp: ComputeConvergenceWorkStamp,
+    resources: ComputeSceneGpuResources,
+    range: u64,
 }
 
 fn scene_storage_byte_size(

@@ -4,7 +4,10 @@ mod windows_adapter;
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 #[cfg(target_os = "windows")]
-use compute_ray_render_path::ComputeRayRenderPathAdapter;
+use compute_ray_render_path::{
+    ComputeCandidateDisposition, ComputeConvergenceController, ComputeConvergenceEvent,
+    ComputeRayRenderPathAdapter,
+};
 #[cfg(target_os = "windows")]
 use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionIdentity};
 #[cfg(target_os = "windows")]
@@ -541,6 +544,38 @@ enum EditBurstStage {
 }
 
 #[cfg(target_os = "windows")]
+enum ComputeEditBurstStage {
+    AwaitingSpace(EditBurstPlan),
+    WaitingForRevisionTwoRequirement(EditBurstPlan),
+    WaitingForPreparationBarrier(EditBurstPlan),
+    WaitingForRevisionThreeRequirement(EditBurstPlan),
+    WaitingForRevisionTwoCancellation(EditBurstPlan),
+    WaitingForRevisionThreeUpload(EditBurstPlan),
+    WaitingForRevisionFourRequirement(EditBurstPlan),
+    WaitingForRevisionThreeRejection(EditBurstPlan),
+    WaitingForFinalVisibility(EditBurstPlan),
+    Complete,
+}
+
+#[cfg(target_os = "windows")]
+impl ComputeEditBurstStage {
+    fn overlay_label(&self) -> &'static str {
+        match self {
+            Self::AwaitingSpace(_) => "awaiting-space",
+            Self::WaitingForRevisionTwoRequirement(_) => "revision-2-requirement",
+            Self::WaitingForPreparationBarrier(_) => "revision-2-one-block",
+            Self::WaitingForRevisionThreeRequirement(_) => "revision-3-requirement",
+            Self::WaitingForRevisionTwoCancellation(_) => "revision-2-cancellation",
+            Self::WaitingForRevisionThreeUpload(_) => "revision-3-upload",
+            Self::WaitingForRevisionFourRequirement(_) => "revision-4-requirement",
+            Self::WaitingForRevisionThreeRejection(_) => "revision-3-rejection",
+            Self::WaitingForFinalVisibility(_) => "revision-4-visibility",
+            Self::Complete => "complete",
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 impl EditBurstStage {
     fn overlay_label(&self) -> &'static str {
         match self {
@@ -672,6 +707,37 @@ fn should_request_render_path_switch(
         && state == ElementState::Pressed
         && !repeat
         && matches!(key, Key::Named(NamedKey::Tab))
+}
+
+#[cfg(target_os = "windows")]
+fn should_request_compute_edit_burst(
+    compute_switch_demo: bool,
+    state: ElementState,
+    repeat: bool,
+    key: &Key,
+) -> bool {
+    compute_switch_demo
+        && state == ElementState::Pressed
+        && !repeat
+        && matches!(key, Key::Named(NamedKey::Space))
+}
+
+#[cfg(target_os = "windows")]
+fn compute_edit_burst_admission(
+    diagnostics: &RenderPathSwitchDiagnostics,
+    awaiting_space: bool,
+) -> Result<(), String> {
+    let roles = diagnostics.roles();
+    if roles.presenting() != RenderPathStrategy::ComputeRay {
+        return Err("the compute Render Path is not presenting".to_owned());
+    }
+    if roles.replacement().is_some() || roles.retiring().is_some() {
+        return Err("a Render Path switch is in progress".to_owned());
+    }
+    if !awaiting_space {
+        return Err("the fixed compute edit burst is not awaiting Space".to_owned());
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "windows")]
@@ -1012,6 +1078,10 @@ struct DesktopApplication {
     interactive_switch: Option<InteractiveRenderPathSwitch>,
     completed_interactive_switches: usize,
     render_path_control_feedback: String,
+    compute_convergence_controller: Option<ComputeConvergenceController>,
+    compute_edit_burst_stage: Option<ComputeEditBurstStage>,
+    compute_edit_burst_events: Vec<ComputeConvergenceEvent>,
+    compute_edit_burst_presented_revisions: Vec<VoxelSceneRevision>,
 }
 
 #[cfg(target_os = "windows")]
@@ -1119,6 +1189,10 @@ impl DesktopApplication {
             interactive_switch: None,
             completed_interactive_switches: 0,
             render_path_control_feedback: "Tab-waiting-for-convergence".to_owned(),
+            compute_convergence_controller: None,
+            compute_edit_burst_stage: None,
+            compute_edit_burst_events: Vec::new(),
+            compute_edit_burst_presented_revisions: Vec::new(),
         })
     }
 
@@ -1155,9 +1229,14 @@ impl DesktopApplication {
             .and_then(RenderBackend::render_path_switch_diagnostics)
             .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
         let burst_stage = self
-            .edit_burst_stage
+            .compute_edit_burst_stage
             .as_ref()
-            .map(EditBurstStage::overlay_label)
+            .map(ComputeEditBurstStage::overlay_label)
+            .or_else(|| {
+                self.edit_burst_stage
+                    .as_ref()
+                    .map(EditBurstStage::overlay_label)
+            })
             .unwrap_or("inactive");
         let camera = self
             .pending_camera_report
@@ -1200,6 +1279,14 @@ impl DesktopApplication {
         render_path_switch_admission(&diagnostics)?;
         let presenting = diagnostics.presenting();
         let source = presenting.strategy();
+        if source == RenderPathStrategy::ComputeRay
+            && !matches!(
+                self.compute_edit_burst_stage,
+                Some(ComputeEditBurstStage::Complete)
+            )
+        {
+            return Err("the fixed compute edit burst has not completed".to_owned());
+        }
         let replacement = match source {
             RenderPathStrategy::Raster => RenderPathStrategy::ComputeRay,
             RenderPathStrategy::ComputeRay => RenderPathStrategy::Raster,
@@ -1232,10 +1319,26 @@ impl DesktopApplication {
         } else {
             None
         };
+        let mut compute_burst_setup = None;
 
         match replacement {
             RenderPathStrategy::ComputeRay => {
-                let replacement_path = ComputeRayRenderPathAdapter::new(
+                let prepare_compute_burst = self.compute_edit_burst_stage.is_none()
+                    && self.completed_interactive_switches == 0;
+                let burst_plan = prepare_compute_burst
+                    .then(|| {
+                        let plan = fixed_edit_burst(
+                            &view,
+                            self.render_configuration.raster_region_extent,
+                        )?;
+                        println!(
+                            "Compute edit burst qualification: preparation_block_edge=32 hold_after_completed_blocks=1 post_upload_revision=3 expected_final_revision={}",
+                            plan.expected_final_revision
+                        );
+                        Ok::<_, String>(plan)
+                    })
+                    .transpose()?;
+                let mut replacement_path = ComputeRayRenderPathAdapter::new(
                     view,
                     self.camera_state,
                     self.camera_state_revision,
@@ -1243,6 +1346,10 @@ impl DesktopApplication {
                 .map_err(|error| {
                     format!("could not cold-build the compute replacement: {error}")
                 })?;
+                if let Some(plan) = burst_plan {
+                    let controller = replacement_path.enable_convergence_control(true);
+                    compute_burst_setup = Some((controller, plan));
+                }
                 self.backend
                     .as_mut()
                     .ok_or_else(|| "the Render Backend is unavailable".to_owned())?
@@ -1299,6 +1406,13 @@ impl DesktopApplication {
                 self.raster_replacement_installer = Some(installer);
                 self.raster_replacement_lifecycle_controller = Some(lifecycle_controller);
             }
+        }
+
+        if let Some((controller, plan)) = compute_burst_setup {
+            self.compute_convergence_controller = Some(controller);
+            self.compute_edit_burst_stage = Some(ComputeEditBurstStage::AwaitingSpace(plan));
+            self.compute_edit_burst_events.clear();
+            self.compute_edit_burst_presented_revisions.clear();
         }
 
         self.interactive_switch = Some(InteractiveRenderPathSwitch {
@@ -1405,10 +1519,22 @@ impl DesktopApplication {
                 .completed_interactive_switches
                 .checked_add(1)
                 .ok_or_else(|| "the completed Render Path switch count overflowed".to_owned())?;
-            self.render_path_control_feedback = format!(
-                "Tab-ready-completed-{}",
-                self.completed_interactive_switches
-            );
+            if active_switch.source == RenderPathStrategy::ComputeRay {
+                self.compute_convergence_controller = None;
+            }
+            self.render_path_control_feedback = if active_switch.replacement
+                == RenderPathStrategy::ComputeRay
+                && matches!(
+                    self.compute_edit_burst_stage,
+                    Some(ComputeEditBurstStage::AwaitingSpace(_))
+                ) {
+                "Space-ready".to_owned()
+            } else {
+                format!(
+                    "Tab-ready-completed-{}",
+                    self.completed_interactive_switches
+                )
+            };
             println!(
                 "Render Path retirement complete: Retired={:?} owned_resources=0 workers=0 completed_switches={}",
                 active_switch.source, self.completed_interactive_switches
@@ -1432,6 +1558,302 @@ impl DesktopApplication {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+
+    fn submit_compute_edit_burst_command(
+        &mut self,
+        plan: &mut EditBurstPlan,
+        expected_revision: VoxelSceneRevision,
+    ) -> Result<(), String> {
+        let command = plan.take_next_owned_command()?;
+        let outcome = self
+            .frontend
+            .as_ref()
+            .ok_or_else(|| "the compute edit-burst Voxel Frontend is unavailable".to_owned())?
+            .edit(command)
+            .map_err(|error| error.to_string())?;
+        let revision = match &outcome {
+            VoxelEditOutcome::Changed { view, .. } => view.revision(),
+            VoxelEditOutcome::Unchanged(_) => {
+                return Err("the fixed compute edit-burst command changed no voxel".to_owned());
+            }
+        };
+        if revision != expected_revision {
+            return Err(format!(
+                "the compute edit burst produced revision {revision}; expected {expected_revision}"
+            ));
+        }
+        self.compute_convergence_controller
+            .as_ref()
+            .ok_or_else(|| "the compute convergence controller is unavailable".to_owned())?
+            .submit(outcome)
+            .map_err(|error| error.to_string())?;
+        self.published_revision = Some(revision);
+        println!("Compute edit requirement submitted: Required={revision}");
+        Ok(())
+    }
+
+    fn start_compute_edit_burst(&mut self) -> Result<(), String> {
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
+        compute_edit_burst_admission(
+            &diagnostics,
+            matches!(
+                self.compute_edit_burst_stage,
+                Some(ComputeEditBurstStage::AwaitingSpace(_))
+            ),
+        )?;
+        let Some(ComputeEditBurstStage::AwaitingSpace(mut plan)) =
+            self.compute_edit_burst_stage.take()
+        else {
+            return Err("the fixed compute edit burst is not awaiting Space".to_owned());
+        };
+        plan.claim_space_keypress()?;
+        self.compute_convergence_controller
+            .as_ref()
+            .ok_or_else(|| "the compute convergence controller is unavailable".to_owned())?
+            .hold_next_preparation_after_blocks(1)
+            .map_err(|error| error.to_string())?;
+        self.edit_burst_started_at = Some(Instant::now());
+        self.submit_compute_edit_burst_command(&mut plan, VoxelSceneRevision::new(2))?;
+        self.compute_edit_burst_stage = Some(
+            ComputeEditBurstStage::WaitingForRevisionTwoRequirement(plan),
+        );
+        self.render_path_control_feedback = "Space-accepted".to_owned();
+        println!("Space edit burst accepted while compute presents and switching is idle");
+        Ok(())
+    }
+
+    fn handle_compute_edit_burst_key(&mut self, event_loop: &ActiveEventLoop) {
+        match self.start_compute_edit_burst() {
+            Ok(()) => {}
+            Err(error) => {
+                println!("Space edit burst rejected: {error}");
+                self.render_path_control_feedback = format!("Space-rejected-{error}");
+            }
+        }
+        if let Err(error) = self.set_render_path_overlay() {
+            self.fail(event_loop, error);
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn update_compute_edit_burst(&mut self) -> Result<bool, String> {
+        let Some(stage) = self.compute_edit_burst_stage.take() else {
+            return Ok(false);
+        };
+        let Some(controller) = self.compute_convergence_controller.clone() else {
+            self.compute_edit_burst_stage = Some(stage);
+            return Ok(false);
+        };
+        let events = controller
+            .drain_events()
+            .map_err(|error| error.to_string())?;
+        for event in &events {
+            println!("Compute convergence event: {event:?}");
+        }
+        self.compute_edit_burst_events.extend(events);
+        let status = controller.status().map_err(|error| error.to_string())?;
+        if let Some(diagnostics) = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            && diagnostics.roles().presenting() == RenderPathStrategy::ComputeRay
+        {
+            self.compute_edit_burst_presented_revisions
+                .push(diagnostics.presenting().visible_revision());
+        }
+
+        let discarded = |revision, disposition| {
+            self.compute_edit_burst_events.iter().any(|event| {
+                matches!(
+                    event,
+                    ComputeConvergenceEvent::CandidateDiscarded {
+                        stamp,
+                        disposition: actual,
+                    } if stamp.revision() == revision && *actual == disposition
+                )
+            })
+        };
+        let uploaded = |revision| {
+            self.compute_edit_burst_events.iter().any(|event| {
+                matches!(
+                    event,
+                    ComputeConvergenceEvent::CandidateUploaded { stamp }
+                        if stamp.revision() == revision
+                )
+            })
+        };
+        let installed = |revision| {
+            self.compute_edit_burst_events.iter().any(|event| {
+                matches!(
+                    event,
+                    ComputeConvergenceEvent::CandidateInstalled { stamp }
+                        if stamp.revision() == revision
+                )
+            })
+        };
+
+        let next_stage = match stage {
+            ComputeEditBurstStage::AwaitingSpace(plan) => {
+                ComputeEditBurstStage::AwaitingSpace(plan)
+            }
+            ComputeEditBurstStage::WaitingForRevisionTwoRequirement(plan) => {
+                if status.required_revision() == VoxelSceneRevision::new(2) {
+                    ComputeEditBurstStage::WaitingForPreparationBarrier(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForRevisionTwoRequirement(plan)
+                }
+            }
+            ComputeEditBurstStage::WaitingForPreparationBarrier(mut plan) => {
+                let observation = controller
+                    .preparation_barrier_observation()
+                    .map_err(|error| error.to_string())?;
+                if observation.is_some_and(|observation| {
+                    observation.reached_revision() == Some(VoxelSceneRevision::new(2))
+                        && observation.completed_block_count() == 1
+                }) {
+                    println!(
+                        "Compute revision 2 held after one bounded 32-cubed preparation block"
+                    );
+                    self.submit_compute_edit_burst_command(&mut plan, VoxelSceneRevision::new(3))?;
+                    ComputeEditBurstStage::WaitingForRevisionThreeRequirement(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForPreparationBarrier(plan)
+                }
+            }
+            ComputeEditBurstStage::WaitingForRevisionThreeRequirement(plan) => {
+                if status.required_revision() == VoxelSceneRevision::new(3) {
+                    controller
+                        .release_preparation_barrier()
+                        .map_err(|error| error.to_string())?;
+                    println!("Compute revision 2 preparation barrier released after Required=3");
+                    ComputeEditBurstStage::WaitingForRevisionTwoCancellation(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForRevisionThreeRequirement(plan)
+                }
+            }
+            ComputeEditBurstStage::WaitingForRevisionTwoCancellation(plan) => {
+                let observation = controller
+                    .preparation_barrier_observation()
+                    .map_err(|error| error.to_string())?;
+                if discarded(
+                    VoxelSceneRevision::new(2),
+                    ComputeCandidateDisposition::SupersededBeforeUpload,
+                ) && observation.is_some_and(|observation| {
+                    observation.completed_block_count() == 1
+                        && observation.finished()
+                        && observation.cancelled()
+                }) {
+                    println!("Compute revision 2 cancelled after exactly one preparation block");
+                    ComputeEditBurstStage::WaitingForRevisionThreeUpload(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForRevisionTwoCancellation(plan)
+                }
+            }
+            ComputeEditBurstStage::WaitingForRevisionThreeUpload(mut plan) => {
+                if controller
+                    .post_upload_revision()
+                    .map_err(|error| error.to_string())?
+                    == Some(VoxelSceneRevision::new(3))
+                    && uploaded(VoxelSceneRevision::new(3))
+                {
+                    println!("Compute revision 3 uploaded and retained hidden");
+                    let expected_final_revision = plan.expected_final_revision;
+                    self.submit_compute_edit_burst_command(&mut plan, expected_final_revision)?;
+                    ComputeEditBurstStage::WaitingForRevisionFourRequirement(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForRevisionThreeUpload(plan)
+                }
+            }
+            ComputeEditBurstStage::WaitingForRevisionFourRequirement(plan) => {
+                if status.required_revision() == plan.expected_final_revision {
+                    ComputeEditBurstStage::WaitingForRevisionThreeRejection(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForRevisionFourRequirement(plan)
+                }
+            }
+            ComputeEditBurstStage::WaitingForRevisionThreeRejection(plan) => {
+                if discarded(
+                    VoxelSceneRevision::new(3),
+                    ComputeCandidateDisposition::SupersededAfterUpload,
+                ) {
+                    controller
+                        .release_post_upload()
+                        .map_err(|error| error.to_string())?;
+                    println!("Compute revision 3 rejected after upload with Required=4");
+                    ComputeEditBurstStage::WaitingForFinalVisibility(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForRevisionThreeRejection(plan)
+                }
+            }
+            ComputeEditBurstStage::WaitingForFinalVisibility(plan) => {
+                if status.required_revision() == plan.expected_final_revision
+                    && status.visible_revision() == plan.expected_final_revision
+                    && installed(plan.expected_final_revision)
+                {
+                    let installed_revisions = self
+                        .compute_edit_burst_events
+                        .iter()
+                        .filter_map(|event| match event {
+                            ComputeConvergenceEvent::CandidateInstalled { stamp } => {
+                                Some(stamp.revision())
+                            }
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    if installed_revisions != vec![plan.expected_final_revision] {
+                        return Err(format!(
+                            "compute edit burst installed unexpected revisions {installed_revisions:?}"
+                        ));
+                    }
+                    if uploaded(VoxelSceneRevision::new(2))
+                        || installed(VoxelSceneRevision::new(2))
+                        || installed(VoxelSceneRevision::new(3))
+                        || self
+                            .compute_edit_burst_presented_revisions
+                            .iter()
+                            .any(|revision| {
+                                *revision == VoxelSceneRevision::new(2)
+                                    || *revision == VoxelSceneRevision::new(3)
+                            })
+                    {
+                        return Err(
+                            "obsolete compute revisions reached upload, installation, or presentation"
+                                .to_owned(),
+                        );
+                    }
+                    let elapsed_milliseconds = self
+                        .edit_burst_started_at
+                        .take()
+                        .ok_or_else(|| "the compute edit-burst timestamp is missing".to_owned())?
+                        .elapsed()
+                        .as_secs_f64()
+                        * 1_000.0;
+                    println!(
+                        "Compute edit burst converged newest-only: Required={} Visible={} installed_revisions={installed_revisions:?} obsolete_presented_frames=0 obsolete_semantic_observations=0 elapsed_ms={elapsed_milliseconds:.6}",
+                        plan.expected_final_revision, plan.expected_final_revision
+                    );
+                    self.render_path_control_feedback = "Space-complete-Tab-ready".to_owned();
+                    ComputeEditBurstStage::Complete
+                } else {
+                    ComputeEditBurstStage::WaitingForFinalVisibility(plan)
+                }
+            }
+            ComputeEditBurstStage::Complete => ComputeEditBurstStage::Complete,
+        };
+        let in_progress = !matches!(
+            next_stage,
+            ComputeEditBurstStage::AwaitingSpace(_) | ComputeEditBurstStage::Complete
+        );
+        self.compute_edit_burst_stage = Some(next_stage);
+        Ok(in_progress)
     }
 
     fn request_compute_switch(&mut self) -> Result<(), String> {
@@ -2839,7 +3261,11 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                 == RenderPathStrategy::ComputeRay
                                 && diagnostics.roles().replacement().is_none()
                                 && diagnostics.roles().retiring().is_none()
-                                && self.completed_interactive_switches >= 3 =>
+                                && self.completed_interactive_switches >= 3
+                                && matches!(
+                                    self.compute_edit_burst_stage,
+                                    Some(ComputeEditBurstStage::Complete)
+                                ) =>
                         {
                             println!(
                                 "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches={} closing_presenter=ComputeRay",
@@ -2847,11 +3273,15 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             );
                         }
                         Some(diagnostics) => self.record_close_error(format!(
-                            "the Render Path round trip must close idle with compute presenting after at least three switches: Presenting={:?} Replacement={:?} Retiring={:?} completed_switches={}",
+                            "the Render Path round trip must close idle with compute presenting after the newest-only edit burst and at least three switches: Presenting={:?} Replacement={:?} Retiring={:?} completed_switches={} burst={}",
                             diagnostics.roles().presenting(),
                             diagnostics.roles().replacement(),
                             diagnostics.roles().retiring(),
-                            self.completed_interactive_switches
+                            self.completed_interactive_switches,
+                            self.compute_edit_burst_stage
+                                .as_ref()
+                                .map(ComputeEditBurstStage::overlay_label)
+                                .unwrap_or("inactive")
                         )),
                         None => self.record_close_error(
                             "Render Path switching diagnostics are unavailable during close",
@@ -3012,6 +3442,15 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 ) {
                     self.handle_render_path_switch_key(event_loop);
                 }
+                if should_request_compute_edit_burst(
+                    self.render_configuration.compute_switch_demo
+                        && !self.render_configuration.compute_switch_lifecycle_demo,
+                    event.state,
+                    event.repeat,
+                    &event.logical_key,
+                ) {
+                    self.handle_compute_edit_burst_key(event_loop);
+                }
             }
             WindowEvent::RedrawRequested => {
                 let frame_started_at = Instant::now();
@@ -3158,6 +3597,20 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             } else {
                                 false
                             };
+                        let compute_edit_burst_in_progress =
+                            if self.render_configuration.compute_switch_demo
+                                && !self.render_configuration.compute_switch_lifecycle_demo
+                            {
+                                match self.update_compute_edit_burst() {
+                                    Ok(in_progress) => in_progress,
+                                    Err(error) => {
+                                        self.fail(event_loop, error);
+                                        return;
+                                    }
+                                }
+                            } else {
+                                false
+                            };
                         if self.render_configuration.compute_switch_lifecycle_demo {
                             if let Err(error) = self.drive_compute_lifecycle_after_presented() {
                                 self.fail(event_loop, error);
@@ -3180,7 +3633,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                 return;
                             }
                         }
-                        if compute_switch_in_progress && let Some(window) = &self.window {
+                        if (compute_switch_in_progress || compute_edit_burst_in_progress)
+                            && let Some(window) = &self.window
+                        {
                             window.request_redraw();
                         }
                         if self.render_configuration.compute_switch_demo
@@ -3653,9 +4108,10 @@ fn main() -> ExitCode {
 #[cfg(all(test, target_os = "windows"))]
 mod measurement_tests {
     use super::{
-        CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst,
-        format_convergence_characterization, format_convergence_overlay,
-        format_render_path_overlay, parse_render_configuration, render_path_switch_admission,
+        CanonicalCameraPose, CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection,
+        compute_edit_burst_admission, fixed_edit_burst, format_convergence_characterization,
+        format_convergence_overlay, format_render_path_overlay, parse_render_configuration,
+        render_path_switch_admission, should_request_compute_edit_burst,
         should_request_render_path_switch, should_start_edit_burst,
     };
 
@@ -3858,6 +4314,64 @@ mod measurement_tests {
             false,
             &Key::Named(NamedKey::Space)
         ));
+    }
+
+    #[test]
+    fn space_requests_are_detected_even_when_compute_burst_admission_will_reject_them() {
+        let space = Key::Named(NamedKey::Space);
+        assert!(should_request_compute_edit_burst(
+            true,
+            ElementState::Pressed,
+            false,
+            &space
+        ));
+        assert!(!should_request_compute_edit_burst(
+            false,
+            ElementState::Pressed,
+            false,
+            &space
+        ));
+        assert!(!should_request_compute_edit_burst(
+            true,
+            ElementState::Pressed,
+            true,
+            &space
+        ));
+        assert!(!should_request_compute_edit_burst(
+            true,
+            ElementState::Released,
+            false,
+            &space
+        ));
+    }
+
+    #[test]
+    fn compute_edit_burst_admission_requires_an_idle_compute_presenter_and_awaiting_plan()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = VoxelFrontend::new();
+        let view =
+            frontend.publish(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
+        let compute = compute_ray_render_path::ComputeRayRenderPathAdapter::new(
+            view,
+            CanonicalCameraPose::Overview.pose(),
+            CameraStateRevision::new(1),
+        )?;
+        let owner = RenderPathSwitchOwner::new(Box::new(compute));
+        let diagnostics = owner.diagnostics();
+
+        assert!(compute_edit_burst_admission(&diagnostics, true).is_ok());
+        assert!(compute_edit_burst_admission(&diagnostics, false).is_err());
+
+        let revision = VoxelSceneRevision::new(1);
+        let (raster, _, _) = RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
+            CanonicalCameraPose::Overview.pose(),
+            CameraStateRevision::new(1),
+            voxel_frontend::VoxelSceneId::new("raster"),
+            revision,
+        );
+        let raster_diagnostics = RenderPathSwitchOwner::new(Box::new(raster)).diagnostics();
+        assert!(compute_edit_burst_admission(&raster_diagnostics, true).is_err());
+        Ok(())
     }
 
     #[test]

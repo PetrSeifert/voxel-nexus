@@ -81,6 +81,14 @@ impl ComputeSceneBundle {
         view: &VoxelSceneView,
         mut cancellation_requested: impl FnMut() -> bool,
     ) -> Result<Self, ComputeSceneBuildError> {
+        Self::from_view_with_block_completion(view, &mut cancellation_requested, || Ok(()))
+    }
+
+    pub(crate) fn from_view_with_block_completion(
+        view: &VoxelSceneView,
+        mut cancellation_requested: impl FnMut() -> bool,
+        mut block_completed: impl FnMut() -> Result<(), ComputeSceneBuildError>,
+    ) -> Result<Self, ComputeSceneBuildError> {
         let material_count = u32::try_from(view.materials().len())?;
         if material_count == u32::MAX {
             return Err(ComputeSceneBuildError::TooManyMaterials);
@@ -148,6 +156,7 @@ impl ComputeSceneBundle {
                 &material_indices,
                 &mut voxel_words,
                 &mut cancellation_requested,
+                &mut block_completed,
             )?;
             volume_headers.push(ComputeVolumeHeader {
                 identity: volume.identity().clone(),
@@ -240,6 +249,8 @@ pub enum ComputeSceneBuildError {
     },
     #[error("could not read a bounded Voxel Region")]
     VoxelFrontend(#[from] VoxelFrontendError),
+    #[error("the compute convergence preparation barrier is unavailable")]
+    PreparationBarrier,
 }
 
 fn populate_volume_words(
@@ -249,6 +260,7 @@ fn populate_volume_words(
     material_indices: &HashMap<VoxelMaterialId, u32>,
     voxel_words: &mut [u32],
     cancellation_requested: &mut impl FnMut() -> bool,
+    block_completed: &mut impl FnMut() -> Result<(), ComputeSceneBuildError>,
 ) -> Result<(), ComputeSceneBuildError> {
     let [width, height, depth] = volume.extent().dimensions();
     for origin_z in (0..depth).step_by(REGION_READ_EDGE as usize) {
@@ -292,6 +304,7 @@ fn populate_volume_words(
                         .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
                     *destination = word;
                 }
+                block_completed()?;
             }
         }
     }
