@@ -396,6 +396,8 @@ enum ComputeRenderPathError {
     BindCameraMemory(vk::Result),
     #[error("could not write the compute Camera State buffer: {0}")]
     WriteCameraMemory(vk::Result),
+    #[error("the compute Camera State buffer is unavailable")]
+    CameraResourcesUnavailable,
     #[error("could not create the compute descriptor-set layout: {0}")]
     CreateDescriptorSetLayout(vk::Result),
     #[error("could not create the compute descriptor pool: {0}")]
@@ -427,6 +429,7 @@ enum ComputeRenderPathError {
 pub struct ComputeRayRenderPathAdapter {
     render_path: ComputeRayRenderPath,
     camera_state_revision: CameraStateRevision,
+    published_camera_state_revision: CameraStateRevision,
 }
 
 impl ComputeRayRenderPathAdapter {
@@ -439,6 +442,7 @@ impl ComputeRayRenderPathAdapter {
         Ok(Self {
             render_path: ComputeRayRenderPath::new(scene_bundle, camera_state),
             camera_state_revision,
+            published_camera_state_revision: camera_state_revision,
         })
     }
 
@@ -477,6 +481,16 @@ impl ComputeRayRenderPathAdapter {
 }
 
 impl RenderPath for ComputeRayRenderPathAdapter {
+    fn publish_camera_state(
+        &mut self,
+        camera_state: CameraState,
+        camera_state_revision: CameraStateRevision,
+    ) -> RenderPathResult<()> {
+        self.render_path.camera_state = camera_state;
+        self.published_camera_state_revision = camera_state_revision;
+        Ok(())
+    }
+
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         self.render_path.release(device)
     }
@@ -498,6 +512,11 @@ impl RenderPath for ComputeRayRenderPathAdapter {
         device: RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
+        if self.camera_state_revision != self.published_camera_state_revision {
+            self.render_path
+                .write_camera_state(&device, target.extent())?;
+            self.camera_state_revision = self.published_camera_state_revision;
+        }
         self.render_path.advance_frame_boundary(device, target)
     }
 
@@ -605,6 +624,11 @@ impl ComputeRayRenderPath {
         target: RenderPathTarget<'_>,
         qualification: ComputeCapabilityRecord,
     ) -> Result<(), ComputeRenderPathError> {
+        if self.scene_buffer == vk::Buffer::null() || self.scene_memory == vk::DeviceMemory::null()
+        {
+            self.release_scene_resources(device);
+            self.create_scene_buffer(device)?;
+        }
         self.create_output_resources(device, qualification.dispatch())?;
         self.create_descriptor_resources(device)?;
         self.create_compute_pipeline(device)?;
@@ -679,7 +703,6 @@ impl ComputeRayRenderPath {
             .max_lod(0.0);
         self.sampler = unsafe { device.create_sampler(&sampler_info) }
             .map_err(ComputeRenderPathError::CreateSampler)?;
-        self.create_scene_buffer(device)?;
         self.create_camera_buffer(device, extent)?;
         Ok(())
     }
@@ -724,6 +747,21 @@ impl ComputeRayRenderPath {
         unsafe { device.write_memory(self.camera_memory, f32_bytes(&camera_words)) }
             .map_err(ComputeRenderPathError::WriteCameraMemory)?;
         Ok(())
+    }
+
+    fn write_camera_state(
+        &self,
+        device: &RenderPathDeviceContext<'_>,
+        extent: vk::Extent2D,
+    ) -> Result<(), ComputeRenderPathError> {
+        if self.camera_buffer == vk::Buffer::null()
+            || self.camera_memory == vk::DeviceMemory::null()
+        {
+            return Err(ComputeRenderPathError::CameraResourcesUnavailable);
+        }
+        let camera_words = camera_storage_words(self.camera_state, extent);
+        unsafe { device.write_memory(self.camera_memory, f32_bytes(&camera_words)) }
+            .map_err(ComputeRenderPathError::WriteCameraMemory)
     }
 
     fn create_descriptor_resources(
@@ -1179,7 +1217,7 @@ impl ComputeRayRenderPath {
         Ok(())
     }
 
-    fn release_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
+    fn release_presentation_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
         unsafe {
             for framebuffer in self.framebuffers.drain(..) {
                 device.destroy_framebuffer(framebuffer);
@@ -1237,6 +1275,16 @@ impl ComputeRayRenderPath {
                 device.free_memory(self.camera_memory);
                 self.camera_memory = vk::DeviceMemory::null();
             }
+        }
+        self.configured_attachments.clear();
+        self.configuration_id = None;
+        self.output_extent = vk::Extent2D::default();
+        self.dispatch_group_count = [0; 3];
+        self.output_initialized = false;
+    }
+
+    fn release_scene_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
+        unsafe {
             if self.scene_buffer != vk::Buffer::null() {
                 device.destroy_buffer(self.scene_buffer);
                 self.scene_buffer = vk::Buffer::null();
@@ -1246,17 +1294,12 @@ impl ComputeRayRenderPath {
                 self.scene_memory = vk::DeviceMemory::null();
             }
         }
-        self.configured_attachments.clear();
-        self.configuration_id = None;
-        self.output_extent = vk::Extent2D::default();
-        self.dispatch_group_count = [0; 3];
-        self.output_initialized = false;
     }
 }
 
 impl RenderPath for ComputeRayRenderPath {
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
-        self.release_resources(&device);
+        self.release_presentation_resources(&device);
         Ok(())
     }
 
@@ -1279,7 +1322,7 @@ impl RenderPath for ComputeRayRenderPath {
         };
         self.capability_assessment = Some(ComputeCapabilityAssessment::Qualified(qualification));
         if let Err(error) = self.configure_resources(&device, target, qualification) {
-            self.release_resources(&device);
+            self.release_presentation_resources(&device);
             return Err(Box::new(error));
         }
         Ok(())
@@ -1287,7 +1330,8 @@ impl RenderPath for ComputeRayRenderPath {
 
     fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         let convergence_error = self.convergence.shutdown().err();
-        self.release_resources(&device);
+        self.release_presentation_resources(&device);
+        self.release_scene_resources(&device);
         match convergence_error {
             Some(error) => Err(Box::new(ComputeRenderPathError::ConvergenceShutdown(error))),
             None => Ok(()),

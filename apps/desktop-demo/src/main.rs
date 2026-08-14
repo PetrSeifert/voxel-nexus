@@ -12,13 +12,13 @@ use raster_render_path::RasterRenderPathAdapter;
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
-    RasterCameraController, RasterConvergenceCharacterization, RasterConvergenceStatus,
-    RasterLifecycleController, RasterPreparationBarrier, RasterPreparationBarrierRelease,
-    RasterSafeRetirementDisposition,
+    RasterConvergenceCharacterization, RasterConvergenceStatus, RasterLifecycleController,
+    RasterPreparationBarrier, RasterPreparationBarrierRelease, RasterSafeRetirementDisposition,
 };
 #[cfg(target_os = "windows")]
 use render_backend::{
-    CameraStateRevision, FrameOutcome, RenderBackend, RenderBackendOptions, RenderPathStrategy,
+    CameraStateRevision, FrameOutcome, PresentationConfigurationId, RenderBackend,
+    RenderBackendOptions, RenderPathHandoffControl, RenderPathReadiness, RenderPathStrategy,
     RenderPathSwitchOwner,
 };
 use render_backend::{
@@ -104,6 +104,7 @@ struct DesktopRenderConfiguration {
     inject_raster_upload_failure: bool,
     edit_burst_demo: bool,
     compute_switch_demo: bool,
+    compute_switch_lifecycle_demo: bool,
     measurement: Option<MeasurementConfiguration>,
 }
 
@@ -155,6 +156,7 @@ fn parse_render_configuration(
     let mut inject_raster_upload_failure = false;
     let mut edit_burst_demo = false;
     let mut compute_switch_demo = false;
+    let mut compute_switch_lifecycle_demo = false;
     let mut raster_region_extent = 32;
     let mut measurement_mode = None;
     let mut measurement_output = None;
@@ -166,6 +168,10 @@ fn parse_render_configuration(
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
             "--edit-burst-demo" => edit_burst_demo = true,
             "--compute-switch-demo" => compute_switch_demo = true,
+            "--compute-switch-lifecycle-demo" => {
+                compute_switch_demo = true;
+                compute_switch_lifecycle_demo = true;
+            }
             "--raster-region-extent" => {
                 raster_region_extent = match arguments.next().as_deref() {
                     Some("16") => 16,
@@ -320,6 +326,7 @@ fn parse_render_configuration(
             inject_raster_upload_failure,
             edit_burst_demo,
             compute_switch_demo,
+            compute_switch_lifecycle_demo,
             measurement,
         },
         report_only,
@@ -457,6 +464,7 @@ enum DesktopEvent {
     ReleaseEditCpuBarrier,
     ReleaseEditPostUploadLifecycleBarrier,
     ReleaseEditPostUploadBarrier,
+    ReleaseComputeHandoff,
 }
 
 #[cfg(target_os = "windows")]
@@ -478,6 +486,9 @@ const RELEASE_EDIT_POST_UPLOAD_BARRIER_MESSAGE: u32 =
 #[cfg(target_os = "windows")]
 const RELEASE_EDIT_POST_UPLOAD_LIFECYCLE_BARRIER_MESSAGE: u32 =
     windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 35;
+#[cfg(target_os = "windows")]
+const RELEASE_COMPUTE_HANDOFF_MESSAGE: u32 =
+    windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 36;
 
 #[cfg(target_os = "windows")]
 struct EditBurstPlan {
@@ -909,7 +920,6 @@ struct DesktopApplication {
     preparation: Option<RasterArtifactPreparation>,
     preparation_release: Option<RasterPreparationBarrierRelease>,
     artifact_installer: Option<RasterArtifactInstaller>,
-    camera_controller: Option<RasterCameraController>,
     camera_state: CameraPose,
     camera_state_revision: CameraStateRevision,
     published_revision: Option<VoxelSceneRevision>,
@@ -932,6 +942,32 @@ struct DesktopApplication {
     compute_switch_requested: bool,
     compute_first_frame_presented: bool,
     compute_switch_complete_reported: bool,
+    render_path_handoff_control: Option<RenderPathHandoffControl>,
+    last_held_replacement_stamp: Option<(CameraStateRevision, Option<PresentationConfigurationId>)>,
+    compute_switch_lifecycle_stage: Option<ComputeSwitchLifecycleStage>,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComputeSwitchLifecycleStage {
+    Replacement,
+    CameraAcknowledgement,
+    Landscape {
+        previous_configuration: PresentationConfigurationId,
+    },
+    Portrait {
+        previous_configuration: PresentationConfigurationId,
+    },
+    Suspension {
+        previous_configuration: PresentationConfigurationId,
+    },
+    Restore {
+        previous_configuration: PresentationConfigurationId,
+    },
+    PresentationRecreation {
+        previous_configuration: PresentationConfigurationId,
+    },
+    Handoff,
 }
 
 #[cfg(target_os = "windows")]
@@ -954,6 +990,9 @@ impl DesktopApplication {
             .as_ref()
             .map(MeasurementSession::new)
             .transpose()?;
+        let compute_switch_lifecycle_stage = render_configuration
+            .compute_switch_lifecycle_demo
+            .then_some(ComputeSwitchLifecycleStage::Replacement);
         Ok(Self {
             backend: None,
             text_overlay: None,
@@ -966,7 +1005,6 @@ impl DesktopApplication {
             preparation: None,
             preparation_release: None,
             artifact_installer: None,
-            camera_controller: None,
             camera_state,
             camera_state_revision: CameraStateRevision::new(1),
             published_revision: None,
@@ -989,6 +1027,9 @@ impl DesktopApplication {
             compute_switch_requested: false,
             compute_first_frame_presented: false,
             compute_switch_complete_reported: false,
+            render_path_handoff_control: None,
+            last_held_replacement_stamp: None,
+            compute_switch_lifecycle_stage,
         })
     }
 
@@ -1051,6 +1092,9 @@ impl DesktopApplication {
             .map_err(|error| error.to_string())?;
         self.compute_switch_requested = true;
         println!("Compute replacement requested while raster remains Presenting");
+        if self.render_configuration.compute_switch_lifecycle_demo {
+            self.set_status("compute-replacement-requested");
+        }
         Ok(())
     }
 
@@ -1064,6 +1108,32 @@ impl DesktopApplication {
             .and_then(RenderBackend::render_path_switch_diagnostics)
             .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
         let roles = diagnostics.roles();
+        if self.render_configuration.compute_switch_lifecycle_demo
+            && self
+                .render_path_handoff_control
+                .as_ref()
+                .is_some_and(RenderPathHandoffControl::is_held)
+            && let Some(replacement) = diagnostics.replacement()
+        {
+            let held_stamp = (
+                replacement.camera_state_revision(),
+                replacement.presentation_configuration(),
+            );
+            if self.last_held_replacement_stamp != Some(held_stamp) {
+                println!(
+                    "Compute replacement held: CameraStateRevision={:?} PresentationConfiguration={:?} Readiness={:?}",
+                    replacement.camera_state_revision(),
+                    replacement.presentation_configuration(),
+                    replacement.readiness()
+                );
+                self.set_status(&format!(
+                    "compute-replacement-held camera={:?} presentation={:?}",
+                    replacement.camera_state_revision(),
+                    replacement.presentation_configuration()
+                ));
+                self.last_held_replacement_stamp = Some(held_stamp);
+            }
+        }
         if roles.presenting() == RenderPathStrategy::ComputeRay
             && !self.compute_first_frame_presented
         {
@@ -1083,6 +1153,7 @@ impl DesktopApplication {
                 );
             }
             self.compute_first_frame_presented = true;
+            self.set_status("compute-presenting");
             println!(
                 "First compute frame presented after atomic handoff: revision={} CameraStateRevision={:?} PresentationConfiguration={:?}",
                 compute.visible_revision(),
@@ -1113,9 +1184,199 @@ impl DesktopApplication {
                 }
             }
             self.compute_switch_complete_reported = true;
+            self.set_status("compute-switch-complete");
             println!("Raster retirement complete: owned_resources=0 workers=0");
         }
         Ok(switch_in_progress)
+    }
+
+    fn release_compute_handoff(&mut self) -> Result<(), String> {
+        if !self.render_configuration.compute_switch_lifecycle_demo {
+            return Err("the compute lifecycle handoff is not enabled".to_owned());
+        }
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
+        let replacement = diagnostics
+            .replacement()
+            .ok_or_else(|| "there is no held compute replacement to release".to_owned())?;
+        let presenting = diagnostics.presenting();
+        if replacement.strategy() != RenderPathStrategy::ComputeRay
+            || replacement.readiness() != RenderPathReadiness::Recordable
+            || replacement.camera_state_revision() != self.camera_state_revision
+            || replacement.camera_state_revision() != presenting.camera_state_revision()
+            || replacement.presentation_configuration().is_none()
+            || replacement.presentation_configuration() != presenting.presentation_configuration()
+        {
+            return Err(
+                "the compute replacement has not acknowledged the latest Camera State and Presentation Configuration"
+                    .to_owned(),
+            );
+        }
+        let handoff_control = self
+            .render_path_handoff_control
+            .as_ref()
+            .ok_or_else(|| "the Render Path handoff control is unavailable".to_owned())?;
+        if !handoff_control.is_held() {
+            return Err("the compute replacement handoff was already released".to_owned());
+        }
+        handoff_control.release();
+        self.set_status("compute-handoff-released");
+        println!(
+            "Compute replacement handoff released: CameraStateRevision={:?} PresentationConfiguration={:?}",
+            replacement.camera_state_revision(),
+            replacement.presentation_configuration()
+        );
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+        Ok(())
+    }
+
+    fn request_compute_lifecycle_extent(&self, width: u32, height: u32) -> Result<(), String> {
+        let window = self.window.as_ref().ok_or_else(|| {
+            "the desktop window is unavailable for lifecycle recreation".to_owned()
+        })?;
+        let _requested_size =
+            window.request_inner_size(winit::dpi::PhysicalSize::new(width, height));
+        window.request_redraw();
+        Ok(())
+    }
+
+    fn drive_compute_lifecycle_after_presented(&mut self) -> Result<(), String> {
+        let Some(stage) = self.compute_switch_lifecycle_stage else {
+            return Ok(());
+        };
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
+        let Some(replacement) = diagnostics.replacement() else {
+            return Ok(());
+        };
+        let Some(configuration) = replacement.presentation_configuration() else {
+            return Ok(());
+        };
+        let presentation_extent = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::presentation_extent)
+            .ok_or_else(|| "the compute lifecycle presentation extent is unavailable".to_owned())?;
+
+        match stage {
+            ComputeSwitchLifecycleStage::Replacement => {
+                if replacement.readiness() != RenderPathReadiness::Recordable {
+                    return Ok(());
+                }
+                self.publish_camera_state(CanonicalCameraPose::CavityMaterialCloseUp.pose())?;
+                self.compute_switch_lifecycle_stage =
+                    Some(ComputeSwitchLifecycleStage::CameraAcknowledgement);
+                println!(
+                    "Compute lifecycle qualification published the deterministic Camera State change"
+                );
+            }
+            ComputeSwitchLifecycleStage::CameraAcknowledgement => {
+                if replacement.camera_state_revision() != self.camera_state_revision
+                    || diagnostics.presenting().camera_state_revision()
+                        != self.camera_state_revision
+                {
+                    return Ok(());
+                }
+                self.request_compute_lifecycle_extent(1100, 700)?;
+                self.compute_switch_lifecycle_stage =
+                    Some(ComputeSwitchLifecycleStage::Landscape {
+                        previous_configuration: configuration,
+                    });
+            }
+            ComputeSwitchLifecycleStage::Landscape {
+                previous_configuration,
+            } => {
+                if configuration == previous_configuration
+                    || presentation_extent.width <= presentation_extent.height
+                {
+                    return Ok(());
+                }
+                self.request_compute_lifecycle_extent(650, 900)?;
+                self.compute_switch_lifecycle_stage = Some(ComputeSwitchLifecycleStage::Portrait {
+                    previous_configuration: configuration,
+                });
+            }
+            ComputeSwitchLifecycleStage::Portrait {
+                previous_configuration,
+            } => {
+                if configuration == previous_configuration
+                    || presentation_extent.width >= presentation_extent.height
+                {
+                    return Ok(());
+                }
+                self.compute_switch_lifecycle_stage =
+                    Some(ComputeSwitchLifecycleStage::Suspension {
+                        previous_configuration: configuration,
+                    });
+                self.set_drawable_extent(ash::vk::Extent2D::default())?;
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            ComputeSwitchLifecycleStage::Restore {
+                previous_configuration,
+            } => {
+                if configuration == previous_configuration {
+                    return Ok(());
+                }
+                self.request_compute_lifecycle_extent(1000, 700)?;
+                self.compute_switch_lifecycle_stage =
+                    Some(ComputeSwitchLifecycleStage::PresentationRecreation {
+                        previous_configuration: configuration,
+                    });
+            }
+            ComputeSwitchLifecycleStage::PresentationRecreation {
+                previous_configuration,
+            } => {
+                if configuration == previous_configuration
+                    || presentation_extent.width <= presentation_extent.height
+                {
+                    return Ok(());
+                }
+                self.release_compute_handoff()?;
+                self.compute_switch_lifecycle_stage = Some(ComputeSwitchLifecycleStage::Handoff);
+            }
+            ComputeSwitchLifecycleStage::Suspension { .. }
+            | ComputeSwitchLifecycleStage::Handoff => {}
+        }
+        Ok(())
+    }
+
+    fn restore_compute_lifecycle_after_suspension(&mut self) -> Result<bool, String> {
+        let Some(ComputeSwitchLifecycleStage::Suspension {
+            previous_configuration,
+        }) = self.compute_switch_lifecycle_stage
+        else {
+            return Ok(false);
+        };
+        let drawable_size = self
+            .window
+            .as_ref()
+            .map(Window::inner_size)
+            .ok_or_else(|| "the desktop window is unavailable for lifecycle restore".to_owned())?;
+        if drawable_size.width == 0 || drawable_size.height == 0 {
+            return Err("the desktop window reported a zero restore extent".to_owned());
+        }
+        self.compute_switch_lifecycle_stage = Some(ComputeSwitchLifecycleStage::Restore {
+            previous_configuration,
+        });
+        self.set_drawable_extent(ash::vk::Extent2D {
+            width: drawable_size.width,
+            height: drawable_size.height,
+        })?;
+        println!(
+            "Compute lifecycle qualification restored presentation: {}x{}",
+            drawable_size.width, drawable_size.height
+        );
+        Ok(true)
     }
 
     fn publish_next_burst_command(&self, plan: &mut EditBurstPlan) -> Result<(), String> {
@@ -1515,6 +1776,27 @@ impl DesktopApplication {
                 ));
             }
         }
+        if self.render_configuration.compute_switch_lifecycle_demo
+            && self.compute_switch_requested
+            && self
+                .render_path_handoff_control
+                .as_ref()
+                .is_some_and(RenderPathHandoffControl::is_held)
+        {
+            if drawable_extent.width == 0 || drawable_extent.height == 0 {
+                println!("Compute replacement held during zero-size presentation suspension");
+                self.set_status("compute-replacement-held suspended");
+            } else {
+                println!(
+                    "Compute replacement held during presentation resize: {}x{}",
+                    drawable_extent.width, drawable_extent.height
+                );
+                self.set_status(&format!(
+                    "compute-replacement-held resize={}x{}",
+                    drawable_extent.width, drawable_extent.height
+                ));
+            }
+        }
         if drawable_extent.width > 0
             && drawable_extent.height > 0
             && let Some(window) = &self.window
@@ -1800,10 +2082,12 @@ impl DesktopApplication {
             .camera_state_revision
             .checked_successor()
             .ok_or_else(|| "the Camera State Revision identity overflowed".to_owned())?;
-        self.camera_controller
-            .as_ref()
-            .ok_or_else(|| "the raster camera controller is unavailable".to_owned())?
-            .set_state(pose, next_revision)
+        self.backend
+            .as_mut()
+            .ok_or_else(|| {
+                "the Render Backend is unavailable for Camera State publication".to_owned()
+            })?
+            .publish_camera_state(pose, next_revision)
             .map_err(|error| error.to_string())?;
         self.camera_state = pose;
         self.camera_state_revision = next_revision;
@@ -1961,7 +2245,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 return;
             }
         }
-        let (mut render_path, artifact_installer, camera_controller) =
+        let (mut render_path, artifact_installer, _) =
             RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
                 self.camera_state,
                 self.camera_state_revision,
@@ -2009,6 +2293,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             RenderBackendOptions::default()
         };
         let render_path = RenderPathSwitchOwner::new(Box::new(render_path));
+        let render_path_handoff_control = render_path.handoff_control();
+        if self.render_configuration.compute_switch_lifecycle_demo {
+            render_path_handoff_control.hold();
+        }
         let backend = match RenderBackend::initialize_with_options(
             c"Voxel Nexus Desktop Demo",
             &adapter,
@@ -2076,7 +2364,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.text_overlay = text_overlay;
         self.window = Some(window);
         self.artifact_installer = Some(artifact_installer);
-        self.camera_controller = Some(camera_controller);
+        self.render_path_handoff_control = Some(render_path_handoff_control);
         self.published_revision = Some(published_revision);
         let (barrier, preparation_release) =
             if self.render_configuration.hold_background_preparation {
@@ -2399,6 +2687,28 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                 return;
                             }
                         };
+                        if self.render_configuration.compute_switch_lifecycle_demo {
+                            if let Err(error) = self.drive_compute_lifecycle_after_presented() {
+                                self.fail(event_loop, error);
+                                return;
+                            }
+                            if self.compute_switch_complete_reported
+                                && self.compute_switch_lifecycle_stage
+                                    == Some(ComputeSwitchLifecycleStage::Handoff)
+                            {
+                                if let Some(backend) = &mut self.backend
+                                    && let Err(error) = backend.shutdown()
+                                {
+                                    self.fail(event_loop, error);
+                                    return;
+                                }
+                                println!(
+                                    "Compute replacement lifecycle qualification complete: validation_errors=0"
+                                );
+                                event_loop.exit();
+                                return;
+                            }
+                        }
                         if compute_switch_in_progress && let Some(window) = &self.window {
                             window.request_redraw();
                         }
@@ -2509,6 +2819,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     }
                     FrameOutcome::Suspended => {
                         self.presentation_retry_at = None;
+                        match self.restore_compute_lifecycle_after_suspension() {
+                            Ok(true) | Ok(false) => {}
+                            Err(error) => {
+                                self.fail(event_loop, error);
+                            }
+                        }
                     }
                 }
             }
@@ -2579,6 +2895,11 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             DesktopEvent::ReleaseEditPostUploadBarrier => {
                 self.release_edit_post_upload_barrier(event_loop);
             }
+            DesktopEvent::ReleaseComputeHandoff => {
+                if let Err(error) = self.release_compute_handoff() {
+                    self.fail(event_loop, error);
+                }
+            }
         }
     }
 
@@ -2618,6 +2939,7 @@ fn desktop_event_for_windows_message(message: u32) -> Option<DesktopEvent> {
         RELEASE_EDIT_POST_UPLOAD_LIFECYCLE_BARRIER_MESSAGE => {
             Some(DesktopEvent::ReleaseEditPostUploadLifecycleBarrier)
         }
+        RELEASE_COMPUTE_HANDOFF_MESSAGE => Some(DesktopEvent::ReleaseComputeHandoff),
         _ => None,
     }
 }
@@ -2883,6 +3205,15 @@ mod measurement_tests {
         let (configuration, _) =
             parse_render_configuration(["--compute-switch-demo"].into_iter().map(str::to_owned))?;
         assert!(configuration.compute_switch_demo);
+        assert!(!configuration.compute_switch_lifecycle_demo);
+
+        let (lifecycle_configuration, _) = parse_render_configuration(
+            ["--compute-switch-lifecycle-demo"]
+                .into_iter()
+                .map(str::to_owned),
+        )?;
+        assert!(lifecycle_configuration.compute_switch_demo);
+        assert!(lifecycle_configuration.compute_switch_lifecycle_demo);
 
         let incompatible = parse_render_configuration(
             ["--compute-switch-demo", "--edit-burst-demo"]

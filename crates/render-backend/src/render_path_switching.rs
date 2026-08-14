@@ -1,7 +1,9 @@
 use crate::{
-    PresentationConfigurationId, RenderPath, RenderPathDeviceContext, RenderPathFrameContext,
-    RenderPathResult, RenderPathTarget,
+    CameraState, PresentationConfigurationId, RenderPath, RenderPathDeviceContext,
+    RenderPathFrameContext, RenderPathResult, RenderPathTarget,
 };
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use voxel_frontend::{VoxelSceneId, VoxelSceneRevision};
 
@@ -163,6 +165,10 @@ pub enum RenderPathSwitchEvent {
         replacement: RenderPathStrategy,
         mismatch: RenderPathHandoffMismatch,
     },
+    HandoffHeld {
+        presenting: RenderPathStrategy,
+        replacement: RenderPathStrategy,
+    },
     HandedOff {
         presenting: RenderPathStrategy,
         retiring: RenderPathStrategy,
@@ -174,6 +180,25 @@ pub enum RenderPathSwitchEvent {
         retiring: RenderPathStrategy,
         message: String,
     },
+}
+
+#[derive(Clone, Debug)]
+pub struct RenderPathHandoffControl {
+    held: Arc<AtomicBool>,
+}
+
+impl RenderPathHandoffControl {
+    pub fn hold(&self) {
+        self.held.store(true, Ordering::SeqCst);
+    }
+
+    pub fn release(&self) {
+        self.held.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_held(&self) -> bool {
+        self.held.load(Ordering::SeqCst)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -242,6 +267,7 @@ pub struct RenderPathSwitchOwner {
     replacement: Option<Box<dyn SwitchableRenderPath>>,
     replacement_needs_configuration: bool,
     retiring: Option<Box<dyn SwitchableRenderPath>>,
+    handoff_control: RenderPathHandoffControl,
     events: Vec<RenderPathSwitchEvent>,
 }
 
@@ -252,8 +278,15 @@ impl RenderPathSwitchOwner {
             replacement: None,
             replacement_needs_configuration: false,
             retiring: None,
+            handoff_control: RenderPathHandoffControl {
+                held: Arc::new(AtomicBool::new(false)),
+            },
             events: Vec::new(),
         }
+    }
+
+    pub fn handoff_control(&self) -> RenderPathHandoffControl {
+        self.handoff_control.clone()
     }
 
     pub fn request_switch(
@@ -351,6 +384,16 @@ impl RenderPathSwitchOwner {
             }
             return;
         }
+        if self.handoff_control.is_held() {
+            let event = RenderPathSwitchEvent::HandoffHeld {
+                presenting: self.presenting.stamp().strategy(),
+                replacement: replacement_strategy,
+            };
+            if self.events.last() != Some(&event) {
+                self.events.push(event);
+            }
+            return;
+        }
         let Some(replacement) = self.replacement.take() else {
             return;
         };
@@ -365,6 +408,19 @@ impl RenderPathSwitchOwner {
 }
 
 impl RenderPath for RenderPathSwitchOwner {
+    fn publish_camera_state(
+        &mut self,
+        camera_state: CameraState,
+        camera_state_revision: CameraStateRevision,
+    ) -> RenderPathResult<()> {
+        self.presenting
+            .publish_camera_state(camera_state, camera_state_revision)?;
+        if let Some(replacement) = self.replacement.as_mut() {
+            replacement.publish_camera_state(camera_state, camera_state_revision)?;
+        }
+        Ok(())
+    }
+
     fn request_switch(
         &mut self,
         replacement: Box<dyn SwitchableRenderPath>,
@@ -380,6 +436,7 @@ impl RenderPath for RenderPathSwitchOwner {
         self.presenting.release(device)?;
         if let Some(replacement) = self.replacement.as_mut() {
             replacement.release(device)?;
+            self.replacement_needs_configuration = true;
         }
         if let Some(retiring) = self.retiring.as_mut() {
             retiring.release(device)?;
@@ -466,11 +523,12 @@ mod tests {
     use ash::vk;
     use std::marker::PhantomData;
     use std::ptr;
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
 
     struct ProofRenderPath {
         stamp: RenderPathStamp,
+        pending_camera_state_revision: Option<CameraStateRevision>,
+        configuration_tracks_target: bool,
         become_recordable: Option<Arc<AtomicBool>>,
         retirement_fails: bool,
         configure_count: Option<Arc<AtomicUsize>>,
@@ -478,15 +536,30 @@ mod tests {
     }
 
     impl RenderPath for ProofRenderPath {
+        fn publish_camera_state(
+            &mut self,
+            _camera_state: CameraState,
+            camera_state_revision: CameraStateRevision,
+        ) -> RenderPathResult<()> {
+            self.pending_camera_state_revision = Some(camera_state_revision);
+            Ok(())
+        }
+
         fn release(&mut self, _device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+            if self.configuration_tracks_target {
+                self.stamp.presentation_configuration = None;
+            }
             Ok(())
         }
 
         fn configure(
             &mut self,
             _device: RenderPathDeviceContext<'_>,
-            _target: RenderPathTarget<'_>,
+            target: RenderPathTarget<'_>,
         ) -> RenderPathResult<()> {
+            if self.configuration_tracks_target {
+                self.stamp.presentation_configuration = Some(target.configuration_id());
+            }
             if let Some(configure_count) = self.configure_count.as_ref() {
                 configure_count.fetch_add(1, Ordering::SeqCst);
             }
@@ -498,6 +571,9 @@ mod tests {
             _device: RenderPathDeviceContext<'_>,
             _target: RenderPathTarget<'_>,
         ) -> RenderPathResult<()> {
+            if let Some(camera_state_revision) = self.pending_camera_state_revision.take() {
+                self.stamp.camera_state_revision = camera_state_revision;
+            }
             if self
                 .become_recordable
                 .as_ref()
@@ -552,6 +628,8 @@ mod tests {
     fn proof_path(stamp: RenderPathStamp) -> Box<dyn SwitchableRenderPath> {
         Box::new(ProofRenderPath {
             stamp,
+            pending_camera_state_revision: None,
+            configuration_tracks_target: false,
             become_recordable: None,
             retirement_fails: false,
             configure_count: None,
@@ -562,6 +640,8 @@ mod tests {
     fn retirement_failing_path(stamp: RenderPathStamp) -> Box<dyn SwitchableRenderPath> {
         Box::new(ProofRenderPath {
             stamp,
+            pending_camera_state_revision: None,
+            configuration_tracks_target: false,
             become_recordable: None,
             retirement_fails: true,
             configure_count: None,
@@ -582,6 +662,8 @@ mod tests {
         (
             Box::new(ProofRenderPath {
                 stamp,
+                pending_camera_state_revision: None,
+                configuration_tracks_target: false,
                 become_recordable: Some(Arc::clone(&become_recordable)),
                 retirement_fails: false,
                 configure_count: Some(Arc::clone(&configure_count)),
@@ -608,6 +690,8 @@ mod tests {
         (
             Box::new(ProofRenderPath {
                 stamp,
+                pending_camera_state_revision: None,
+                configuration_tracks_target: false,
                 become_recordable: starts_preparing.then(|| Arc::clone(&become_recordable)),
                 retirement_fails: false,
                 configure_count: None,
@@ -618,30 +702,56 @@ mod tests {
         )
     }
 
+    fn lifecycle_path(
+        stamp: RenderPathStamp,
+    ) -> (
+        Box<dyn SwitchableRenderPath>,
+        Arc<AtomicUsize>,
+        Arc<AtomicUsize>,
+    ) {
+        let configure_count = Arc::new(AtomicUsize::new(0));
+        let record_count = Arc::new(AtomicUsize::new(0));
+        (
+            Box::new(ProofRenderPath {
+                stamp,
+                pending_camera_state_revision: None,
+                configuration_tracks_target: true,
+                become_recordable: None,
+                retirement_fails: false,
+                configure_count: Some(Arc::clone(&configure_count)),
+                record_count: Some(Arc::clone(&record_count)),
+            }),
+            configure_count,
+            record_count,
+        )
+    }
+
     fn proof_device() -> ash::Device {
         unsafe { ash::Device::load_with(|_| ptr::null(), vk::Device::null()) }
+    }
+
+    fn proof_target(configuration_id: u64, width: u32, height: u32) -> RenderPathTarget<'static> {
+        RenderPathTarget {
+            configuration_id: PresentationConfigurationId(configuration_id),
+            format: vk::Format::B8G8R8A8_SRGB,
+            extent: vk::Extent2D { width, height },
+            images: &[],
+        }
+    }
+
+    fn proof_device_context(device: &ash::Device) -> RenderPathDeviceContext<'_> {
+        RenderPathDeviceContext {
+            device,
+            memory_properties: vk::PhysicalDeviceMemoryProperties::default(),
+            capabilities: crate::RenderPathDeviceCapabilities::default(),
+        }
     }
 
     fn advance_owner(
         owner: &mut RenderPathSwitchOwner,
         device: &ash::Device,
     ) -> RenderPathResult<()> {
-        owner.advance_frame_boundary(
-            RenderPathDeviceContext {
-                device,
-                memory_properties: vk::PhysicalDeviceMemoryProperties::default(),
-                capabilities: crate::RenderPathDeviceCapabilities::default(),
-            },
-            RenderPathTarget {
-                configuration_id: PresentationConfigurationId(1),
-                format: vk::Format::B8G8R8A8_SRGB,
-                extent: vk::Extent2D {
-                    width: 800,
-                    height: 600,
-                },
-                images: &[],
-            },
-        )
+        owner.advance_frame_boundary(proof_device_context(device), proof_target(1, 800, 600))
     }
 
     fn record_owner(
@@ -666,6 +776,17 @@ mod tests {
                 },
             },
         })
+    }
+
+    fn changed_camera_state() -> CameraState {
+        CameraState::new(
+            [7.0, 6.0, 5.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            50.0,
+            0.1,
+            100.0,
+        )
     }
 
     #[test]
@@ -811,6 +932,98 @@ mod tests {
                 },
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn held_replacement_tracks_camera_and_presentation_recreation_before_handoff()
+    -> RenderPathResult<()> {
+        let (presenting, presenting_configures, presenting_records) =
+            lifecycle_path(stamp(RenderPathStrategy::Raster, 1, 1));
+        let (replacement, replacement_configures, replacement_records) =
+            lifecycle_path(stamp(RenderPathStrategy::ComputeRay, 1, 1));
+        let mut owner = RenderPathSwitchOwner::new(presenting);
+        let handoff_control = owner.handoff_control();
+        handoff_control.hold();
+        owner
+            .request_switch(replacement)
+            .expect("the held replacement should be admitted");
+        owner.publish_camera_state(changed_camera_state(), CameraStateRevision::new(2))?;
+        let device = proof_device();
+
+        owner.advance_frame_boundary(proof_device_context(&device), proof_target(1, 800, 600))?;
+        record_owner(&mut owner, &device)?;
+        assert_eq!(
+            owner.diagnostics().presenting().camera_state_revision(),
+            CameraStateRevision::new(2)
+        );
+        assert_eq!(
+            owner
+                .diagnostics()
+                .replacement()
+                .map(RenderPathStamp::camera_state_revision),
+            Some(CameraStateRevision::new(2))
+        );
+        assert_eq!(presenting_records.load(Ordering::SeqCst), 1);
+        assert_eq!(replacement_records.load(Ordering::SeqCst), 0);
+
+        for (configuration_id, width, height) in [
+            (2, 1200, 700),
+            (3, 700, 1200),
+            (4, 1000, 700),
+            (5, 1000, 700),
+        ] {
+            owner.release(proof_device_context(&device))?;
+            assert_eq!(
+                owner
+                    .diagnostics()
+                    .presenting()
+                    .presentation_configuration(),
+                None
+            );
+            assert_eq!(
+                owner
+                    .diagnostics()
+                    .replacement()
+                    .and_then(RenderPathStamp::presentation_configuration),
+                None
+            );
+            owner.configure(
+                proof_device_context(&device),
+                proof_target(configuration_id, width, height),
+            )?;
+            owner.advance_frame_boundary(
+                proof_device_context(&device),
+                proof_target(configuration_id, width, height),
+            )?;
+            assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
+            assert_eq!(
+                owner.role_status().replacement(),
+                Some(RenderPathStrategy::ComputeRay)
+            );
+            assert_eq!(owner.role_status().retiring(), None);
+        }
+
+        assert_eq!(presenting_configures.load(Ordering::SeqCst), 4);
+        assert_eq!(replacement_configures.load(Ordering::SeqCst), 5);
+        assert_eq!(
+            owner.events().last(),
+            Some(&RenderPathSwitchEvent::HandoffHeld {
+                presenting: RenderPathStrategy::Raster,
+                replacement: RenderPathStrategy::ComputeRay,
+            })
+        );
+        handoff_control.release();
+        owner.advance_frame_boundary(proof_device_context(&device), proof_target(5, 1000, 700))?;
+        record_owner(&mut owner, &device)?;
+
+        assert_eq!(
+            owner.role_status().presenting(),
+            RenderPathStrategy::ComputeRay
+        );
+        assert_eq!(owner.role_status().replacement(), None);
+        assert_eq!(presenting_records.load(Ordering::SeqCst), 1);
+        assert_eq!(replacement_records.load(Ordering::SeqCst), 1);
         Ok(())
     }
 

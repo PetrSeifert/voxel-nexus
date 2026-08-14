@@ -9,10 +9,10 @@ use thiserror::Error;
 mod render_path_switching;
 
 pub use render_path_switching::{
-    CameraStateRevision, RenderPathHandoffMismatch, RenderPathReadiness, RenderPathRetirement,
-    RenderPathRoleStatus, RenderPathStamp, RenderPathStrategy, RenderPathSwitchDiagnostics,
-    RenderPathSwitchEvent, RenderPathSwitchOwner, RenderPathSwitchRequestError,
-    SwitchableRenderPath,
+    CameraStateRevision, RenderPathHandoffControl, RenderPathHandoffMismatch, RenderPathReadiness,
+    RenderPathRetirement, RenderPathRoleStatus, RenderPathStamp, RenderPathStrategy,
+    RenderPathSwitchDiagnostics, RenderPathSwitchEvent, RenderPathSwitchOwner,
+    RenderPathSwitchRequestError, SwitchableRenderPath,
 };
 
 const VALIDATION_LAYER_NAME: &CStr = c"VK_LAYER_KHRONOS_validation";
@@ -1038,6 +1038,14 @@ impl RenderPathFrameContext<'_> {
 }
 
 pub trait RenderPath {
+    fn publish_camera_state(
+        &mut self,
+        _camera_state: CameraState,
+        _camera_state_revision: CameraStateRevision,
+    ) -> RenderPathResult<()> {
+        Err(Box::new(RenderPathCameraStateError::PublicationUnavailable))
+    }
+
     fn switch_diagnostics(&self) -> Option<RenderPathSwitchDiagnostics> {
         None
     }
@@ -1070,6 +1078,12 @@ pub trait RenderPath {
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum RenderPathCameraStateError {
+    #[error("the active Render Path does not accept shared Camera State publication")]
+    PublicationUnavailable,
 }
 
 /// Supplies the platform-owned Vulkan instance extensions and presentation surface.
@@ -1317,6 +1331,15 @@ impl RenderBackend {
         self.path.request_switch(replacement)
     }
 
+    pub fn publish_camera_state(
+        &mut self,
+        camera_state: CameraState,
+        camera_state_revision: CameraStateRevision,
+    ) -> RenderPathResult<()> {
+        self.path
+            .publish_camera_state(camera_state, camera_state_revision)
+    }
+
     pub fn validation_error_count(&self) -> usize {
         self.presentation.validation_diagnostics.error_count()
     }
@@ -1350,6 +1373,11 @@ impl RenderBackend {
 
     pub fn draw_frame(&mut self) -> Result<FrameOutcome, BackendError> {
         if drawable_extent_is_zero(self.drawable_extent) {
+            if self.path_is_configured || self.rendering.is_some() {
+                unsafe { self.device.device_wait_idle() }.map_err(BackendError::WaitForDevice)?;
+                self.release_path()?;
+                self.rendering = None;
+            }
             return self.ensure_validation_clean(FrameOutcome::Suspended);
         }
         if self.swapchain_needs_recreation || self.rendering.is_none() {

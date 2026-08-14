@@ -1,6 +1,7 @@
 use compute_ray_render_path::{ComputeConvergenceAcceptance, ComputeRayRenderPathAdapter};
 use render_backend::{
-    CameraState, CameraStateRevision, RenderPathReadiness, RenderPathStrategy, SwitchableRenderPath,
+    CameraState, CameraStateRevision, RenderPath, RenderPathReadiness, RenderPathStrategy,
+    SwitchableRenderPath,
 };
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelEditCommand,
@@ -38,6 +39,44 @@ fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
     assert_eq!(stamp.readiness(), RenderPathReadiness::Preparing);
     assert_eq!(adapter.capability_assessment(), None);
     assert_eq!(adapter.camera_state(), camera);
+    Ok(())
+}
+
+#[test]
+fn published_camera_state_waits_for_frame_boundary_acknowledgement()
+-> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("compute-camera"),
+        VoxelSceneRevision::new(1),
+        Vec::new(),
+        Vec::new(),
+    ))?;
+    let initial_camera = CameraState::new(
+        [2.0, 2.0, 2.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        50.0,
+        0.1,
+        100.0,
+    );
+    let changed_camera = CameraState::new(
+        [7.0, 6.0, 5.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        55.0,
+        0.1,
+        100.0,
+    );
+    let mut adapter =
+        ComputeRayRenderPathAdapter::new(view, initial_camera, CameraStateRevision::new(3))?;
+
+    adapter.publish_camera_state(changed_camera, CameraStateRevision::new(4))?;
+
+    assert_eq!(adapter.camera_state(), changed_camera);
+    assert_eq!(
+        adapter.stamp().camera_state_revision(),
+        CameraStateRevision::new(3)
+    );
     Ok(())
 }
 

@@ -1072,6 +1072,17 @@ impl RasterRenderPathAdapter {
 }
 
 impl RenderPath for RasterRenderPathAdapter {
+    fn publish_camera_state(
+        &mut self,
+        camera_state: CameraPose,
+        camera_state_revision: CameraStateRevision,
+    ) -> RenderPathResult<()> {
+        self.render_path
+            .camera_control
+            .set_state(camera_state, camera_state_revision)?;
+        Ok(())
+    }
+
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         self.render_path.release(device)
     }
