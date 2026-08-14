@@ -74,6 +74,13 @@ pub struct ComputeSceneBundle {
 
 impl ComputeSceneBundle {
     pub fn from_view(view: &VoxelSceneView) -> Result<Self, ComputeSceneBuildError> {
+        Self::from_view_until_cancelled(view, || false)
+    }
+
+    pub(crate) fn from_view_until_cancelled(
+        view: &VoxelSceneView,
+        mut cancellation_requested: impl FnMut() -> bool,
+    ) -> Result<Self, ComputeSceneBuildError> {
         let material_count = u32::try_from(view.materials().len())?;
         if material_count == u32::MAX {
             return Err(ComputeSceneBuildError::TooManyMaterials);
@@ -140,6 +147,7 @@ impl ComputeSceneBundle {
                 voxel_word_offset,
                 &material_indices,
                 &mut voxel_words,
+                &mut cancellation_requested,
             )?;
             volume_headers.push(ComputeVolumeHeader {
                 identity: volume.identity().clone(),
@@ -213,6 +221,8 @@ impl ComputeSceneBundle {
 
 #[derive(Debug, Error)]
 pub enum ComputeSceneBuildError {
+    #[error("compute-owned Voxel Scene preparation was cancelled")]
+    Cancelled,
     #[error("could not allocate the compute-owned Voxel Scene representation")]
     Allocation,
     #[error("compute-owned Voxel Scene representation arithmetic overflowed")]
@@ -238,11 +248,15 @@ fn populate_volume_words(
     voxel_word_offset: u32,
     material_indices: &HashMap<VoxelMaterialId, u32>,
     voxel_words: &mut [u32],
+    cancellation_requested: &mut impl FnMut() -> bool,
 ) -> Result<(), ComputeSceneBuildError> {
     let [width, height, depth] = volume.extent().dimensions();
     for origin_z in (0..depth).step_by(REGION_READ_EDGE as usize) {
         for origin_y in (0..height).step_by(REGION_READ_EDGE as usize) {
             for origin_x in (0..width).step_by(REGION_READ_EDGE as usize) {
+                if cancellation_requested() {
+                    return Err(ComputeSceneBuildError::Cancelled);
+                }
                 let region = VoxelRegion::new(
                     VoxelCoordinate::new(
                         i32::try_from(origin_x)?,

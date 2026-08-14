@@ -8,10 +8,17 @@ use render_backend::{
 use semantic_ray_oracle::{SemanticRay, SemanticRayError};
 use std::io::Cursor;
 use thiserror::Error;
-use voxel_frontend::VoxelSceneView;
+use voxel_frontend::{VoxelEditOutcome, VoxelSceneRevision, VoxelSceneView};
 
+mod compute_convergence;
 mod compute_scene;
 
+pub use compute_convergence::{
+    ComputeCandidateDisposition, ComputeConvergenceAcceptance, ComputeConvergenceError,
+    ComputeConvergenceEvent, ComputeConvergenceFailure, ComputeConvergenceFailurePhase,
+    ComputeConvergenceGeneration, ComputeConvergenceRetry, ComputeConvergenceStatus,
+    ComputeConvergenceWorkStamp,
+};
 pub use compute_scene::{ComputeSceneBuildError, ComputeSceneBundle, ComputeVolumeHeader};
 
 #[derive(Debug, Error)]
@@ -348,6 +355,10 @@ pub fn qualify_compute_render_path(
 #[derive(Debug, Error)]
 enum ComputeRenderPathError {
     #[error(transparent)]
+    Convergence(#[from] ComputeConvergenceError),
+    #[error("compute convergence shutdown failed: {0}")]
+    ConvergenceShutdown(String),
+    #[error(transparent)]
     Rejected(#[from] ComputeRenderPathRejection),
     #[error("could not create the compute output image: {0}")]
     CreateOutputImage(vk::Result),
@@ -424,11 +435,9 @@ impl ComputeRayRenderPathAdapter {
         camera_state: CameraState,
         camera_state_revision: CameraStateRevision,
     ) -> Result<Self, ComputeSceneBuildError> {
+        let scene_bundle = ComputeSceneBundle::from_view(&view)?;
         Ok(Self {
-            render_path: ComputeRayRenderPath::new(
-                ComputeSceneBundle::from_view(&view)?,
-                camera_state,
-            ),
+            render_path: ComputeRayRenderPath::new(scene_bundle, camera_state),
             camera_state_revision,
         })
     }
@@ -438,11 +447,32 @@ impl ComputeRayRenderPathAdapter {
     }
 
     pub fn scene_bundle(&self) -> &ComputeSceneBundle {
-        &self.render_path.scene_bundle
+        self.render_path.convergence.installed_bundle()
     }
 
     pub fn camera_state(&self) -> CameraState {
         self.render_path.camera_state
+    }
+
+    pub fn accept_edit_outcome(
+        &mut self,
+        outcome: VoxelEditOutcome,
+    ) -> Result<ComputeConvergenceAcceptance, ComputeConvergenceError> {
+        self.render_path.convergence.accept(outcome)
+    }
+
+    pub fn request_convergence_retry(
+        &mut self,
+    ) -> Result<ComputeConvergenceRetry, ComputeConvergenceError> {
+        self.render_path.convergence.request_retry()
+    }
+
+    pub fn convergence_status(&self) -> ComputeConvergenceStatus {
+        self.render_path.convergence.status()
+    }
+
+    pub fn drain_convergence_events(&mut self) -> Vec<ComputeConvergenceEvent> {
+        self.render_path.convergence.drain_events()
     }
 }
 
@@ -463,6 +493,14 @@ impl RenderPath for ComputeRayRenderPathAdapter {
         self.render_path.shutdown(device)
     }
 
+    fn advance_frame_boundary(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+        target: RenderPathTarget<'_>,
+    ) -> RenderPathResult<()> {
+        self.render_path.advance_frame_boundary(device, target)
+    }
+
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
         self.render_path.record(frame)
     }
@@ -470,11 +508,16 @@ impl RenderPath for ComputeRayRenderPathAdapter {
 
 impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
     fn stamp(&self) -> RenderPathStamp {
+        let convergence = self.render_path.convergence.status();
         RenderPathStamp::new(
             RenderPathStrategy::ComputeRay,
-            self.render_path.scene_bundle.scene_identity().clone(),
-            self.render_path.scene_bundle.revision(),
-            self.render_path.scene_bundle.revision(),
+            self.render_path
+                .convergence
+                .installed_bundle()
+                .scene_identity()
+                .clone(),
+            convergence.required_revision(),
+            convergence.visible_revision(),
             self.camera_state_revision,
             self.render_path.configuration_id,
             if self.render_path.configuration_id.is_some() {
@@ -495,7 +538,7 @@ impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
 }
 
 struct ComputeRayRenderPath {
-    scene_bundle: ComputeSceneBundle,
+    convergence: compute_convergence::ComputeConvergence,
     camera_state: CameraState,
     capability_assessment: Option<ComputeCapabilityAssessment>,
     output_image: vk::Image,
@@ -504,6 +547,7 @@ struct ComputeRayRenderPath {
     sampler: vk::Sampler,
     scene_buffer: vk::Buffer,
     scene_memory: vk::DeviceMemory,
+    scene_gpu_revision: VoxelSceneRevision,
     camera_buffer: vk::Buffer,
     camera_memory: vk::DeviceMemory,
     descriptor_set_layout: vk::DescriptorSetLayout,
@@ -524,8 +568,9 @@ struct ComputeRayRenderPath {
 
 impl ComputeRayRenderPath {
     fn new(scene_bundle: ComputeSceneBundle, camera_state: CameraState) -> Self {
+        let scene_gpu_revision = scene_bundle.revision();
         Self {
-            scene_bundle,
+            convergence: compute_convergence::ComputeConvergence::new(scene_bundle),
             camera_state,
             capability_assessment: None,
             output_image: vk::Image::null(),
@@ -534,6 +579,7 @@ impl ComputeRayRenderPath {
             sampler: vk::Sampler::null(),
             scene_buffer: vk::Buffer::null(),
             scene_memory: vk::DeviceMemory::null(),
+            scene_gpu_revision,
             camera_buffer: vk::Buffer::null(),
             camera_memory: vk::DeviceMemory::null(),
             descriptor_set_layout: vk::DescriptorSetLayout::null(),
@@ -642,41 +688,10 @@ impl ComputeRayRenderPath {
         &mut self,
         device: &RenderPathDeviceContext<'_>,
     ) -> Result<(), ComputeRenderPathError> {
-        let bytes = u32_bytes(self.scene_bundle.storage_words());
-        let byte_size = u64::try_from(bytes.len()).map_err(|_| {
-            ComputeRenderPathError::SceneStorageBufferRange {
-                required: u64::MAX,
-                available: device.capabilities().max_storage_buffer_range,
-            }
-        })?;
-        if byte_size > u64::from(device.capabilities().max_storage_buffer_range) {
-            return Err(ComputeRenderPathError::SceneStorageBufferRange {
-                required: byte_size,
-                available: device.capabilities().max_storage_buffer_range,
-            });
-        }
-        let buffer_info = vk::BufferCreateInfo::default()
-            .size(byte_size)
-            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        self.scene_buffer = unsafe { device.create_buffer(&buffer_info) }
-            .map_err(ComputeRenderPathError::CreateSceneBuffer)?;
-        let requirements = unsafe { device.buffer_memory_requirements(self.scene_buffer) };
-        let memory_type_index = device
-            .memory_type_index(
-                requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )
-            .ok_or(ComputeRenderPathError::MissingSceneMemory)?;
-        let allocation_info = vk::MemoryAllocateInfo::default()
-            .allocation_size(requirements.size)
-            .memory_type_index(memory_type_index);
-        self.scene_memory = unsafe { device.allocate_memory(&allocation_info) }
-            .map_err(ComputeRenderPathError::AllocateSceneMemory)?;
-        unsafe { device.bind_buffer_memory(self.scene_buffer, self.scene_memory) }
-            .map_err(ComputeRenderPathError::BindSceneMemory)?;
-        unsafe { device.write_memory(self.scene_memory, bytes) }
-            .map_err(ComputeRenderPathError::WriteSceneMemory)?;
+        let resources = create_scene_gpu_resources(device, self.convergence.installed_bundle())?;
+        self.scene_buffer = resources.buffer;
+        self.scene_memory = resources.memory;
+        self.scene_gpu_revision = self.convergence.installed_bundle().revision();
         Ok(())
     }
 
@@ -776,14 +791,10 @@ impl ComputeRayRenderPath {
         let scene_buffer = [vk::DescriptorBufferInfo::default()
             .buffer(self.scene_buffer)
             .offset(0)
-            .range(
-                u64::try_from(std::mem::size_of_val(self.scene_bundle.storage_words())).map_err(
-                    |_| ComputeRenderPathError::SceneStorageBufferRange {
-                        required: u64::MAX,
-                        available: device.capabilities().max_storage_buffer_range,
-                    },
-                )?,
-            )];
+            .range(scene_storage_byte_size(
+                device,
+                self.convergence.installed_bundle(),
+            )?)];
         let camera_buffer = [vk::DescriptorBufferInfo::default()
             .buffer(self.camera_buffer)
             .offset(0)
@@ -1101,6 +1112,73 @@ impl ComputeRayRenderPath {
         Ok(())
     }
 
+    fn advance_convergence_at_frame_boundary(
+        &mut self,
+        device: &RenderPathDeviceContext<'_>,
+        target: RenderPathTarget<'_>,
+    ) -> Result<(), ComputeRenderPathError> {
+        if self.configuration_id != Some(target.configuration_id())
+            || self.output_extent != target.extent()
+        {
+            return Err(ComputeRenderPathError::StaleFrameTarget);
+        }
+        self.convergence.retain_ready_candidate();
+        let Some(candidate_bundle) = self.convergence.hidden_bundle() else {
+            return Ok(());
+        };
+        let candidate_revision = candidate_bundle.revision();
+        let candidate_range = match scene_storage_byte_size(device, candidate_bundle) {
+            Ok(range) => range,
+            Err(error) => {
+                self.convergence
+                    .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
+                return Err(error);
+            }
+        };
+        let candidate_resources = match create_scene_gpu_resources(device, candidate_bundle) {
+            Ok(resources) => resources,
+            Err(error) => {
+                self.convergence
+                    .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
+                return Err(error);
+            }
+        };
+        self.convergence.mark_hidden_uploaded();
+        let retired_bundle = match self.convergence.install_hidden(self.scene_gpu_revision) {
+            Ok(Some(bundle)) => bundle,
+            Ok(None) => {
+                release_scene_gpu_resources(device, candidate_resources);
+                return Ok(());
+            }
+            Err(error) => {
+                release_scene_gpu_resources(device, candidate_resources);
+                self.convergence.fail_hidden(
+                    ComputeConvergenceFailurePhase::Installation,
+                    error.to_string(),
+                );
+                return Err(error.into());
+            }
+        };
+        let scene_buffer = [vk::DescriptorBufferInfo::default()
+            .buffer(candidate_resources.buffer)
+            .offset(0)
+            .range(candidate_range)];
+        let writes = [vk::WriteDescriptorSet::default()
+            .dst_set(self.descriptor_set)
+            .dst_binding(2)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&scene_buffer)];
+        unsafe { device.update_descriptor_sets(&writes) };
+        let retired_resources = ComputeSceneGpuResources {
+            buffer: std::mem::replace(&mut self.scene_buffer, candidate_resources.buffer),
+            memory: std::mem::replace(&mut self.scene_memory, candidate_resources.memory),
+        };
+        self.scene_gpu_revision = candidate_revision;
+        release_scene_gpu_resources(device, retired_resources);
+        drop(retired_bundle);
+        Ok(())
+    }
+
     fn release_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
         unsafe {
             for framebuffer in self.framebuffers.drain(..) {
@@ -1208,13 +1286,105 @@ impl RenderPath for ComputeRayRenderPath {
     }
 
     fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        let convergence_error = self.convergence.shutdown().err();
         self.release_resources(&device);
-        Ok(())
+        match convergence_error {
+            Some(error) => Err(Box::new(ComputeRenderPathError::ConvergenceShutdown(error))),
+            None => Ok(()),
+        }
+    }
+
+    fn advance_frame_boundary(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+        target: RenderPathTarget<'_>,
+    ) -> RenderPathResult<()> {
+        self.advance_convergence_at_frame_boundary(&device, target)
+            .map_err(|error| Box::new(error) as _)
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
         self.record_frame(&frame)
             .map_err(|error| Box::new(error) as _)
+    }
+}
+
+struct ComputeSceneGpuResources {
+    buffer: vk::Buffer,
+    memory: vk::DeviceMemory,
+}
+
+fn scene_storage_byte_size(
+    device: &RenderPathDeviceContext<'_>,
+    bundle: &ComputeSceneBundle,
+) -> Result<u64, ComputeRenderPathError> {
+    let byte_size = u64::try_from(u32_bytes(bundle.storage_words()).len()).map_err(|_| {
+        ComputeRenderPathError::SceneStorageBufferRange {
+            required: u64::MAX,
+            available: device.capabilities().max_storage_buffer_range,
+        }
+    })?;
+    if byte_size > u64::from(device.capabilities().max_storage_buffer_range) {
+        return Err(ComputeRenderPathError::SceneStorageBufferRange {
+            required: byte_size,
+            available: device.capabilities().max_storage_buffer_range,
+        });
+    }
+    Ok(byte_size)
+}
+
+fn create_scene_gpu_resources(
+    device: &RenderPathDeviceContext<'_>,
+    bundle: &ComputeSceneBundle,
+) -> Result<ComputeSceneGpuResources, ComputeRenderPathError> {
+    let bytes = u32_bytes(bundle.storage_words());
+    let byte_size = scene_storage_byte_size(device, bundle)?;
+    let buffer_info = vk::BufferCreateInfo::default()
+        .size(byte_size)
+        .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+        .sharing_mode(vk::SharingMode::EXCLUSIVE);
+    let buffer = unsafe { device.create_buffer(&buffer_info) }
+        .map_err(ComputeRenderPathError::CreateSceneBuffer)?;
+    let requirements = unsafe { device.buffer_memory_requirements(buffer) };
+    let Some(memory_type_index) = device.memory_type_index(
+        requirements.memory_type_bits,
+        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+    ) else {
+        unsafe { device.destroy_buffer(buffer) };
+        return Err(ComputeRenderPathError::MissingSceneMemory);
+    };
+    let allocation_info = vk::MemoryAllocateInfo::default()
+        .allocation_size(requirements.size)
+        .memory_type_index(memory_type_index);
+    let memory = match unsafe { device.allocate_memory(&allocation_info) } {
+        Ok(memory) => memory,
+        Err(error) => {
+            unsafe { device.destroy_buffer(buffer) };
+            return Err(ComputeRenderPathError::AllocateSceneMemory(error));
+        }
+    };
+    if let Err(error) = unsafe { device.bind_buffer_memory(buffer, memory) } {
+        release_scene_gpu_resources(device, ComputeSceneGpuResources { buffer, memory });
+        return Err(ComputeRenderPathError::BindSceneMemory(error));
+    }
+    if let Err(error) = unsafe { device.write_memory(memory, bytes) } {
+        release_scene_gpu_resources(device, ComputeSceneGpuResources { buffer, memory });
+        return Err(ComputeRenderPathError::WriteSceneMemory(error));
+    }
+    Ok(ComputeSceneGpuResources { buffer, memory })
+}
+
+fn release_scene_gpu_resources(
+    device: &RenderPathDeviceContext<'_>,
+    resources: ComputeSceneGpuResources,
+) {
+    unsafe {
+        if resources.buffer != vk::Buffer::null() {
+            device.destroy_buffer(resources.buffer);
+        }
+        if resources.memory != vk::DeviceMemory::null() {
+            device.free_memory(resources.memory);
+        }
     }
 }
 

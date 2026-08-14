@@ -1,8 +1,12 @@
-use compute_ray_render_path::ComputeRayRenderPathAdapter;
+use compute_ray_render_path::{ComputeConvergenceAcceptance, ComputeRayRenderPathAdapter};
 use render_backend::{
     CameraState, CameraStateRevision, RenderPathReadiness, RenderPathStrategy, SwitchableRenderPath,
 };
-use voxel_frontend::{DenseVoxelScene, VoxelFrontend, VoxelSceneId, VoxelSceneRevision};
+use voxel_frontend::{
+    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelEditCommand,
+    VoxelExtent, VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId,
+    VoxelSceneRevision, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+};
 
 #[test]
 fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
@@ -34,5 +38,57 @@ fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
     assert_eq!(stamp.readiness(), RenderPathReadiness::Preparing);
     assert_eq!(adapter.capability_assessment(), None);
     assert_eq!(adapter.camera_state(), camera);
+    Ok(())
+}
+
+#[test]
+fn accepted_edits_advance_required_without_changing_the_visible_installation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = VoxelFrontend::new();
+    let extent = VoxelExtent::new(1, 1, 1);
+    let view = frontend.publish(DenseVoxelScene::new(
+        VoxelSceneId::new("compute-convergence"),
+        VoxelSceneRevision::new(7),
+        vec![VoxelMaterial::new(
+            VoxelMaterialId::new("stone"),
+            [0.2, 0.3, 0.4, 1.0],
+        )],
+        vec![DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(VoxelVolumeId::new("terrain"), extent, [0.0; 3], 1.0),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                vec![VoxelValue::Empty],
+            )],
+        )],
+    ))?;
+    let camera = CameraState::new(
+        [2.0, 2.0, 2.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        50.0,
+        0.1,
+        100.0,
+    );
+    let mut adapter = ComputeRayRenderPathAdapter::new(view, camera, CameraStateRevision::new(3))?;
+    let outcome = frontend.edit(VoxelEditCommand::new(
+        VoxelVolumeId::new("terrain"),
+        VoxelCoordinate::new(0, 0, 0),
+        VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+    ))?;
+
+    let ComputeConvergenceAcceptance::Accepted { stamp } = adapter.accept_edit_outcome(outcome)?
+    else {
+        return Err("changed outcome was not accepted".into());
+    };
+    let path_stamp = adapter.stamp();
+
+    assert_eq!(stamp.revision(), VoxelSceneRevision::new(8));
+    assert_eq!(path_stamp.required_revision(), VoxelSceneRevision::new(8));
+    assert_eq!(path_stamp.visible_revision(), VoxelSceneRevision::new(7));
+    assert_eq!(
+        adapter.scene_bundle().revision(),
+        VoxelSceneRevision::new(7)
+    );
+    assert_eq!(adapter.convergence_status().worker_count(), 1);
     Ok(())
 }
