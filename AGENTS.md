@@ -33,7 +33,7 @@ Issues and specs are tracked in GitHub Issues using the `gh` CLI. See `docs/agen
 
 ### Devlog tracking
 
-YouTube devlog milestones and their issue history are managed with the `devlog-workflow` skill at `.agents/skills/devlog-workflow/SKILL.md`.
+YouTube devlog milestones and their issue history are managed with the `devlog-workflow`
 
 Design and activate milestones according to `docs/agents/milestones.md`. Keep future milestones at roadmap resolution and fully specify only the selected next milestone.
 
