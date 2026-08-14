@@ -1163,4 +1163,41 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn revision_four_paths_complete_the_raster_compute_raster_compute_round_trip()
+    -> RenderPathResult<()> {
+        let mut owner =
+            RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 4, 4)));
+        let device = proof_device();
+
+        for (replacement, retired) in [
+            (RenderPathStrategy::ComputeRay, RenderPathStrategy::Raster),
+            (RenderPathStrategy::Raster, RenderPathStrategy::ComputeRay),
+            (RenderPathStrategy::ComputeRay, RenderPathStrategy::Raster),
+        ] {
+            owner
+                .request_switch(proof_path(stamp(replacement, 4, 4)))
+                .expect("a converged idle presenter should admit the next cold replacement");
+            advance_owner(&mut owner, &device)?;
+            assert_eq!(owner.role_status().presenting(), replacement);
+            assert_eq!(owner.role_status().replacement(), None);
+            assert_eq!(owner.role_status().retiring(), Some(retired));
+
+            advance_owner(&mut owner, &device)?;
+            assert_eq!(owner.role_status().presenting(), replacement);
+            assert_eq!(owner.role_status().replacement(), None);
+            assert_eq!(owner.role_status().retiring(), None);
+            assert_eq!(
+                owner.events().last(),
+                Some(&RenderPathSwitchEvent::Retired { retired })
+            );
+        }
+
+        assert_eq!(
+            owner.role_status().presenting(),
+            RenderPathStrategy::ComputeRay
+        );
+        Ok(())
+    }
 }

@@ -19,7 +19,7 @@ use raster_render_path::{
 use render_backend::{
     CameraStateRevision, FrameOutcome, PresentationConfigurationId, RenderBackend,
     RenderBackendOptions, RenderPathHandoffControl, RenderPathReadiness, RenderPathStrategy,
-    RenderPathSwitchOwner,
+    RenderPathSwitchDiagnostics, RenderPathSwitchOwner,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -662,6 +662,67 @@ fn should_start_edit_burst(
 }
 
 #[cfg(target_os = "windows")]
+fn should_request_render_path_switch(
+    compute_switch_demo: bool,
+    state: ElementState,
+    repeat: bool,
+    key: &Key,
+) -> bool {
+    compute_switch_demo
+        && state == ElementState::Pressed
+        && !repeat
+        && matches!(key, Key::Named(NamedKey::Tab))
+}
+
+#[cfg(target_os = "windows")]
+fn render_path_switch_admission(diagnostics: &RenderPathSwitchDiagnostics) -> Result<(), String> {
+    let roles = diagnostics.roles();
+    if roles.replacement().is_some() || roles.retiring().is_some() {
+        return Err("a Render Path switch is already in progress".to_owned());
+    }
+    let presenting = diagnostics.presenting();
+    if presenting.required_revision() != presenting.visible_revision()
+        || presenting.readiness() != RenderPathReadiness::Recordable
+    {
+        return Err(format!(
+            "the Presenting Render Path is not fully converged: Required={} Visible={} Readiness={:?}",
+            presenting.required_revision(),
+            presenting.visible_revision(),
+            presenting.readiness()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn format_render_path_overlay(
+    diagnostics: &RenderPathSwitchDiagnostics,
+    burst_stage: &str,
+    camera: &str,
+    control_feedback: &str,
+) -> String {
+    let switch_phase = match (diagnostics.replacement(), diagnostics.retiring()) {
+        (Some(replacement), _) if replacement.readiness() == RenderPathReadiness::Recordable => {
+            "handoff-ready"
+        }
+        (Some(_), _) => "preparing",
+        (None, Some(_)) => "retiring",
+        (None, None) => "idle",
+    };
+    let replacement_revision = diagnostics
+        .replacement()
+        .map(|replacement| replacement.required_revision().to_string())
+        .unwrap_or_else(|| "none".to_owned());
+    let presenting = diagnostics.presenting();
+    format!(
+        "Presenter={:?} Switch={switch_phase} ReplacementRevision={replacement_revision} Required={} Visible={} Burst={burst_stage} Camera={camera} Control={control_feedback}",
+        presenting.strategy(),
+        presenting.required_revision(),
+        presenting.visible_revision(),
+    )
+}
+
+#[cfg(target_os = "windows")]
 fn voxel_value_identity(value: &VoxelValue) -> String {
     match value {
         VoxelValue::Empty => "empty".to_owned(),
@@ -945,6 +1006,28 @@ struct DesktopApplication {
     render_path_handoff_control: Option<RenderPathHandoffControl>,
     last_held_replacement_stamp: Option<(CameraStateRevision, Option<PresentationConfigurationId>)>,
     compute_switch_lifecycle_stage: Option<ComputeSwitchLifecycleStage>,
+    raster_preparation_target: Option<RasterPreparationTarget>,
+    raster_replacement_installer: Option<RasterArtifactInstaller>,
+    raster_replacement_lifecycle_controller: Option<RasterLifecycleController>,
+    interactive_switch: Option<InteractiveRenderPathSwitch>,
+    completed_interactive_switches: usize,
+    render_path_control_feedback: String,
+}
+
+#[cfg(target_os = "windows")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RasterPreparationTarget {
+    Initial,
+    Replacement,
+}
+
+#[cfg(target_os = "windows")]
+struct InteractiveRenderPathSwitch {
+    source: RenderPathStrategy,
+    replacement: RenderPathStrategy,
+    revision: VoxelSceneRevision,
+    handoff_reported: bool,
+    retiring_raster: Option<RasterLifecycleController>,
 }
 
 #[cfg(target_os = "windows")]
@@ -1030,6 +1113,12 @@ impl DesktopApplication {
             render_path_handoff_control: None,
             last_held_replacement_stamp: None,
             compute_switch_lifecycle_stage,
+            raster_preparation_target: None,
+            raster_replacement_installer: None,
+            raster_replacement_lifecycle_controller: None,
+            interactive_switch: None,
+            completed_interactive_switches: 0,
+            render_path_control_feedback: "Tab-waiting-for-convergence".to_owned(),
         })
     }
 
@@ -1057,6 +1146,292 @@ impl DesktopApplication {
             .set_text(&report)?;
         self.set_status(&report);
         Ok(())
+    }
+
+    fn set_render_path_overlay(&mut self) -> Result<(), String> {
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
+        let burst_stage = self
+            .edit_burst_stage
+            .as_ref()
+            .map(EditBurstStage::overlay_label)
+            .unwrap_or("inactive");
+        let camera = self
+            .pending_camera_report
+            .as_deref()
+            .or(self.last_presented_camera.as_deref())
+            .map(str::to_owned)
+            .unwrap_or_else(|| self.render_configuration.camera_identity());
+        let report = format_render_path_overlay(
+            &diagnostics,
+            burst_stage,
+            &camera,
+            &self.render_path_control_feedback,
+        );
+        if self.last_overlay_report.as_deref() != Some(&report) {
+            println!("Render Path overlay: {report}");
+            self.last_overlay_report = Some(report.clone());
+        }
+        self.text_overlay
+            .as_ref()
+            .ok_or_else(|| "the in-client Render Path overlay is unavailable".to_owned())?
+            .set_text(&report)?;
+        self.set_status(&report);
+        Ok(())
+    }
+
+    fn request_interactive_render_path_switch(&mut self) -> Result<(), String> {
+        if self.interactive_switch.is_some() {
+            return Err("a Render Path switch is already in progress".to_owned());
+        }
+        if !self.first_matching_frame_presented {
+            return Err(
+                "the initial raster path has not presented its first matching frame".to_owned(),
+            );
+        }
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
+        render_path_switch_admission(&diagnostics)?;
+        let presenting = diagnostics.presenting();
+        let source = presenting.strategy();
+        let replacement = match source {
+            RenderPathStrategy::Raster => RenderPathStrategy::ComputeRay,
+            RenderPathStrategy::ComputeRay => RenderPathStrategy::Raster,
+        };
+        let view = self
+            .frontend
+            .as_ref()
+            .ok_or_else(|| {
+                "the Voxel Frontend is unavailable for Render Path preparation".to_owned()
+            })?
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        if view.scene_id() != presenting.scene_identity()
+            || view.revision() != presenting.required_revision()
+        {
+            return Err(format!(
+                "the current Voxel Scene View does not match the converged presenter: view={} presenter={}",
+                view.revision(),
+                presenting.required_revision()
+            ));
+        }
+        let revision = view.revision();
+        let retiring_raster = if source == RenderPathStrategy::Raster {
+            Some(
+                self.lifecycle_controller
+                    .as_ref()
+                    .ok_or_else(|| "raster retirement diagnostics are unavailable".to_owned())?
+                    .clone(),
+            )
+        } else {
+            None
+        };
+
+        match replacement {
+            RenderPathStrategy::ComputeRay => {
+                let replacement_path = ComputeRayRenderPathAdapter::new(
+                    view,
+                    self.camera_state,
+                    self.camera_state_revision,
+                )
+                .map_err(|error| {
+                    format!("could not cold-build the compute replacement: {error}")
+                })?;
+                self.backend
+                    .as_mut()
+                    .ok_or_else(|| "the Render Backend is unavailable".to_owned())?
+                    .request_render_path_switch(Box::new(replacement_path))
+                    .map_err(|error| error.to_string())?;
+            }
+            RenderPathStrategy::Raster => {
+                let (mut replacement_path, installer, _) =
+                    RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
+                        self.camera_state,
+                        self.camera_state_revision,
+                        view.scene_id().clone(),
+                        revision,
+                    );
+                let lifecycle_controller = replacement_path.enable_lifecycle_control(false);
+                let event_proxy = self.event_proxy.clone();
+                let mut preparation = RasterArtifactPreparation::start_regions(
+                    view,
+                    VoxelExtent::new(
+                        self.render_configuration.raster_region_extent,
+                        self.render_configuration.raster_region_extent,
+                        self.render_configuration.raster_region_extent,
+                    ),
+                    None,
+                    move |event| {
+                        if event_proxy
+                            .send_event(DesktopEvent::Preparation(event))
+                            .is_err()
+                        {
+                            eprintln!(
+                                "desktop event loop closed before raster replacement preparation notification"
+                            );
+                        }
+                    },
+                )
+                .map_err(|error| error.to_string())?;
+                if let Err(error) = self
+                    .backend
+                    .as_mut()
+                    .ok_or_else(|| "the Render Backend is unavailable".to_owned())?
+                    .request_render_path_switch(Box::new(replacement_path))
+                {
+                    preparation
+                        .cancel_and_join()
+                        .map_err(|cleanup_error| {
+                            format!(
+                                "{error}; raster replacement preparation cleanup failed: {cleanup_error}"
+                            )
+                        })?;
+                    return Err(error.to_string());
+                }
+                self.preparation = Some(preparation);
+                self.raster_preparation_target = Some(RasterPreparationTarget::Replacement);
+                self.raster_replacement_installer = Some(installer);
+                self.raster_replacement_lifecycle_controller = Some(lifecycle_controller);
+            }
+        }
+
+        self.interactive_switch = Some(InteractiveRenderPathSwitch {
+            source,
+            replacement,
+            revision,
+            handoff_reported: false,
+            retiring_raster,
+        });
+        self.render_path_control_feedback = format!("Tab-accepted-{replacement:?}");
+        println!(
+            "Tab switch accepted: Presenting={source:?} Replacement={replacement:?} revision={revision}"
+        );
+        Ok(())
+    }
+
+    fn update_interactive_render_path_switch(&mut self) -> Result<bool, String> {
+        let Some(active_switch) = self.interactive_switch.as_ref() else {
+            return Ok(false);
+        };
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
+        let roles = diagnostics.roles();
+        let handoff_needs_report =
+            roles.presenting() == active_switch.replacement && !active_switch.handoff_reported;
+
+        if handoff_needs_report {
+            let presenting = diagnostics.presenting();
+            let retiring = diagnostics.retiring().ok_or_else(|| {
+                "the first replacement frame has no explicitly owned Retiring Render Path"
+                    .to_owned()
+            })?;
+            if retiring.strategy() != active_switch.source
+                || presenting.scene_identity() != retiring.scene_identity()
+                || presenting.visible_revision() != active_switch.revision
+                || presenting.visible_revision() != retiring.visible_revision()
+                || presenting.camera_state_revision() != retiring.camera_state_revision()
+                || presenting.presentation_configuration() != retiring.presentation_configuration()
+            {
+                return Err(
+                    "the replacement handoff did not preserve the path-neutral frame stamp"
+                        .to_owned(),
+                );
+            }
+            if active_switch.replacement == RenderPathStrategy::Raster {
+                self.artifact_installer =
+                    Some(self.raster_replacement_installer.take().ok_or_else(|| {
+                        "the raster replacement installer is unavailable".to_owned()
+                    })?);
+                self.lifecycle_controller = Some(
+                    self.raster_replacement_lifecycle_controller
+                        .take()
+                        .ok_or_else(|| {
+                            "the raster replacement lifecycle diagnostics are unavailable"
+                                .to_owned()
+                        })?,
+                );
+            }
+            let active_switch = self
+                .interactive_switch
+                .as_mut()
+                .ok_or_else(|| "the active Render Path switch disappeared".to_owned())?;
+            active_switch.handoff_reported = true;
+            println!(
+                "First replacement frame presented: Presenting={:?} Retiring={:?} revision={} CameraStateRevision={:?} PresentationConfiguration={:?}",
+                active_switch.replacement,
+                active_switch.source,
+                presenting.visible_revision(),
+                presenting.camera_state_revision(),
+                presenting.presentation_configuration()
+            );
+        }
+
+        let switch_in_progress = roles.replacement().is_some() || roles.retiring().is_some();
+        let switch_complete = self
+            .interactive_switch
+            .as_ref()
+            .is_some_and(|active_switch| active_switch.handoff_reported && !switch_in_progress);
+        if switch_complete {
+            let active_switch = self
+                .interactive_switch
+                .take()
+                .ok_or_else(|| "the completed Render Path switch disappeared".to_owned())?;
+            if let Some(controller) = active_switch.retiring_raster {
+                match controller
+                    .shutdown_owned_resource_count()
+                    .map_err(|error| error.to_string())?
+                {
+                    Some(0) => {}
+                    Some(count) => {
+                        return Err(format!("retired raster retained {count} owned resources"));
+                    }
+                    None => {
+                        return Err(
+                            "retired raster did not report owned resource disposal".to_owned()
+                        );
+                    }
+                }
+            }
+            self.completed_interactive_switches = self
+                .completed_interactive_switches
+                .checked_add(1)
+                .ok_or_else(|| "the completed Render Path switch count overflowed".to_owned())?;
+            self.render_path_control_feedback = format!(
+                "Tab-ready-completed-{}",
+                self.completed_interactive_switches
+            );
+            println!(
+                "Render Path retirement complete: Retired={:?} owned_resources=0 workers=0 completed_switches={}",
+                active_switch.source, self.completed_interactive_switches
+            );
+        }
+        Ok(switch_in_progress)
+    }
+
+    fn handle_render_path_switch_key(&mut self, event_loop: &ActiveEventLoop) {
+        match self.request_interactive_render_path_switch() {
+            Ok(()) => {}
+            Err(error) => {
+                println!("Tab switch rejected: {error}");
+                self.render_path_control_feedback = format!("Tab-rejected-{error}");
+            }
+        }
+        if let Err(error) = self.set_render_path_overlay() {
+            self.fail(event_loop, error);
+            return;
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
     }
 
     fn request_compute_switch(&mut self) -> Result<(), String> {
@@ -1822,6 +2197,10 @@ impl DesktopApplication {
             );
             return;
         };
+        let Some(preparation_target) = self.raster_preparation_target.take() else {
+            self.fail(event_loop, "the raster preparation target is unavailable");
+            return;
+        };
         let artifact = match preparation.try_complete() {
             Ok(Some(artifact)) => artifact,
             Ok(None) => {
@@ -1890,7 +2269,11 @@ impl DesktopApplication {
                 }
             }
         }
-        let Some(installer) = &self.artifact_installer else {
+        let installer = match preparation_target {
+            RasterPreparationTarget::Initial => self.artifact_installer.as_ref(),
+            RasterPreparationTarget::Replacement => self.raster_replacement_installer.as_ref(),
+        };
+        let Some(installer) = installer else {
             self.fail(event_loop, "the raster artifact installer is unavailable");
             return;
         };
@@ -1932,11 +2315,18 @@ impl DesktopApplication {
                 return;
             }
         };
-        if Some(installed_revision) != self.published_revision {
+        let expected_revision = match preparation_target {
+            RasterPreparationTarget::Initial => self.published_revision,
+            RasterPreparationTarget::Replacement => self
+                .interactive_switch
+                .as_ref()
+                .map(|active_switch| active_switch.revision),
+        };
+        if Some(installed_revision) != expected_revision {
             self.fail(
                 event_loop,
                 format!(
-                    "installed raster artifact revision {installed_revision} does not match the published Voxel Scene Revision"
+                    "installed raster artifact revision {installed_revision} does not match the requested Voxel Scene Revision"
                 ),
             );
             return;
@@ -1966,6 +2356,18 @@ impl DesktopApplication {
             measurement.installation_at = Some(installation_at);
         }
         println!("Raster artifact installed: revision={installed_revision} count=1");
+        if preparation_target == RasterPreparationTarget::Replacement {
+            self.render_path_control_feedback =
+                format!("Raster-replacement-ready-{installed_revision}");
+            if let Err(error) = self.set_render_path_overlay() {
+                self.fail(event_loop, error);
+                return;
+            }
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+            return;
+        }
         if self.render_configuration.edit_burst_demo {
             let plan = match self
                 .frontend
@@ -2125,7 +2527,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 return;
             }
         };
-        let text_overlay = if self.render_configuration.edit_burst_demo {
+        let text_overlay = if self.render_configuration.edit_burst_demo
+            || self.render_configuration.compute_switch_demo
+        {
             match WindowsTextOverlay::new(&window) {
                 Ok(overlay) => Some(overlay),
                 Err(error) => {
@@ -2399,8 +2803,16 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
         };
         self.preparation = Some(preparation);
+        self.raster_preparation_target = Some(RasterPreparationTarget::Initial);
         self.preparation_release = preparation_release;
         self.set_status(&format!("preparing revision {published_revision}"));
+        if self.render_configuration.compute_switch_demo
+            && let Err(error) = self.set_render_path_overlay()
+        {
+            self.application_error = Some(error);
+            event_loop.exit();
+            return;
+        }
         if let Some(window) = &self.window {
             window.request_redraw();
         }
@@ -2414,6 +2826,38 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
     ) {
         match event {
             WindowEvent::CloseRequested => {
+                if self.render_configuration.compute_switch_demo
+                    && !self.render_configuration.compute_switch_lifecycle_demo
+                {
+                    match self
+                        .backend
+                        .as_ref()
+                        .and_then(RenderBackend::render_path_switch_diagnostics)
+                    {
+                        Some(diagnostics)
+                            if diagnostics.roles().presenting()
+                                == RenderPathStrategy::ComputeRay
+                                && diagnostics.roles().replacement().is_none()
+                                && diagnostics.roles().retiring().is_none()
+                                && self.completed_interactive_switches >= 3 =>
+                        {
+                            println!(
+                                "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches={} closing_presenter=ComputeRay",
+                                self.completed_interactive_switches
+                            );
+                        }
+                        Some(diagnostics) => self.record_close_error(format!(
+                            "the Render Path round trip must close idle with compute presenting after at least three switches: Presenting={:?} Replacement={:?} Retiring={:?} completed_switches={}",
+                            diagnostics.roles().presenting(),
+                            diagnostics.roles().replacement(),
+                            diagnostics.roles().retiring(),
+                            self.completed_interactive_switches
+                        )),
+                        None => self.record_close_error(
+                            "Render Path switching diagnostics are unavailable during close",
+                        ),
+                    }
+                }
                 if let Some(release) = self.preparation_release.take()
                     && let Err(error) = release.release()
                 {
@@ -2559,6 +3003,15 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 ) {
                     self.start_edit_burst(event_loop);
                 }
+                if should_request_render_path_switch(
+                    self.render_configuration.compute_switch_demo
+                        && !self.render_configuration.compute_switch_lifecycle_demo,
+                    event.state,
+                    event.repeat,
+                    &event.logical_key,
+                ) {
+                    self.handle_render_path_switch_key(event_loop);
+                }
             }
             WindowEvent::RedrawRequested => {
                 let frame_started_at = Instant::now();
@@ -2632,6 +3085,11 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             let revision = installed_revision.unwrap_or(VoxelSceneRevision::new(0));
                             self.first_matching_frame_presented = true;
                             println!("First matching raster frame presented: revision={revision}");
+                            if self.render_configuration.compute_switch_demo
+                                && !self.render_configuration.compute_switch_lifecycle_demo
+                            {
+                                self.render_path_control_feedback = "Tab-ready".to_owned();
+                            }
                             if let Some(measurement) = &mut self.measurement {
                                 let presented_at = Instant::now();
                                 let elapsed_milliseconds =
@@ -2673,20 +3131,33 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                     }
                                 }
                             }
-                            if self.render_configuration.compute_switch_demo
+                            if self.render_configuration.compute_switch_lifecycle_demo
                                 && let Err(error) = self.request_compute_switch()
                             {
                                 self.fail(event_loop, error);
                                 return;
                             }
                         }
-                        let compute_switch_in_progress = match self.update_compute_switch_demo() {
-                            Ok(in_progress) => in_progress,
-                            Err(error) => {
-                                self.fail(event_loop, error);
-                                return;
-                            }
-                        };
+                        let compute_switch_in_progress =
+                            if self.render_configuration.compute_switch_lifecycle_demo {
+                                match self.update_compute_switch_demo() {
+                                    Ok(in_progress) => in_progress,
+                                    Err(error) => {
+                                        self.fail(event_loop, error);
+                                        return;
+                                    }
+                                }
+                            } else if self.render_configuration.compute_switch_demo {
+                                match self.update_interactive_render_path_switch() {
+                                    Ok(in_progress) => in_progress,
+                                    Err(error) => {
+                                        self.fail(event_loop, error);
+                                        return;
+                                    }
+                                }
+                            } else {
+                                false
+                            };
                         if self.render_configuration.compute_switch_lifecycle_demo {
                             if let Err(error) = self.drive_compute_lifecycle_after_presented() {
                                 self.fail(event_loop, error);
@@ -2711,6 +3182,13 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         }
                         if compute_switch_in_progress && let Some(window) = &self.window {
                             window.request_redraw();
+                        }
+                        if self.render_configuration.compute_switch_demo
+                            && !self.render_configuration.compute_switch_lifecycle_demo
+                            && let Err(error) = self.set_render_path_overlay()
+                        {
+                            self.fail(event_loop, error);
+                            return;
                         }
                         let now = Instant::now();
                         if let Some(measurement) = &mut self.measurement
@@ -3177,7 +3655,8 @@ mod measurement_tests {
     use super::{
         CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection, fixed_edit_burst,
         format_convergence_characterization, format_convergence_overlay,
-        parse_render_configuration, should_start_edit_burst,
+        format_render_path_overlay, parse_render_configuration, render_path_switch_admission,
+        should_request_render_path_switch, should_start_edit_burst,
     };
 
     #[test]
@@ -3293,11 +3772,12 @@ mod measurement_tests {
 
     use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
     use raster_render_path::{
-        RasterCancellationObservation, RasterConvergenceCharacterization,
+        CameraPose, RasterCancellationObservation, RasterConvergenceCharacterization,
         RasterConvergencePhaseTimings, RasterConvergenceStatus, RasterGpuResourceUsage,
-        RasterRegionWorkDisposition, RasterSafeRetirementDisposition, RasterSafeRetirementEvent,
+        RasterRegionWorkDisposition, RasterRenderPathAdapter, RasterSafeRetirementDisposition,
+        RasterSafeRetirementEvent,
     };
-    use render_backend::FrameObservation;
+    use render_backend::{CameraStateRevision, FrameObservation, RenderPathSwitchOwner};
     use std::time::{Duration, Instant};
     use voxel_frontend::{VoxelEditOutcome, VoxelFrontend, VoxelSceneRevision};
     use winit::{
@@ -3343,6 +3823,72 @@ mod measurement_tests {
             false,
             &space
         ));
+    }
+
+    #[test]
+    fn only_one_non_repeated_tab_press_requests_an_interactive_switch() {
+        let tab = Key::Named(NamedKey::Tab);
+        assert!(should_request_render_path_switch(
+            true,
+            ElementState::Pressed,
+            false,
+            &tab
+        ));
+        assert!(!should_request_render_path_switch(
+            false,
+            ElementState::Pressed,
+            false,
+            &tab
+        ));
+        assert!(!should_request_render_path_switch(
+            true,
+            ElementState::Pressed,
+            true,
+            &tab
+        ));
+        assert!(!should_request_render_path_switch(
+            true,
+            ElementState::Released,
+            false,
+            &tab
+        ));
+        assert!(!should_request_render_path_switch(
+            true,
+            ElementState::Pressed,
+            false,
+            &Key::Named(NamedKey::Space)
+        ));
+    }
+
+    #[test]
+    fn render_path_overlay_reports_the_idle_presenter_and_rejects_a_preparing_presenter() {
+        let revision = VoxelSceneRevision::new(4);
+        let (raster, _, _) = RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
+            CameraPose::new(
+                [2.0, 2.0, 2.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                60.0,
+                0.1,
+                100.0,
+            ),
+            CameraStateRevision::new(7),
+            voxel_frontend::VoxelSceneId::new("revision-four"),
+            revision,
+        );
+        let owner = RenderPathSwitchOwner::new(Box::new(raster));
+        let diagnostics = owner.diagnostics();
+
+        assert!(render_path_switch_admission(&diagnostics).is_err());
+        assert_eq!(
+            format_render_path_overlay(
+                &diagnostics,
+                "inactive",
+                "overview",
+                "Tab-rejected-presenter-not-ready",
+            ),
+            "Presenter=Raster Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=inactive Camera=overview Control=Tab-rejected-presenter-not-ready"
+        );
     }
 
     #[test]
