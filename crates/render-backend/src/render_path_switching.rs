@@ -134,6 +134,8 @@ pub trait SwitchableRenderPath: RenderPath {
 
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum RenderPathSwitchRequestError {
+    #[error("the active Render Path does not support runtime switching")]
+    SwitchingUnavailable,
     #[error("a Render Path switch is already in progress")]
     SwitchInProgress,
     #[error(
@@ -238,6 +240,7 @@ impl RenderPathRoleStatus {
 pub struct RenderPathSwitchOwner {
     presenting: Box<dyn SwitchableRenderPath>,
     replacement: Option<Box<dyn SwitchableRenderPath>>,
+    replacement_needs_configuration: bool,
     retiring: Option<Box<dyn SwitchableRenderPath>>,
     events: Vec<RenderPathSwitchEvent>,
 }
@@ -247,6 +250,7 @@ impl RenderPathSwitchOwner {
         Self {
             presenting,
             replacement: None,
+            replacement_needs_configuration: false,
             retiring: None,
             events: Vec::new(),
         }
@@ -284,6 +288,7 @@ impl RenderPathSwitchOwner {
             replacement: replacement_strategy,
         });
         self.replacement = Some(replacement);
+        self.replacement_needs_configuration = true;
         Ok(())
     }
 
@@ -349,6 +354,7 @@ impl RenderPathSwitchOwner {
         let Some(replacement) = self.replacement.take() else {
             return;
         };
+        self.replacement_needs_configuration = false;
         let retiring = std::mem::replace(&mut self.presenting, replacement);
         self.events.push(RenderPathSwitchEvent::HandedOff {
             presenting: self.presenting.stamp().strategy(),
@@ -359,6 +365,13 @@ impl RenderPathSwitchOwner {
 }
 
 impl RenderPath for RenderPathSwitchOwner {
+    fn request_switch(
+        &mut self,
+        replacement: Box<dyn SwitchableRenderPath>,
+    ) -> Result<(), RenderPathSwitchRequestError> {
+        RenderPathSwitchOwner::request_switch(self, replacement)
+    }
+
     fn switch_diagnostics(&self) -> Option<RenderPathSwitchDiagnostics> {
         Some(self.diagnostics())
     }
@@ -382,6 +395,7 @@ impl RenderPath for RenderPathSwitchOwner {
         self.presenting.configure(device, target)?;
         if let Some(replacement) = self.replacement.as_mut() {
             replacement.configure(device, target)?;
+            self.replacement_needs_configuration = false;
         }
         if let Some(retiring) = self.retiring.as_mut() {
             retiring.configure(device, target)?;
@@ -396,6 +410,10 @@ impl RenderPath for RenderPathSwitchOwner {
     ) -> RenderPathResult<()> {
         self.presenting.advance_frame_boundary(device, target)?;
         if let Some(replacement) = self.replacement.as_mut() {
+            if self.replacement_needs_configuration {
+                replacement.configure(device, target)?;
+                self.replacement_needs_configuration = false;
+            }
             replacement.advance_frame_boundary(device, target)?;
         }
         if let Some(retiring) = self.retiring.as_mut() {
@@ -455,6 +473,7 @@ mod tests {
         stamp: RenderPathStamp,
         become_recordable: Option<Arc<AtomicBool>>,
         retirement_fails: bool,
+        configure_count: Option<Arc<AtomicUsize>>,
         record_count: Option<Arc<AtomicUsize>>,
     }
 
@@ -468,6 +487,9 @@ mod tests {
             _device: RenderPathDeviceContext<'_>,
             _target: RenderPathTarget<'_>,
         ) -> RenderPathResult<()> {
+            if let Some(configure_count) = self.configure_count.as_ref() {
+                configure_count.fetch_add(1, Ordering::SeqCst);
+            }
             Ok(())
         }
 
@@ -532,6 +554,7 @@ mod tests {
             stamp,
             become_recordable: None,
             retirement_fails: false,
+            configure_count: None,
             record_count: None,
         })
     }
@@ -541,23 +564,31 @@ mod tests {
             stamp,
             become_recordable: None,
             retirement_fails: true,
+            configure_count: None,
             record_count: None,
         })
     }
 
     fn controllable_path(
         mut stamp: RenderPathStamp,
-    ) -> (Box<dyn SwitchableRenderPath>, Arc<AtomicBool>) {
+    ) -> (
+        Box<dyn SwitchableRenderPath>,
+        Arc<AtomicBool>,
+        Arc<AtomicUsize>,
+    ) {
         stamp.readiness = RenderPathReadiness::Preparing;
         let become_recordable = Arc::new(AtomicBool::new(false));
+        let configure_count = Arc::new(AtomicUsize::new(0));
         (
             Box::new(ProofRenderPath {
                 stamp,
                 become_recordable: Some(Arc::clone(&become_recordable)),
                 retirement_fails: false,
+                configure_count: Some(Arc::clone(&configure_count)),
                 record_count: None,
             }),
             become_recordable,
+            configure_count,
         )
     }
 
@@ -579,6 +610,7 @@ mod tests {
                 stamp,
                 become_recordable: starts_preparing.then(|| Arc::clone(&become_recordable)),
                 retirement_fails: false,
+                configure_count: None,
                 record_count: Some(Arc::clone(&record_count)),
             }),
             become_recordable,
@@ -732,7 +764,7 @@ mod tests {
     -> RenderPathResult<()> {
         let mut owner =
             RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 1, 1)));
-        let (replacement, become_recordable) =
+        let (replacement, become_recordable, configure_count) =
             controllable_path(stamp(RenderPathStrategy::ComputeRay, 1, 1));
         owner
             .request_switch(replacement)
@@ -740,6 +772,7 @@ mod tests {
         let device = proof_device();
 
         advance_owner(&mut owner, &device)?;
+        assert_eq!(configure_count.load(Ordering::SeqCst), 1);
         assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
         assert_eq!(
             owner.role_status().replacement(),
@@ -749,6 +782,7 @@ mod tests {
 
         become_recordable.store(true, Ordering::SeqCst);
         advance_owner(&mut owner, &device)?;
+        assert_eq!(configure_count.load(Ordering::SeqCst), 1);
 
         assert_eq!(
             owner.role_status().presenting(),

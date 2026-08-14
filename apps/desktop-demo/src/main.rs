@@ -4,6 +4,8 @@ mod windows_adapter;
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 #[cfg(target_os = "windows")]
+use compute_ray_render_path::ComputeRayRenderPathAdapter;
+#[cfg(target_os = "windows")]
 use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionIdentity};
 #[cfg(target_os = "windows")]
 use raster_render_path::RasterRenderPathAdapter;
@@ -16,7 +18,8 @@ use raster_render_path::{
 };
 #[cfg(target_os = "windows")]
 use render_backend::{
-    CameraStateRevision, FrameOutcome, RenderBackend, RenderBackendOptions, RenderPathSwitchOwner,
+    CameraStateRevision, FrameOutcome, RenderBackend, RenderBackendOptions, RenderPathStrategy,
+    RenderPathSwitchOwner,
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
@@ -100,6 +103,7 @@ struct DesktopRenderConfiguration {
     hold_post_upload_candidate: bool,
     inject_raster_upload_failure: bool,
     edit_burst_demo: bool,
+    compute_switch_demo: bool,
     measurement: Option<MeasurementConfiguration>,
 }
 
@@ -150,6 +154,7 @@ fn parse_render_configuration(
     let mut hold_post_upload_candidate = false;
     let mut inject_raster_upload_failure = false;
     let mut edit_burst_demo = false;
+    let mut compute_switch_demo = false;
     let mut raster_region_extent = 32;
     let mut measurement_mode = None;
     let mut measurement_output = None;
@@ -160,6 +165,7 @@ fn parse_render_configuration(
             "--hold-post-upload-candidate" => hold_post_upload_candidate = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
             "--edit-burst-demo" => edit_burst_demo = true,
+            "--compute-switch-demo" => compute_switch_demo = true,
             "--raster-region-extent" => {
                 raster_region_extent = match arguments.next().as_deref() {
                     Some("16") => 16,
@@ -292,6 +298,18 @@ fn parse_render_configuration(
             );
         }
     };
+    if compute_switch_demo
+        && (hold_background_preparation
+            || hold_post_upload_candidate
+            || inject_raster_upload_failure
+            || edit_burst_demo
+            || measurement.is_some())
+    {
+        return Err(
+            "the compute switch demo cannot be combined with raster lifecycle, edit burst, failure injection, or measurement modes"
+                .to_owned(),
+        );
+    }
     Ok((
         DesktopRenderConfiguration {
             scene,
@@ -301,6 +319,7 @@ fn parse_render_configuration(
             hold_post_upload_candidate,
             inject_raster_upload_failure,
             edit_burst_demo,
+            compute_switch_demo,
             measurement,
         },
         report_only,
@@ -910,6 +929,9 @@ struct DesktopApplication {
     raster_region_count: usize,
     last_overlay_report: Option<String>,
     edit_burst_started_at: Option<Instant>,
+    compute_switch_requested: bool,
+    compute_first_frame_presented: bool,
+    compute_switch_complete_reported: bool,
 }
 
 #[cfg(target_os = "windows")]
@@ -964,6 +986,9 @@ impl DesktopApplication {
             raster_region_count: 0,
             last_overlay_report: None,
             edit_burst_started_at: None,
+            compute_switch_requested: false,
+            compute_first_frame_presented: false,
+            compute_switch_complete_reported: false,
         })
     }
 
@@ -991,6 +1016,106 @@ impl DesktopApplication {
             .set_text(&report)?;
         self.set_status(&report);
         Ok(())
+    }
+
+    fn request_compute_switch(&mut self) -> Result<(), String> {
+        if self.compute_switch_requested {
+            return Err("the raster-to-compute switch was requested more than once".to_owned());
+        }
+        let view = self
+            .frontend
+            .as_ref()
+            .ok_or_else(|| "the Voxel Frontend is unavailable for compute preparation".to_owned())?
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        if Some(view.revision()) != self.published_revision {
+            return Err(format!(
+                "compute preparation revision {} does not match the published Voxel Scene Revision",
+                view.revision()
+            ));
+        }
+        println!(
+            "Compute replacement cold build started: revision={} CameraStateRevision={:?}",
+            view.revision(),
+            self.camera_state_revision
+        );
+        let replacement =
+            ComputeRayRenderPathAdapter::new(view, self.camera_state, self.camera_state_revision)
+                .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
+        self.backend
+            .as_mut()
+            .ok_or_else(|| {
+                "the Render Backend is unavailable for the compute switch request".to_owned()
+            })?
+            .request_render_path_switch(Box::new(replacement))
+            .map_err(|error| error.to_string())?;
+        self.compute_switch_requested = true;
+        println!("Compute replacement requested while raster remains Presenting");
+        Ok(())
+    }
+
+    fn update_compute_switch_demo(&mut self) -> Result<bool, String> {
+        if !self.compute_switch_requested {
+            return Ok(false);
+        }
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
+        let roles = diagnostics.roles();
+        if roles.presenting() == RenderPathStrategy::ComputeRay
+            && !self.compute_first_frame_presented
+        {
+            let compute = diagnostics.presenting();
+            let raster = diagnostics.retiring().ok_or_else(|| {
+                "the first compute frame has no explicitly owned retiring raster path".to_owned()
+            })?;
+            if raster.strategy() != RenderPathStrategy::Raster
+                || raster.scene_identity() != compute.scene_identity()
+                || raster.visible_revision() != compute.visible_revision()
+                || raster.camera_state_revision() != compute.camera_state_revision()
+                || raster.presentation_configuration() != compute.presentation_configuration()
+            {
+                return Err(
+                    "the first compute frame does not match the retiring raster frame stamp"
+                        .to_owned(),
+                );
+            }
+            self.compute_first_frame_presented = true;
+            println!(
+                "First compute frame presented after atomic handoff: revision={} CameraStateRevision={:?} PresentationConfiguration={:?}",
+                compute.visible_revision(),
+                compute.camera_state_revision(),
+                compute.presentation_configuration()
+            );
+        }
+        let switch_in_progress = roles.replacement().is_some() || roles.retiring().is_some();
+        if self.compute_first_frame_presented
+            && !switch_in_progress
+            && !self.compute_switch_complete_reported
+        {
+            match self
+                .lifecycle_controller
+                .as_ref()
+                .ok_or_else(|| {
+                    "raster lifecycle diagnostics are unavailable after retirement".to_owned()
+                })?
+                .shutdown_owned_resource_count()
+                .map_err(|error| error.to_string())?
+            {
+                Some(0) => {}
+                Some(count) => {
+                    return Err(format!("retired raster retained {count} owned resources"));
+                }
+                None => {
+                    return Err("retired raster did not report owned resource disposal".to_owned());
+                }
+            }
+            self.compute_switch_complete_reported = true;
+            println!("Raster retirement complete: owned_resources=0 workers=0");
+        }
+        Ok(switch_in_progress)
     }
 
     fn publish_next_burst_command(&self, plan: &mut EditBurstPlan) -> Result<(), String> {
@@ -1846,6 +1971,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         if self.render_configuration.hold_post_upload_candidate
             || self.render_configuration.hold_background_preparation
             || self.render_configuration.edit_burst_demo
+            || self.render_configuration.compute_switch_demo
         {
             self.lifecycle_controller = Some(render_path.enable_lifecycle_control(
                 self.render_configuration.hold_post_upload_candidate
@@ -2259,6 +2385,22 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                     }
                                 }
                             }
+                            if self.render_configuration.compute_switch_demo
+                                && let Err(error) = self.request_compute_switch()
+                            {
+                                self.fail(event_loop, error);
+                                return;
+                            }
+                        }
+                        let compute_switch_in_progress = match self.update_compute_switch_demo() {
+                            Ok(in_progress) => in_progress,
+                            Err(error) => {
+                                self.fail(event_loop, error);
+                                return;
+                            }
+                        };
+                        if compute_switch_in_progress && let Some(window) = &self.window {
+                            window.request_redraw();
                         }
                         let now = Instant::now();
                         if let Some(measurement) = &mut self.measurement
@@ -2732,6 +2874,22 @@ mod measurement_tests {
 
         assert_eq!(configuration.raster_region_extent, 64);
         assert!(!report_only);
+        Ok(())
+    }
+
+    #[test]
+    fn compute_switch_demo_is_explicit_and_does_not_replace_raster_qualification_modes()
+    -> Result<(), String> {
+        let (configuration, _) =
+            parse_render_configuration(["--compute-switch-demo"].into_iter().map(str::to_owned))?;
+        assert!(configuration.compute_switch_demo);
+
+        let incompatible = parse_render_configuration(
+            ["--compute-switch-demo", "--edit-burst-demo"]
+                .into_iter()
+                .map(str::to_owned),
+        );
+        assert!(incompatible.is_err());
         Ok(())
     }
 

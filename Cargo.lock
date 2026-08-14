@@ -381,6 +381,7 @@ dependencies = [
  "ash-window",
  "canonical-inspection",
  "canonical-scene",
+ "compute-ray-render-path",
  "measurement-evidence",
  "raster-render-path",
  "raw-window-handle",

@@ -1042,6 +1042,13 @@ pub trait RenderPath {
         None
     }
 
+    fn request_switch(
+        &mut self,
+        _replacement: Box<dyn SwitchableRenderPath>,
+    ) -> Result<(), RenderPathSwitchRequestError> {
+        Err(RenderPathSwitchRequestError::SwitchingUnavailable)
+    }
+
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()>;
 
     fn configure(
@@ -1301,6 +1308,13 @@ impl RenderBackend {
 
     pub fn render_path_switch_diagnostics(&self) -> Option<RenderPathSwitchDiagnostics> {
         self.path.switch_diagnostics()
+    }
+
+    pub fn request_render_path_switch(
+        &mut self,
+        replacement: Box<dyn SwitchableRenderPath>,
+    ) -> Result<(), RenderPathSwitchRequestError> {
+        self.path.request_switch(replacement)
     }
 
     pub fn validation_error_count(&self) -> usize {
