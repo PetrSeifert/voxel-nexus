@@ -1,0 +1,16 @@
+[package]
+name = "compute-ray-render-path"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/compute_ray_render_path.rs"
+
+[dependencies]
+ash = "0.38.0"
+render-backend = { path = "../render-backend" }
+thiserror = "2.0.18"
+voxel-frontend = { path = "../voxel-frontend" }
+
+[build-dependencies]
+shaderc = "0.10.1"

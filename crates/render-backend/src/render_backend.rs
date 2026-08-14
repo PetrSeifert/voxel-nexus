@@ -58,6 +58,27 @@ pub struct RenderBackendOptions {
     pub gpu_timestamps_enabled: bool,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RenderPathDeviceCapabilities {
+    pub api_version: u32,
+    pub command_queue_flags: vk::QueueFlags,
+    pub max_image_dimension_2d: u32,
+    pub max_bound_descriptor_sets: u32,
+    pub max_per_stage_descriptor_storage_images: u32,
+    pub max_per_stage_descriptor_storage_buffers: u32,
+    pub max_per_stage_descriptor_sampled_images: u32,
+    pub max_per_stage_descriptor_samplers: u32,
+    pub max_descriptor_set_storage_images: u32,
+    pub max_descriptor_set_storage_buffers: u32,
+    pub max_descriptor_set_sampled_images: u32,
+    pub max_descriptor_set_samplers: u32,
+    pub max_compute_work_group_count: [u32; 3],
+    pub max_compute_work_group_invocations: u32,
+    pub max_compute_work_group_size: [u32; 3],
+    pub max_storage_buffer_range: u32,
+    pub rgba8_unorm_optimal_tiling_features: vk::FormatFeatureFlags,
+}
+
 impl Default for RenderBackendOptions {
     fn default() -> Self {
         Self {
@@ -71,6 +92,7 @@ impl Default for RenderBackendOptions {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueueFamilyCapabilities {
     pub supports_graphics: bool,
+    pub supports_compute: bool,
     pub supports_presentation: bool,
 }
 
@@ -432,9 +454,14 @@ impl RenderPathFrameTarget<'_> {
 pub struct RenderPathDeviceContext<'device> {
     device: &'device ash::Device,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    capabilities: RenderPathDeviceCapabilities,
 }
 
 impl RenderPathDeviceContext<'_> {
+    pub fn capabilities(&self) -> RenderPathDeviceCapabilities {
+        self.capabilities
+    }
+
     pub fn memory_type_index(
         &self,
         memory_type_bits: u32,
@@ -609,6 +636,88 @@ impl RenderPathDeviceContext<'_> {
 
     /// # Safety
     ///
+    /// Every handle and pointer in `create_infos` must remain valid for the call.
+    pub unsafe fn create_compute_pipelines(
+        &self,
+        pipeline_cache: vk::PipelineCache,
+        create_infos: &[vk::ComputePipelineCreateInfo<'_>],
+    ) -> Result<Vec<vk::Pipeline>, (Vec<vk::Pipeline>, vk::Result)> {
+        unsafe {
+            self.device
+                .create_compute_pipelines(pipeline_cache, create_infos, None)
+        }
+    }
+
+    /// # Safety
+    ///
+    /// Every binding in `create_info` must satisfy Vulkan's descriptor limits.
+    pub unsafe fn create_descriptor_set_layout(
+        &self,
+        create_info: &vk::DescriptorSetLayoutCreateInfo<'_>,
+    ) -> Result<vk::DescriptorSetLayout, vk::Result> {
+        unsafe { self.device.create_descriptor_set_layout(create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// `layout` must belong to this device and no live pipeline layout may depend on it.
+    pub unsafe fn destroy_descriptor_set_layout(&self, layout: vk::DescriptorSetLayout) {
+        unsafe { self.device.destroy_descriptor_set_layout(layout, None) };
+    }
+
+    /// # Safety
+    ///
+    /// Pool sizes and flags in `create_info` must satisfy Vulkan's validity rules.
+    pub unsafe fn create_descriptor_pool(
+        &self,
+        create_info: &vk::DescriptorPoolCreateInfo<'_>,
+    ) -> Result<vk::DescriptorPool, vk::Result> {
+        unsafe { self.device.create_descriptor_pool(create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// `pool` must belong to this device and no submitted work may use its descriptor sets.
+    pub unsafe fn destroy_descriptor_pool(&self, pool: vk::DescriptorPool) {
+        unsafe { self.device.destroy_descriptor_pool(pool, None) };
+    }
+
+    /// # Safety
+    ///
+    /// The pool and layouts referenced by `allocate_info` must be live and compatible.
+    pub unsafe fn allocate_descriptor_sets(
+        &self,
+        allocate_info: &vk::DescriptorSetAllocateInfo<'_>,
+    ) -> Result<Vec<vk::DescriptorSet>, vk::Result> {
+        unsafe { self.device.allocate_descriptor_sets(allocate_info) }
+    }
+
+    /// # Safety
+    ///
+    /// Every descriptor and referenced resource must be valid for this device.
+    pub unsafe fn update_descriptor_sets(&self, writes: &[vk::WriteDescriptorSet<'_>]) {
+        unsafe { self.device.update_descriptor_sets(writes, &[]) };
+    }
+
+    /// # Safety
+    ///
+    /// Sampler parameters in `create_info` must satisfy the enabled device features and limits.
+    pub unsafe fn create_sampler(
+        &self,
+        create_info: &vk::SamplerCreateInfo<'_>,
+    ) -> Result<vk::Sampler, vk::Result> {
+        unsafe { self.device.create_sampler(create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// `sampler` must belong to this device and no submitted work may still use it.
+    pub unsafe fn destroy_sampler(&self, sampler: vk::Sampler) {
+        unsafe { self.device.destroy_sampler(sampler, None) };
+    }
+
+    /// # Safety
+    ///
     /// `render_pass` must belong to this device and be compatible with `attachment`.
     pub unsafe fn create_framebuffer(
         &self,
@@ -618,6 +727,25 @@ impl RenderPathDeviceContext<'_> {
         extent: vk::Extent2D,
     ) -> Result<vk::Framebuffer, vk::Result> {
         let attachments = [attachment.view, depth_attachment];
+        let create_info = vk::FramebufferCreateInfo::default()
+            .render_pass(render_pass)
+            .attachments(&attachments)
+            .width(extent.width)
+            .height(extent.height)
+            .layers(1);
+        unsafe { self.device.create_framebuffer(&create_info, None) }
+    }
+
+    /// # Safety
+    ///
+    /// `render_pass` must belong to this device and be compatible with `attachment`.
+    pub unsafe fn create_color_framebuffer(
+        &self,
+        render_pass: vk::RenderPass,
+        attachment: &RenderPathAttachment<'_>,
+        extent: vk::Extent2D,
+    ) -> Result<vk::Framebuffer, vk::Result> {
+        let attachments = [attachment.view];
         let create_info = vk::FramebufferCreateInfo::default()
             .render_pass(render_pass)
             .attachments(&attachments)
@@ -695,6 +823,64 @@ impl RenderPathFrameContext<'_> {
         unsafe {
             self.device
                 .cmd_bind_pipeline(self.command_buffer, bind_point, pipeline)
+        };
+    }
+
+    /// # Safety
+    ///
+    /// The descriptor sets must be live and compatible with `layout` and `bind_point`.
+    pub unsafe fn bind_descriptor_sets(
+        &self,
+        bind_point: vk::PipelineBindPoint,
+        layout: vk::PipelineLayout,
+        descriptor_sets: &[vk::DescriptorSet],
+    ) {
+        unsafe {
+            self.device.cmd_bind_descriptor_sets(
+                self.command_buffer,
+                bind_point,
+                layout,
+                0,
+                descriptor_sets,
+                &[],
+            )
+        };
+    }
+
+    /// # Safety
+    ///
+    /// The bound compute state must be valid and each group count must fit the device limit.
+    pub unsafe fn dispatch(&self, group_count: [u32; 3]) {
+        let [group_count_x, group_count_y, group_count_z] = group_count;
+        unsafe {
+            self.device.cmd_dispatch(
+                self.command_buffer,
+                group_count_x,
+                group_count_y,
+                group_count_z,
+            )
+        };
+    }
+
+    /// # Safety
+    ///
+    /// Each image barrier must describe a live image and valid old and new layouts.
+    pub unsafe fn image_pipeline_barrier(
+        &self,
+        source_stage: vk::PipelineStageFlags,
+        destination_stage: vk::PipelineStageFlags,
+        barriers: &[vk::ImageMemoryBarrier<'_>],
+    ) {
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                self.command_buffer,
+                source_stage,
+                destination_stage,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                barriers,
+            )
         };
     }
 
@@ -908,6 +1094,7 @@ pub struct RenderBackend {
     path_is_configured: bool,
     path_is_shutdown: bool,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    render_path_device_capabilities: RenderPathDeviceCapabilities,
     options: RenderBackendOptions,
 }
 
@@ -971,6 +1158,7 @@ impl RenderBackend {
                 .instance
                 .get_physical_device_memory_properties(selected_device.physical_device)
         };
+        let render_path_device_capabilities = selected_device.render_path_device_capabilities;
         let device = LogicalDevice::new(&presentation.instance, &selected_device)?;
         let graphics_queue =
             unsafe { device.get_device_queue(selected_device.graphics_queue_family_index, 0) };
@@ -1017,6 +1205,7 @@ impl RenderBackend {
             path_is_configured: false,
             path_is_shutdown: false,
             memory_properties,
+            render_path_device_capabilities,
             options,
         };
         backend.configure_path()?;
@@ -1079,6 +1268,7 @@ impl RenderBackend {
         let outcome = match rendering.draw_frame(
             self.path.as_mut(),
             self.memory_properties,
+            self.render_path_device_capabilities,
             self.graphics_queue,
             self.presentation_queue,
             submitted_frame_sequence,
@@ -1129,6 +1319,7 @@ impl RenderBackend {
                 RenderPathDeviceContext {
                     device: &self.device,
                     memory_properties: self.memory_properties,
+                    capabilities: self.render_path_device_capabilities,
                 },
                 rendering.render_path_target(),
             )
@@ -1144,6 +1335,7 @@ impl RenderBackend {
             self.path.release(RenderPathDeviceContext {
                 device: &self.device,
                 memory_properties: self.memory_properties,
+                capabilities: self.render_path_device_capabilities,
             })
         })?;
         self.path_is_configured = false;
@@ -1158,6 +1350,7 @@ impl RenderBackend {
             self.path.shutdown(RenderPathDeviceContext {
                 device: &self.device,
                 memory_properties: self.memory_properties,
+                capabilities: self.render_path_device_capabilities,
             })
         })?;
         self.path_is_shutdown = true;
@@ -1275,6 +1468,7 @@ struct InspectedDevice {
     presentation_queue_family_index: u32,
     timestamp_valid_bits: u32,
     timestamp_period_nanoseconds: f64,
+    render_path_device_capabilities: RenderPathDeviceCapabilities,
 }
 
 #[derive(Default)]
@@ -1339,6 +1533,7 @@ struct VulkanFrameBoundaryOperations<'frame> {
     presentation: &'frame mut PresentationResources,
     path: &'frame mut dyn RenderPath,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
+    capabilities: RenderPathDeviceCapabilities,
 }
 
 impl FrameBoundaryOperations for VulkanFrameBoundaryOperations<'_> {
@@ -1360,6 +1555,7 @@ impl FrameBoundaryOperations for VulkanFrameBoundaryOperations<'_> {
                 RenderPathDeviceContext {
                     device: &self.presentation.device,
                     memory_properties: self.memory_properties,
+                    capabilities: self.capabilities,
                 },
                 self.presentation.render_path_target(),
             )
@@ -1549,6 +1745,7 @@ impl PresentationResources {
         &mut self,
         path: &mut dyn RenderPath,
         memory_properties: vk::PhysicalDeviceMemoryProperties,
+        capabilities: RenderPathDeviceCapabilities,
         graphics_queue: vk::Queue,
         presentation_queue: vk::Queue,
         submitted_frame_sequence: u64,
@@ -1558,6 +1755,7 @@ impl PresentationResources {
             presentation: self,
             path,
             memory_properties,
+            capabilities,
         })?;
         let Some((image_index, acquire_suboptimal)) = acquired_image else {
             return Ok(PresentationOutcome::Invalidated);
@@ -1949,13 +2147,12 @@ fn inspect_device(
             supports_graphics: queue_property
                 .queue_flags
                 .contains(vk::QueueFlags::GRAPHICS),
+            supports_compute: queue_property.queue_flags.contains(vk::QueueFlags::COMPUTE),
             supports_presentation,
         });
     }
     let surface_support = query_surface_support(presentation, physical_device)?;
-    let graphics_queue_family_index = queue_families
-        .iter()
-        .position(|queue_family| queue_family.supports_graphics)
+    let graphics_queue_family_index = select_graphics_queue_family(&queue_families)
         .and_then(|index| u32::try_from(index).ok())
         .unwrap_or(u32::MAX);
     let presentation_queue_family_index = queue_families
@@ -1968,6 +2165,36 @@ fn inspect_device(
         .and_then(|index| queue_properties.get(index))
         .map(|properties| properties.timestamp_valid_bits)
         .unwrap_or(0);
+    let command_queue_flags = usize::try_from(graphics_queue_family_index)
+        .ok()
+        .and_then(|index| queue_properties.get(index))
+        .map(|properties| properties.queue_flags)
+        .unwrap_or_else(vk::QueueFlags::empty);
+    let rgba8_unorm_format_properties = unsafe {
+        presentation
+            .instance
+            .get_physical_device_format_properties(physical_device, vk::Format::R8G8B8A8_UNORM)
+    };
+    let limits = properties.limits;
+    let render_path_device_capabilities = RenderPathDeviceCapabilities {
+        api_version: properties.api_version,
+        command_queue_flags,
+        max_image_dimension_2d: limits.max_image_dimension2_d,
+        max_bound_descriptor_sets: limits.max_bound_descriptor_sets,
+        max_per_stage_descriptor_storage_images: limits.max_per_stage_descriptor_storage_images,
+        max_per_stage_descriptor_storage_buffers: limits.max_per_stage_descriptor_storage_buffers,
+        max_per_stage_descriptor_sampled_images: limits.max_per_stage_descriptor_sampled_images,
+        max_per_stage_descriptor_samplers: limits.max_per_stage_descriptor_samplers,
+        max_descriptor_set_storage_images: limits.max_descriptor_set_storage_images,
+        max_descriptor_set_storage_buffers: limits.max_descriptor_set_storage_buffers,
+        max_descriptor_set_sampled_images: limits.max_descriptor_set_sampled_images,
+        max_descriptor_set_samplers: limits.max_descriptor_set_samplers,
+        max_compute_work_group_count: limits.max_compute_work_group_count,
+        max_compute_work_group_invocations: limits.max_compute_work_group_invocations,
+        max_compute_work_group_size: limits.max_compute_work_group_size,
+        max_storage_buffer_range: limits.max_storage_buffer_range,
+        rgba8_unorm_optimal_tiling_features: rgba8_unorm_format_properties.optimal_tiling_features,
+    };
 
     Ok(InspectedDevice {
         physical_device,
@@ -1984,7 +2211,19 @@ fn inspect_device(
         presentation_queue_family_index,
         timestamp_valid_bits,
         timestamp_period_nanoseconds: f64::from(properties.limits.timestamp_period),
+        render_path_device_capabilities,
     })
+}
+
+fn select_graphics_queue_family(queue_families: &[QueueFamilyCapabilities]) -> Option<usize> {
+    queue_families
+        .iter()
+        .position(|queue_family| queue_family.supports_graphics && queue_family.supports_compute)
+        .or_else(|| {
+            queue_families
+                .iter()
+                .position(|queue_family| queue_family.supports_graphics)
+        })
 }
 
 fn query_surface_support(
@@ -2185,7 +2424,8 @@ fn drawable_extent_is_zero(extent: vk::Extent2D) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        BackendError, BackendFrameSequences, FrameBoundaryOperations, run_frame_boundary_operations,
+        BackendError, BackendFrameSequences, FrameBoundaryOperations, QueueFamilyCapabilities,
+        run_frame_boundary_operations, select_graphics_queue_family,
     };
     use ash::vk;
 
@@ -2294,5 +2534,23 @@ mod tests {
         sequences.record_submission()?;
         assert_eq!(sequences.pending(), 3);
         Ok(())
+    }
+
+    #[test]
+    fn graphics_queue_selection_prefers_a_compute_capable_graphics_family() {
+        let queue_families = [
+            QueueFamilyCapabilities {
+                supports_graphics: true,
+                supports_compute: false,
+                supports_presentation: true,
+            },
+            QueueFamilyCapabilities {
+                supports_graphics: true,
+                supports_compute: true,
+                supports_presentation: false,
+            },
+        ];
+
+        assert_eq!(select_graphics_queue_family(&queue_families), Some(1));
     }
 }

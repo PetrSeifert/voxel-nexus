@@ -2665,6 +2665,7 @@ fn unsupported_prerequisite_diagnostic(
             has_present_modes: true,
             queue_families: vec![QueueFamilyCapabilities {
                 supports_graphics: true,
+                supports_compute: true,
                 supports_presentation: true,
             }],
         }),
@@ -2677,6 +2678,7 @@ fn unsupported_prerequisite_diagnostic(
             has_present_modes: false,
             queue_families: vec![QueueFamilyCapabilities {
                 supports_graphics: true,
+                supports_compute: true,
                 supports_presentation: false,
             }],
         }),

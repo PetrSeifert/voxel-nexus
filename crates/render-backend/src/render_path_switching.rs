@@ -598,6 +598,7 @@ mod tests {
             RenderPathDeviceContext {
                 device,
                 memory_properties: vk::PhysicalDeviceMemoryProperties::default(),
+                capabilities: crate::RenderPathDeviceCapabilities::default(),
             },
             RenderPathTarget {
                 configuration_id: PresentationConfigurationId(1),

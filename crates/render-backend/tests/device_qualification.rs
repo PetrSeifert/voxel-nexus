@@ -12,6 +12,7 @@ fn fully_capable_candidate() -> DeviceCandidate {
         has_present_modes: true,
         queue_families: vec![QueueFamilyCapabilities {
             supports_graphics: true,
+            supports_compute: true,
             supports_presentation: true,
         }],
     }
@@ -46,6 +47,7 @@ fn rejects_devices_below_vulkan_1_3() -> Result<(), Box<dyn std::error::Error>> 
         has_present_modes: true,
         queue_families: vec![QueueFamilyCapabilities {
             supports_graphics: true,
+            supports_compute: true,
             supports_presentation: true,
         }],
     };
@@ -117,6 +119,7 @@ fn rejects_devices_without_a_presentation_queue() -> Result<(), Box<dyn std::err
     let mut candidate = fully_capable_candidate();
     candidate.queue_families = vec![QueueFamilyCapabilities {
         supports_graphics: true,
+        supports_compute: true,
         supports_presentation: false,
     }];
 
@@ -140,6 +143,7 @@ fn reports_every_missing_presentation_requirement() -> Result<(), Box<dyn std::e
         has_present_modes: false,
         queue_families: vec![QueueFamilyCapabilities {
             supports_graphics: true,
+            supports_compute: true,
             supports_presentation: false,
         }],
     };
@@ -168,10 +172,12 @@ fn accepts_separate_graphics_and_presentation_queues() {
     candidate.queue_families = vec![
         QueueFamilyCapabilities {
             supports_graphics: true,
+            supports_compute: true,
             supports_presentation: false,
         },
         QueueFamilyCapabilities {
             supports_graphics: false,
+            supports_compute: true,
             supports_presentation: true,
         },
     ];

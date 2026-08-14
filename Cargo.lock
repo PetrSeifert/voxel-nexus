@@ -281,6 +281,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "compute-ray-render-path"
+version = "0.1.0"
+dependencies = [
+ "ash",
+ "render-backend",
+ "shaderc",
+ "thiserror 2.0.18",
+ "voxel-frontend",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
