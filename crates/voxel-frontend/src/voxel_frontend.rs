@@ -12,7 +12,7 @@ impl VoxelSceneId {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct VoxelVolumeId(Arc<str>);
 
 impl VoxelVolumeId {

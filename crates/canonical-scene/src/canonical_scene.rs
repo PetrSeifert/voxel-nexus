@@ -1,5 +1,6 @@
 use std::collections::TryReserveError;
 
+use semantic_ray_oracle::{SemanticRay, SemanticRayError, SemanticRayProbe, SemanticRayProbeError};
 use thiserror::Error;
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
@@ -145,6 +146,42 @@ pub enum CanonicalSceneError {
     Allocation(#[source] TryReserveError),
     #[error("canonical exposed-face count {actual} exceeds the generator bound {limit}")]
     ExposedFaceLimit { actual: u64, limit: u64 },
+}
+
+#[derive(Debug, Error)]
+pub enum CanonicalSemanticRayProbeError {
+    #[error("canonical Semantic Ray could not be declared")]
+    Ray(#[from] SemanticRayError),
+    #[error("canonical Semantic Ray probe could not be declared")]
+    Probe(#[from] SemanticRayProbeError),
+}
+
+pub fn canonical_edit_semantic_ray_probes()
+-> Result<[SemanticRayProbe; 3], CanonicalSemanticRayProbeError> {
+    Ok([
+        canonical_edit_semantic_ray_probe("edit-0-0-0", 0)?,
+        canonical_edit_semantic_ray_probe("edit-40-0-0", 40)?,
+        canonical_edit_semantic_ray_probe("edit-80-0-0", 80)?,
+    ])
+}
+
+fn canonical_edit_semantic_ray_probe(
+    identity: &str,
+    coordinate_x: i32,
+) -> Result<SemanticRayProbe, CanonicalSemanticRayProbeError> {
+    let [scene_origin_x, scene_origin_y, scene_origin_z] = SCENE_ORIGIN.map(f64::from);
+    let voxel_size = f64::from(BASE_VOXEL_SIZE) / f64::from(CanonicalSceneScale::Large.factor());
+    let ray = SemanticRay::new(
+        [
+            scene_origin_x + (f64::from(coordinate_x) + 0.5) * voxel_size,
+            scene_origin_y + 0.5 * voxel_size,
+            scene_origin_z - voxel_size,
+        ],
+        [0.0, 0.0, 1.0],
+        0.0,
+        2.0 * voxel_size,
+    )?;
+    Ok(SemanticRayProbe::new(identity, ray)?)
 }
 
 pub fn generate_canonical_scene(

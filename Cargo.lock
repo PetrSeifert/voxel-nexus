@@ -192,6 +192,7 @@ name = "canonical-scene"
 version = "0.1.0"
 dependencies = [
  "raster-render-path",
+ "semantic-ray-oracle",
  "thiserror 2.0.18",
  "voxel-frontend",
 ]
@@ -1259,6 +1260,14 @@ dependencies = [
  "memmap2",
  "smithay-client-toolkit",
  "tiny-skia",
+]
+
+[[package]]
+name = "semantic-ray-oracle"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
+ "voxel-frontend",
 ]
 
 [[package]]

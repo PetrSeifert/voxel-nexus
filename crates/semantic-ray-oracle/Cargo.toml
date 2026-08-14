@@ -1,0 +1,11 @@
+[package]
+name = "semantic-ray-oracle"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+path = "src/semantic_ray_oracle.rs"
+
+[dependencies]
+thiserror = "2.0.18"
+voxel-frontend = { path = "../voxel-frontend" }
