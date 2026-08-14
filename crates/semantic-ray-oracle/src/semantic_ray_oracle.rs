@@ -32,6 +32,22 @@ pub struct SemanticRayContact {
 }
 
 impl SemanticRayContact {
+    pub fn new(
+        volume_identity: VoxelVolumeId,
+        coordinate: VoxelCoordinate,
+        material_identity: VoxelMaterialId,
+        distance: f64,
+        classification: SemanticRayContactClassification,
+    ) -> Self {
+        Self {
+            volume_identity,
+            coordinate,
+            material_identity,
+            distance,
+            classification,
+        }
+    }
+
     pub fn volume_identity(&self) -> &VoxelVolumeId {
         &self.volume_identity
     }
@@ -67,6 +83,18 @@ pub struct SemanticRayObservation {
 }
 
 impl SemanticRayObservation {
+    pub fn new(
+        scene_identity: VoxelSceneId,
+        revision: VoxelSceneRevision,
+        result: SemanticRayResult,
+    ) -> Self {
+        Self {
+            scene_identity,
+            revision,
+            result,
+        }
+    }
+
     pub fn scene_identity(&self) -> &VoxelSceneId {
         &self.scene_identity
     }

@@ -1,16 +1,27 @@
 use compute_ray_render_path::ComputeRayRenderPathAdapter;
 use render_backend::{
-    CameraStateRevision, RenderPathReadiness, RenderPathStrategy, SwitchableRenderPath,
+    CameraState, CameraStateRevision, RenderPathReadiness, RenderPathStrategy, SwitchableRenderPath,
 };
-use voxel_frontend::{VoxelSceneId, VoxelSceneRevision};
+use voxel_frontend::{DenseVoxelScene, VoxelFrontend, VoxelSceneId, VoxelSceneRevision};
 
 #[test]
-fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state() {
-    let adapter = ComputeRayRenderPathAdapter::new(
+fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
+-> Result<(), Box<dyn std::error::Error>> {
+    let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
         VoxelSceneId::new("compute-proof"),
         VoxelSceneRevision::new(7),
-        CameraStateRevision::new(3),
+        Vec::new(),
+        Vec::new(),
+    ))?;
+    let camera = CameraState::new(
+        [2.0, 2.0, 2.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        50.0,
+        0.1,
+        100.0,
     );
+    let adapter = ComputeRayRenderPathAdapter::new(view, camera, CameraStateRevision::new(3))?;
 
     let stamp = adapter.stamp();
 
@@ -22,4 +33,6 @@ fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
     assert_eq!(stamp.presentation_configuration(), None);
     assert_eq!(stamp.readiness(), RenderPathReadiness::Preparing);
     assert_eq!(adapter.capability_assessment(), None);
+    assert_eq!(adapter.camera_state(), camera);
+    Ok(())
 }

@@ -17,6 +17,89 @@ pub use render_path_switching::{
 
 const VALIDATION_LAYER_NAME: &CStr = c"VK_LAYER_KHRONOS_validation";
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CameraState {
+    eye: [f32; 3],
+    target: [f32; 3],
+    up: [f32; 3],
+    field_of_view_degrees: f32,
+    near_plane: f32,
+    far_plane: f32,
+}
+
+impl CameraState {
+    pub const fn new(
+        eye: [f32; 3],
+        target: [f32; 3],
+        up: [f32; 3],
+        field_of_view_degrees: f32,
+        near_plane: f32,
+        far_plane: f32,
+    ) -> Self {
+        Self {
+            eye,
+            target,
+            up,
+            field_of_view_degrees,
+            near_plane,
+            far_plane,
+        }
+    }
+
+    pub fn eye(self) -> [f32; 3] {
+        self.eye
+    }
+
+    pub fn target(self) -> [f32; 3] {
+        self.target
+    }
+
+    pub fn up(self) -> [f32; 3] {
+        self.up
+    }
+
+    pub fn field_of_view_degrees(self) -> f32 {
+        self.field_of_view_degrees
+    }
+
+    pub fn near_plane(self) -> f32 {
+        self.near_plane
+    }
+
+    pub fn far_plane(self) -> f32 {
+        self.far_plane
+    }
+
+    pub fn view_projection(
+        self,
+        drawable_dimensions: [u32; 2],
+    ) -> Result<[f32; 16], CameraConfigurationError> {
+        let [width, height] = drawable_dimensions;
+        if width == 0 || height == 0 {
+            return Err(CameraConfigurationError::ZeroDrawableExtent);
+        }
+        let aspect_ratio = width as f32 / height as f32;
+        let projection = perspective(
+            self.field_of_view_degrees.to_radians(),
+            aspect_ratio,
+            self.near_plane,
+            self.far_plane,
+        );
+        let view = look_at(self.eye, self.target, self.up);
+        Ok(multiply_matrices(projection, view))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum CameraConfigurationError {
+    #[error("camera projection requires a non-zero drawable extent")]
+    ZeroDrawableExtent,
+    #[error("a deterministic camera move requires at least one step")]
+    ZeroMoveSteps,
+    #[error("camera move step {step} exceeds the final step {total_steps}")]
+    MoveStepOutOfRange { step: u32, total_steps: u32 },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct RuntimeContext {
     pub device_name: String,
@@ -2419,6 +2502,102 @@ fn select_swapchain_configuration_for_mode(
 
 fn drawable_extent_is_zero(extent: vk::Extent2D) -> bool {
     extent.width == 0 || extent.height == 0
+}
+
+fn perspective(field_of_view: f32, aspect_ratio: f32, near: f32, far: f32) -> [f32; 16] {
+    let focal_length = 1.0 / (field_of_view * 0.5).tan();
+    [
+        focal_length / aspect_ratio,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -focal_length,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        far / (near - far),
+        -1.0,
+        0.0,
+        0.0,
+        near * far / (near - far),
+        0.0,
+    ]
+}
+
+fn look_at(eye: [f32; 3], center: [f32; 3], up: [f32; 3]) -> [f32; 16] {
+    let forward = normalize(subtract(center, eye));
+    let side = normalize(cross(forward, up));
+    let upward = cross(side, forward);
+    let [side_x, side_y, side_z] = side;
+    let [upward_x, upward_y, upward_z] = upward;
+    let [forward_x, forward_y, forward_z] = forward;
+    [
+        side_x,
+        upward_x,
+        -forward_x,
+        0.0,
+        side_y,
+        upward_y,
+        -forward_y,
+        0.0,
+        side_z,
+        upward_z,
+        -forward_z,
+        0.0,
+        -dot(side, eye),
+        -dot(upward, eye),
+        dot(forward, eye),
+        1.0,
+    ]
+}
+
+fn multiply_matrices(left: [f32; 16], right: [f32; 16]) -> [f32; 16] {
+    let mut result = [0.0; 16];
+    for column in 0..4 {
+        for row in 0..4 {
+            let Some(destination) = result.get_mut(column * 4 + row) else {
+                continue;
+            };
+            *destination = (0..4)
+                .filter_map(|inner| {
+                    let left_value = left.get(inner * 4 + row)?;
+                    let right_value = right.get(column * 4 + inner)?;
+                    Some(left_value * right_value)
+                })
+                .sum();
+        }
+    }
+    result
+}
+
+fn subtract(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
+    let [left_x, left_y, left_z] = left;
+    let [right_x, right_y, right_z] = right;
+    [left_x - right_x, left_y - right_y, left_z - right_z]
+}
+
+fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
+    let [left_x, left_y, left_z] = left;
+    let [right_x, right_y, right_z] = right;
+    left_x * right_x + left_y * right_y + left_z * right_z
+}
+
+fn cross(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
+    let [left_x, left_y, left_z] = left;
+    let [right_x, right_y, right_z] = right;
+    [
+        left_y * right_z - left_z * right_y,
+        left_z * right_x - left_x * right_z,
+        left_x * right_y - left_y * right_x,
+    ]
+}
+
+fn normalize(vector: [f32; 3]) -> [f32; 3] {
+    let length = dot(vector, vector).sqrt();
+    let [vector_x, vector_y, vector_z] = vector;
+    [vector_x / length, vector_y / length, vector_z / length]
 }
 
 #[cfg(test)]

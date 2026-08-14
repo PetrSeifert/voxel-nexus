@@ -1,18 +1,72 @@
 use ash::vk;
 use render_backend::{
-    CameraStateRevision, PresentationConfigurationId, RenderPath, RenderPathAttachmentIdentity,
-    RenderPathDeviceCapabilities, RenderPathDeviceContext, RenderPathFrameContext,
-    RenderPathReadiness, RenderPathResult, RenderPathRetirement, RenderPathStamp,
-    RenderPathStrategy, RenderPathTarget, SwitchableRenderPath,
+    CameraState, CameraStateRevision, PresentationConfigurationId, RenderPath,
+    RenderPathAttachmentIdentity, RenderPathDeviceCapabilities, RenderPathDeviceContext,
+    RenderPathFrameContext, RenderPathReadiness, RenderPathResult, RenderPathRetirement,
+    RenderPathStamp, RenderPathStrategy, RenderPathTarget, SwitchableRenderPath,
 };
+use semantic_ray_oracle::{SemanticRay, SemanticRayError};
 use std::io::Cursor;
 use thiserror::Error;
-use voxel_frontend::{VoxelSceneId, VoxelSceneRevision};
+use voxel_frontend::VoxelSceneView;
+
+mod compute_scene;
+
+pub use compute_scene::{ComputeSceneBuildError, ComputeSceneBundle, ComputeVolumeHeader};
+
+#[derive(Debug, Error)]
+pub enum ComputeCameraRayError {
+    #[error("compute camera rays require a nonzero drawable extent")]
+    EmptyDrawableExtent,
+    #[error("pixel {pixel:?} lies outside drawable extent {extent:?}")]
+    PixelOutsideDrawable { pixel: [u32; 2], extent: [u32; 2] },
+    #[error("the shared Camera State could not produce a Semantic Ray")]
+    SemanticRay(#[from] SemanticRayError),
+}
+
+pub fn camera_semantic_ray(
+    camera: CameraState,
+    extent: vk::Extent2D,
+    pixel: [u32; 2],
+) -> Result<SemanticRay, ComputeCameraRayError> {
+    if extent.width == 0 || extent.height == 0 {
+        return Err(ComputeCameraRayError::EmptyDrawableExtent);
+    }
+    let [pixel_x, pixel_y] = pixel;
+    if pixel_x >= extent.width || pixel_y >= extent.height {
+        return Err(ComputeCameraRayError::PixelOutsideDrawable {
+            pixel,
+            extent: [extent.width, extent.height],
+        });
+    }
+    let eye = camera.eye();
+    let forward = normalize(subtract(camera.target(), eye));
+    let right = normalize(cross(forward, camera.up()));
+    let upward = cross(right, forward);
+    let normalized_x = 2.0 * (pixel_x as f32 + 0.5) / extent.width as f32 - 1.0;
+    let normalized_y = 1.0 - 2.0 * (pixel_y as f32 + 0.5) / extent.height as f32;
+    let tangent = (camera.field_of_view_degrees().to_radians() * 0.5).tan();
+    let aspect_ratio = extent.width as f32 / extent.height as f32;
+    let direction = normalize(add(
+        forward,
+        add(
+            scale(right, normalized_x * tangent * aspect_ratio),
+            scale(upward, normalized_y * tangent),
+        ),
+    ));
+    let forward_cosine = dot(direction, forward);
+    Ok(SemanticRay::new(
+        eye.map(f64::from),
+        direction.map(f64::from),
+        f64::from(camera.near_plane() / forward_cosine),
+        f64::from(camera.far_plane() / forward_cosine),
+    )?)
+}
 
 const OUTPUT_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 const WORKGROUP_SIZE: [u32; 3] = [8, 8, 1];
-const KNOWN_OUTPUT_COLOR: [f32; 4] = [0.08, 0.45, 0.90, 1.0];
-const KNOWN_OUTPUT_BUFFER_SIZE: u32 = 16;
+const CAMERA_WORD_COUNT: usize = 20;
+const CAMERA_BUFFER_SIZE: u32 = (CAMERA_WORD_COUNT * std::mem::size_of::<f32>()) as u32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComputeDispatchConfiguration {
@@ -89,9 +143,12 @@ pub enum ComputeRenderPathRejection {
         height: u32,
         maximum: u32,
     },
-    #[error("the {requirement:?} descriptor limit is {available}, but one binding is required")]
+    #[error(
+        "the {requirement:?} descriptor limit is {available}, but {required} bindings are required"
+    )]
     DescriptorBindingRange {
         requirement: ComputeDescriptorRequirement,
+        required: u32,
         available: u32,
     },
     #[error(
@@ -173,52 +230,62 @@ pub fn qualify_compute_render_path(
         (
             ComputeDescriptorRequirement::BoundSet,
             queried.max_bound_descriptor_sets,
+            1,
         ),
         (
             ComputeDescriptorRequirement::StorageImagePerStage,
             queried.max_per_stage_descriptor_storage_images,
+            1,
         ),
         (
             ComputeDescriptorRequirement::StorageImagePerSet,
             queried.max_descriptor_set_storage_images,
+            1,
         ),
         (
             ComputeDescriptorRequirement::StorageBufferPerStage,
             queried.max_per_stage_descriptor_storage_buffers,
+            2,
         ),
         (
             ComputeDescriptorRequirement::StorageBufferPerSet,
             queried.max_descriptor_set_storage_buffers,
+            2,
         ),
         (
             ComputeDescriptorRequirement::SampledImagePerStage,
             queried.max_per_stage_descriptor_sampled_images,
+            1,
         ),
         (
             ComputeDescriptorRequirement::SampledImagePerSet,
             queried.max_descriptor_set_sampled_images,
+            1,
         ),
         (
             ComputeDescriptorRequirement::SamplerPerStage,
             queried.max_per_stage_descriptor_samplers,
+            1,
         ),
         (
             ComputeDescriptorRequirement::SamplerPerSet,
             queried.max_descriptor_set_samplers,
+            1,
         ),
     ];
-    if let Some((requirement, available)) = descriptor_limits
+    if let Some((requirement, available, required)) = descriptor_limits
         .into_iter()
-        .find(|(_, available)| *available < 1)
+        .find(|(_, available, required)| available < required)
     {
         return Err(ComputeRenderPathRejection::DescriptorBindingRange {
             requirement,
+            required,
             available,
         });
     }
-    if queried.max_storage_buffer_range < KNOWN_OUTPUT_BUFFER_SIZE {
+    if queried.max_storage_buffer_range < CAMERA_BUFFER_SIZE {
         return Err(ComputeRenderPathRejection::StorageBufferBindingRange {
-            required: KNOWN_OUTPUT_BUFFER_SIZE,
+            required: CAMERA_BUFFER_SIZE,
             available: queried.max_storage_buffer_range,
         });
     }
@@ -294,16 +361,30 @@ enum ComputeRenderPathError {
     CreateOutputView(vk::Result),
     #[error("could not create the compute output sampler: {0}")]
     CreateSampler(vk::Result),
-    #[error("could not create the known-output buffer: {0}")]
-    CreateKnownOutputBuffer(vk::Result),
-    #[error("no host-visible coherent memory type can hold the known-output buffer")]
-    MissingKnownOutputMemory,
-    #[error("could not allocate known-output buffer memory: {0}")]
-    AllocateKnownOutputMemory(vk::Result),
-    #[error("could not bind known-output buffer memory: {0}")]
-    BindKnownOutputMemory(vk::Result),
-    #[error("could not write the known-output color: {0}")]
-    WriteKnownOutputMemory(vk::Result),
+    #[error(
+        "the compute Voxel Scene needs a {required}-byte storage-buffer binding, but the device limit is {available} bytes"
+    )]
+    SceneStorageBufferRange { required: u64, available: u32 },
+    #[error("could not create the compute Voxel Scene buffer: {0}")]
+    CreateSceneBuffer(vk::Result),
+    #[error("no host-visible coherent memory type can hold the compute Voxel Scene buffer")]
+    MissingSceneMemory,
+    #[error("could not allocate compute Voxel Scene buffer memory: {0}")]
+    AllocateSceneMemory(vk::Result),
+    #[error("could not bind compute Voxel Scene buffer memory: {0}")]
+    BindSceneMemory(vk::Result),
+    #[error("could not write the compute Voxel Scene buffer: {0}")]
+    WriteSceneMemory(vk::Result),
+    #[error("could not create the compute Camera State buffer: {0}")]
+    CreateCameraBuffer(vk::Result),
+    #[error("no host-visible coherent memory type can hold the compute Camera State buffer")]
+    MissingCameraMemory,
+    #[error("could not allocate compute Camera State buffer memory: {0}")]
+    AllocateCameraMemory(vk::Result),
+    #[error("could not bind compute Camera State buffer memory: {0}")]
+    BindCameraMemory(vk::Result),
+    #[error("could not write the compute Camera State buffer: {0}")]
+    WriteCameraMemory(vk::Result),
     #[error("could not create the compute descriptor-set layout: {0}")]
     CreateDescriptorSetLayout(vk::Result),
     #[error("could not create the compute descriptor pool: {0}")]
@@ -334,27 +415,34 @@ enum ComputeRenderPathError {
 
 pub struct ComputeRayRenderPathAdapter {
     render_path: ComputeRayRenderPath,
-    scene_identity: VoxelSceneId,
-    revision: VoxelSceneRevision,
     camera_state_revision: CameraStateRevision,
 }
 
 impl ComputeRayRenderPathAdapter {
     pub fn new(
-        scene_identity: VoxelSceneId,
-        revision: VoxelSceneRevision,
+        view: VoxelSceneView,
+        camera_state: CameraState,
         camera_state_revision: CameraStateRevision,
-    ) -> Self {
-        Self {
-            render_path: ComputeRayRenderPath::new(),
-            scene_identity,
-            revision,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        Ok(Self {
+            render_path: ComputeRayRenderPath::new(
+                ComputeSceneBundle::from_view(&view)?,
+                camera_state,
+            ),
             camera_state_revision,
-        }
+        })
     }
 
     pub fn capability_assessment(&self) -> Option<&ComputeCapabilityAssessment> {
         self.render_path.capability_assessment.as_ref()
+    }
+
+    pub fn scene_bundle(&self) -> &ComputeSceneBundle {
+        &self.render_path.scene_bundle
+    }
+
+    pub fn camera_state(&self) -> CameraState {
+        self.render_path.camera_state
     }
 }
 
@@ -384,9 +472,9 @@ impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
     fn stamp(&self) -> RenderPathStamp {
         RenderPathStamp::new(
             RenderPathStrategy::ComputeRay,
-            self.scene_identity.clone(),
-            self.revision,
-            self.revision,
+            self.render_path.scene_bundle.scene_identity().clone(),
+            self.render_path.scene_bundle.revision(),
+            self.render_path.scene_bundle.revision(),
             self.camera_state_revision,
             self.render_path.configuration_id,
             if self.render_path.configuration_id.is_some() {
@@ -407,13 +495,17 @@ impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
 }
 
 struct ComputeRayRenderPath {
+    scene_bundle: ComputeSceneBundle,
+    camera_state: CameraState,
     capability_assessment: Option<ComputeCapabilityAssessment>,
     output_image: vk::Image,
     output_memory: vk::DeviceMemory,
     output_view: vk::ImageView,
     sampler: vk::Sampler,
-    known_output_buffer: vk::Buffer,
-    known_output_memory: vk::DeviceMemory,
+    scene_buffer: vk::Buffer,
+    scene_memory: vk::DeviceMemory,
+    camera_buffer: vk::Buffer,
+    camera_memory: vk::DeviceMemory,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     descriptor_set: vk::DescriptorSet,
@@ -431,15 +523,19 @@ struct ComputeRayRenderPath {
 }
 
 impl ComputeRayRenderPath {
-    fn new() -> Self {
+    fn new(scene_bundle: ComputeSceneBundle, camera_state: CameraState) -> Self {
         Self {
+            scene_bundle,
+            camera_state,
             capability_assessment: None,
             output_image: vk::Image::null(),
             output_memory: vk::DeviceMemory::null(),
             output_view: vk::ImageView::null(),
             sampler: vk::Sampler::null(),
-            known_output_buffer: vk::Buffer::null(),
-            known_output_memory: vk::DeviceMemory::null(),
+            scene_buffer: vk::Buffer::null(),
+            scene_memory: vk::DeviceMemory::null(),
+            camera_buffer: vk::Buffer::null(),
+            camera_memory: vk::DeviceMemory::null(),
             descriptor_set_layout: vk::DescriptorSetLayout::null(),
             descriptor_pool: vk::DescriptorPool::null(),
             descriptor_set: vk::DescriptorSet::null(),
@@ -537,36 +633,81 @@ impl ComputeRayRenderPath {
             .max_lod(0.0);
         self.sampler = unsafe { device.create_sampler(&sampler_info) }
             .map_err(ComputeRenderPathError::CreateSampler)?;
-        self.create_known_output_buffer(device)?;
+        self.create_scene_buffer(device)?;
+        self.create_camera_buffer(device, extent)?;
         Ok(())
     }
 
-    fn create_known_output_buffer(
+    fn create_scene_buffer(
         &mut self,
         device: &RenderPathDeviceContext<'_>,
     ) -> Result<(), ComputeRenderPathError> {
+        let bytes = u32_bytes(self.scene_bundle.storage_words());
+        let byte_size = u64::try_from(bytes.len()).map_err(|_| {
+            ComputeRenderPathError::SceneStorageBufferRange {
+                required: u64::MAX,
+                available: device.capabilities().max_storage_buffer_range,
+            }
+        })?;
+        if byte_size > u64::from(device.capabilities().max_storage_buffer_range) {
+            return Err(ComputeRenderPathError::SceneStorageBufferRange {
+                required: byte_size,
+                available: device.capabilities().max_storage_buffer_range,
+            });
+        }
         let buffer_info = vk::BufferCreateInfo::default()
-            .size(u64::from(KNOWN_OUTPUT_BUFFER_SIZE))
+            .size(byte_size)
             .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
             .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        self.known_output_buffer = unsafe { device.create_buffer(&buffer_info) }
-            .map_err(ComputeRenderPathError::CreateKnownOutputBuffer)?;
-        let requirements = unsafe { device.buffer_memory_requirements(self.known_output_buffer) };
+        self.scene_buffer = unsafe { device.create_buffer(&buffer_info) }
+            .map_err(ComputeRenderPathError::CreateSceneBuffer)?;
+        let requirements = unsafe { device.buffer_memory_requirements(self.scene_buffer) };
         let memory_type_index = device
             .memory_type_index(
                 requirements.memory_type_bits,
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             )
-            .ok_or(ComputeRenderPathError::MissingKnownOutputMemory)?;
+            .ok_or(ComputeRenderPathError::MissingSceneMemory)?;
         let allocation_info = vk::MemoryAllocateInfo::default()
             .allocation_size(requirements.size)
             .memory_type_index(memory_type_index);
-        self.known_output_memory = unsafe { device.allocate_memory(&allocation_info) }
-            .map_err(ComputeRenderPathError::AllocateKnownOutputMemory)?;
-        unsafe { device.bind_buffer_memory(self.known_output_buffer, self.known_output_memory) }
-            .map_err(ComputeRenderPathError::BindKnownOutputMemory)?;
-        unsafe { device.write_memory(self.known_output_memory, f32_bytes(&KNOWN_OUTPUT_COLOR)) }
-            .map_err(ComputeRenderPathError::WriteKnownOutputMemory)?;
+        self.scene_memory = unsafe { device.allocate_memory(&allocation_info) }
+            .map_err(ComputeRenderPathError::AllocateSceneMemory)?;
+        unsafe { device.bind_buffer_memory(self.scene_buffer, self.scene_memory) }
+            .map_err(ComputeRenderPathError::BindSceneMemory)?;
+        unsafe { device.write_memory(self.scene_memory, bytes) }
+            .map_err(ComputeRenderPathError::WriteSceneMemory)?;
+        Ok(())
+    }
+
+    fn create_camera_buffer(
+        &mut self,
+        device: &RenderPathDeviceContext<'_>,
+        extent: vk::Extent2D,
+    ) -> Result<(), ComputeRenderPathError> {
+        let camera_words = camera_storage_words(self.camera_state, extent);
+        let buffer_info = vk::BufferCreateInfo::default()
+            .size(u64::from(CAMERA_BUFFER_SIZE))
+            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        self.camera_buffer = unsafe { device.create_buffer(&buffer_info) }
+            .map_err(ComputeRenderPathError::CreateCameraBuffer)?;
+        let requirements = unsafe { device.buffer_memory_requirements(self.camera_buffer) };
+        let memory_type_index = device
+            .memory_type_index(
+                requirements.memory_type_bits,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )
+            .ok_or(ComputeRenderPathError::MissingCameraMemory)?;
+        let allocation_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index);
+        self.camera_memory = unsafe { device.allocate_memory(&allocation_info) }
+            .map_err(ComputeRenderPathError::AllocateCameraMemory)?;
+        unsafe { device.bind_buffer_memory(self.camera_buffer, self.camera_memory) }
+            .map_err(ComputeRenderPathError::BindCameraMemory)?;
+        unsafe { device.write_memory(self.camera_memory, f32_bytes(&camera_words)) }
+            .map_err(ComputeRenderPathError::WriteCameraMemory)?;
         Ok(())
     }
 
@@ -590,6 +731,11 @@ impl ComputeRayRenderPath {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
         ];
         let layout_info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
         self.descriptor_set_layout = unsafe { device.create_descriptor_set_layout(&layout_info) }
@@ -604,7 +750,7 @@ impl ComputeRayRenderPath {
                 .descriptor_count(1),
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1),
+                .descriptor_count(2),
         ];
         let pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(1)
@@ -627,10 +773,21 @@ impl ComputeRayRenderPath {
             .sampler(self.sampler)
             .image_view(self.output_view)
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)];
-        let known_output_buffer = [vk::DescriptorBufferInfo::default()
-            .buffer(self.known_output_buffer)
+        let scene_buffer = [vk::DescriptorBufferInfo::default()
+            .buffer(self.scene_buffer)
             .offset(0)
-            .range(u64::from(KNOWN_OUTPUT_BUFFER_SIZE))];
+            .range(
+                u64::try_from(std::mem::size_of_val(self.scene_bundle.storage_words())).map_err(
+                    |_| ComputeRenderPathError::SceneStorageBufferRange {
+                        required: u64::MAX,
+                        available: device.capabilities().max_storage_buffer_range,
+                    },
+                )?,
+            )];
+        let camera_buffer = [vk::DescriptorBufferInfo::default()
+            .buffer(self.camera_buffer)
+            .offset(0)
+            .range(u64::from(CAMERA_BUFFER_SIZE))];
         let writes = [
             vk::WriteDescriptorSet::default()
                 .dst_set(self.descriptor_set)
@@ -646,7 +803,12 @@ impl ComputeRayRenderPath {
                 .dst_set(self.descriptor_set)
                 .dst_binding(2)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&known_output_buffer),
+                .buffer_info(&scene_buffer),
+            vk::WriteDescriptorSet::default()
+                .dst_set(self.descriptor_set)
+                .dst_binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&camera_buffer),
         ];
         unsafe { device.update_descriptor_sets(&writes) };
         Ok(())
@@ -658,7 +820,7 @@ impl ComputeRayRenderPath {
     ) -> Result<(), ComputeRenderPathError> {
         let shader_code = read_shader(include_bytes!(concat!(
             env!("OUT_DIR"),
-            "/known_output.comp.spv"
+            "/dense_dda.comp.spv"
         )))?;
         let shader_module = create_shader_module(device, &shader_code)?;
         let result = self.create_compute_pipeline_with_module(device, shader_module);
@@ -989,13 +1151,21 @@ impl ComputeRayRenderPath {
                 device.free_memory(self.output_memory);
                 self.output_memory = vk::DeviceMemory::null();
             }
-            if self.known_output_buffer != vk::Buffer::null() {
-                device.destroy_buffer(self.known_output_buffer);
-                self.known_output_buffer = vk::Buffer::null();
+            if self.camera_buffer != vk::Buffer::null() {
+                device.destroy_buffer(self.camera_buffer);
+                self.camera_buffer = vk::Buffer::null();
             }
-            if self.known_output_memory != vk::DeviceMemory::null() {
-                device.free_memory(self.known_output_memory);
-                self.known_output_memory = vk::DeviceMemory::null();
+            if self.camera_memory != vk::DeviceMemory::null() {
+                device.free_memory(self.camera_memory);
+                self.camera_memory = vk::DeviceMemory::null();
+            }
+            if self.scene_buffer != vk::Buffer::null() {
+                device.destroy_buffer(self.scene_buffer);
+                self.scene_buffer = vk::Buffer::null();
+            }
+            if self.scene_memory != vk::DeviceMemory::null() {
+                device.free_memory(self.scene_memory);
+                self.scene_memory = vk::DeviceMemory::null();
             }
         }
         self.configured_attachments.clear();
@@ -1111,6 +1281,68 @@ fn f32_bytes(values: &[f32]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 
+fn u32_bytes(values: &[u32]) -> &[u8] {
+    let byte_length = std::mem::size_of_val(values);
+    // Every u32 bit pattern is initialized data and valid to read as bytes.
+    unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
+}
+
+fn camera_storage_words(camera: CameraState, extent: vk::Extent2D) -> [f32; CAMERA_WORD_COUNT] {
+    let eye = camera.eye();
+    let forward = normalize(subtract(camera.target(), eye));
+    let right = normalize(cross(forward, camera.up()));
+    let upward = cross(right, forward);
+    let mut words = [0.0; CAMERA_WORD_COUNT];
+    words[0..3].copy_from_slice(&eye);
+    words[4..7].copy_from_slice(&forward);
+    words[8..11].copy_from_slice(&right);
+    words[12..15].copy_from_slice(&upward);
+    words[16] = camera.near_plane();
+    words[17] = camera.far_plane();
+    words[18] = (camera.field_of_view_degrees().to_radians() * 0.5).tan();
+    words[19] = extent.width as f32 / extent.height as f32;
+    words
+}
+
+fn subtract(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
+    let [left_x, left_y, left_z] = left;
+    let [right_x, right_y, right_z] = right;
+    [left_x - right_x, left_y - right_y, left_z - right_z]
+}
+
+fn add(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
+    let [left_x, left_y, left_z] = left;
+    let [right_x, right_y, right_z] = right;
+    [left_x + right_x, left_y + right_y, left_z + right_z]
+}
+
+fn scale(vector: [f32; 3], factor: f32) -> [f32; 3] {
+    let [x, y, z] = vector;
+    [x * factor, y * factor, z * factor]
+}
+
+fn dot(left: [f32; 3], right: [f32; 3]) -> f32 {
+    let [left_x, left_y, left_z] = left;
+    let [right_x, right_y, right_z] = right;
+    left_x * right_x + left_y * right_y + left_z * right_z
+}
+
+fn cross(left: [f32; 3], right: [f32; 3]) -> [f32; 3] {
+    let [left_x, left_y, left_z] = left;
+    let [right_x, right_y, right_z] = right;
+    [
+        left_y * right_z - left_z * right_y,
+        left_z * right_x - left_x * right_z,
+        left_x * right_y - left_y * right_x,
+    ]
+}
+
+fn normalize(vector: [f32; 3]) -> [f32; 3] {
+    let length = dot(vector, vector).sqrt();
+    let [vector_x, vector_y, vector_z] = vector;
+    [vector_x / length, vector_y / length, vector_z / length]
+}
+
 fn create_shader_module(
     device: &RenderPathDeviceContext<'_>,
     code: &[u32],
@@ -1165,10 +1397,12 @@ mod tests {
 
     #[test]
     fn compute_shader_guards_only_out_of_range_invocations_and_writes_every_valid_pixel() {
-        let shader = include_str!("../shaders/known_output.comp");
+        let shader = include_str!("../shaders/dense_dda.comp");
         assert!(shader.contains("writeonly image2D output_image"));
         assert!(shader.contains("greaterThanEqual(pixel, dimensions)"));
-        assert!(shader.contains("readonly buffer KnownOutput"));
+        assert!(shader.contains("readonly buffer SceneData"));
+        assert!(shader.contains("Hit trace_volume"));
+        assert!(shader.contains("bvec3 tied"));
         assert!(shader.contains("imageStore(output_image, pixel"));
     }
 

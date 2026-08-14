@@ -7,9 +7,9 @@ use std::path::PathBuf;
 fn main() -> Result<(), Box<dyn Error>> {
     let shaders = [
         (
-            "shaders/known_output.comp",
+            "shaders/dense_dda.comp",
             ShaderKind::Compute,
-            "known_output.comp.spv",
+            "dense_dda.comp.spv",
         ),
         (
             "shaders/composite.vert",

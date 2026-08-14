@@ -285,7 +285,9 @@ name = "compute-ray-render-path"
 version = "0.1.0"
 dependencies = [
  "ash",
+ "canonical-scene",
  "render-backend",
+ "semantic-ray-oracle",
  "shaderc",
  "thiserror 2.0.18",
  "voxel-frontend",

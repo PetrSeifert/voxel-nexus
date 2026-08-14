@@ -136,64 +136,73 @@ fn rejects_zero_or_oversized_output_dimensions() {
 
 #[test]
 fn rejects_each_descriptor_binding_limit_that_the_two_stages_use() {
-    let cases: [(ComputeDescriptorRequirement, CapabilityMutation); 9] = [
+    let cases: [(ComputeDescriptorRequirement, u32, CapabilityMutation); 9] = [
         (
             ComputeDescriptorRequirement::BoundSet,
+            1,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_bound_descriptor_sets = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::StorageImagePerStage,
+            1,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_per_stage_descriptor_storage_images = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::StorageImagePerSet,
+            1,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_descriptor_set_storage_images = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::StorageBufferPerStage,
+            2,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_per_stage_descriptor_storage_buffers = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::StorageBufferPerSet,
+            2,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_descriptor_set_storage_buffers = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::SampledImagePerStage,
+            1,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_per_stage_descriptor_sampled_images = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::SampledImagePerSet,
+            1,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_descriptor_set_sampled_images = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::SamplerPerStage,
+            1,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_per_stage_descriptor_samplers = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::SamplerPerSet,
+            1,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_descriptor_set_samplers = 0;
             },
         ),
     ];
 
-    for (requirement, mutate) in cases {
+    for (requirement, required, mutate) in cases {
         let mut queried = capable_device();
         mutate(&mut queried);
         assert_eq!(
@@ -206,6 +215,7 @@ fn rejects_each_descriptor_binding_limit_that_the_two_stages_use() {
             ),
             Err(ComputeRenderPathRejection::DescriptorBindingRange {
                 requirement,
+                required,
                 available: 0,
             })
         );
@@ -213,9 +223,9 @@ fn rejects_each_descriptor_binding_limit_that_the_two_stages_use() {
 }
 
 #[test]
-fn rejects_a_storage_buffer_binding_range_smaller_than_the_known_output_value() {
+fn rejects_a_storage_buffer_binding_range_smaller_than_the_camera_state() {
     let mut queried = capable_device();
-    queried.max_storage_buffer_range = 15;
+    queried.max_storage_buffer_range = 79;
 
     assert_eq!(
         qualify_compute_render_path(
@@ -226,8 +236,8 @@ fn rejects_a_storage_buffer_binding_range_smaller_than_the_known_output_value() 
             }
         ),
         Err(ComputeRenderPathRejection::StorageBufferBindingRange {
-            required: 16,
-            available: 15,
+            required: 80,
+            available: 79,
         })
     );
 }
