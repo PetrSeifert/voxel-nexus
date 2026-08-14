@@ -1,7 +1,7 @@
 use semantic_ray_oracle::{
     AxisNormal, SemanticRay, SemanticRayContact, SemanticRayContactClassification,
-    SemanticRayError, SemanticRayObservation, SemanticRayProbe, SemanticRayResult, observe,
-    observe_probe,
+    SemanticRayDistanceTolerance, SemanticRayError, SemanticRayObservation, SemanticRayProbe,
+    SemanticRayResult, observe, observe_probe,
 };
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
@@ -388,6 +388,77 @@ fn adjacent_occupied_values_report_only_the_exposed_entry_contact()
 }
 
 #[test]
+fn ray_starting_in_an_empty_value_reaches_the_next_occupied_value()
+-> Result<(), Box<dyn std::error::Error>> {
+    let extent = VoxelExtent::new(2, 1, 1);
+    let material_identity = VoxelMaterialId::new("stone");
+    let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("empty-start"),
+        VoxelSceneRevision::new(1),
+        vec![VoxelMaterial::new(material_identity.clone(), [1.0; 4])],
+        vec![DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(
+                VoxelVolumeId::new("empty-start-volume"),
+                extent,
+                [0.0; 3],
+                1.0,
+            ),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                vec![VoxelValue::Empty, VoxelValue::Occupied(material_identity)],
+            )],
+        )],
+    ))?;
+    let ray = SemanticRay::new([0.5, 0.5, 0.5], [1.0, 0.0, 0.0], 0.0, 2.0)?;
+
+    let observation = observe(&view, &ray)?;
+    let contact = contact(&observation)?;
+
+    assert_eq!(contact.coordinate(), VoxelCoordinate::new(1, 0, 0));
+    assert_eq!(contact.distance(), 0.5);
+    assert_eq!(
+        contact.classification(),
+        SemanticRayContactClassification::Entered(AxisNormal::NegativeX)
+    );
+
+    Ok(())
+}
+
+#[test]
+fn clipped_start_on_an_internal_half_open_boundary_uses_the_containing_value()
+-> Result<(), Box<dyn std::error::Error>> {
+    let extent = VoxelExtent::new(2, 1, 1);
+    let material_identity = VoxelMaterialId::new("stone");
+    let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("internal-boundary"),
+        VoxelSceneRevision::new(1),
+        vec![VoxelMaterial::new(material_identity.clone(), [1.0; 4])],
+        vec![DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(VoxelVolumeId::new("adjacent-volume"), extent, [0.0; 3], 1.0),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                vec![
+                    VoxelValue::Occupied(material_identity.clone()),
+                    VoxelValue::Occupied(material_identity),
+                ],
+            )],
+        )],
+    ))?;
+    let ray = SemanticRay::new([1.0, 0.5, 0.5], [-1.0, 0.0, 0.0], 0.0, 2.0)?;
+
+    let observation = observe(&view, &ray)?;
+    let contact = contact(&observation)?;
+
+    assert_eq!(contact.coordinate(), VoxelCoordinate::new(1, 0, 0));
+    assert_eq!(
+        contact.classification(),
+        SemanticRayContactClassification::StartedInside
+    );
+
+    Ok(())
+}
+
+#[test]
 fn nearest_volume_wins_independently_of_publication_order() -> Result<(), Box<dyn std::error::Error>>
 {
     let extent = VoxelExtent::new(1, 1, 1);
@@ -495,6 +566,32 @@ fn declared_probe_identity_is_retained_with_its_observation()
         contact(observed_probe.observation())?.coordinate(),
         VoxelCoordinate::new(0, 0, 0)
     );
+
+    Ok(())
+}
+
+#[test]
+fn observation_comparison_tolerates_only_contact_distance() -> Result<(), Box<dyn std::error::Error>>
+{
+    let view = one_voxel_view()?;
+    let expected = observe(
+        &view,
+        &SemanticRay::new([-1.0, 0.5, 0.5], [1.0, 0.0, 0.0], 0.0, 3.0)?,
+    )?;
+    let nearby = observe(
+        &view,
+        &SemanticRay::new([-1.0005, 0.5, 0.5], [1.0, 0.0, 0.0], 0.0, 3.0)?,
+    )?;
+    let started_inside = observe(
+        &view,
+        &SemanticRay::new([-1.0, 0.5, 0.5], [1.0, 0.0, 0.0], 1.25, 3.0)?,
+    )?;
+
+    assert!(expected.agrees_with(&nearby, SemanticRayDistanceTolerance::new(0.001)?,));
+    assert!(!expected.agrees_with(&nearby, SemanticRayDistanceTolerance::new(0.0001)?,));
+    assert!(!expected.agrees_with(&started_inside, SemanticRayDistanceTolerance::new(1.0)?,));
+    assert!(SemanticRayDistanceTolerance::new(f64::NAN).is_err());
+    assert!(SemanticRayDistanceTolerance::new(-0.1).is_err());
 
     Ok(())
 }

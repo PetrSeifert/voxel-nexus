@@ -78,6 +78,57 @@ impl SemanticRayObservation {
     pub fn result(&self) -> &SemanticRayResult {
         &self.result
     }
+
+    pub fn agrees_with(
+        &self,
+        other: &Self,
+        distance_tolerance: SemanticRayDistanceTolerance,
+    ) -> bool {
+        self.scene_identity == other.scene_identity
+            && self.revision == other.revision
+            && match (&self.result, &other.result) {
+                (SemanticRayResult::Miss, SemanticRayResult::Miss) => true,
+                (
+                    SemanticRayResult::Contact(contact),
+                    SemanticRayResult::Contact(other_contact),
+                ) => contact.agrees_with(other_contact, distance_tolerance),
+                (SemanticRayResult::Miss, SemanticRayResult::Contact(_))
+                | (SemanticRayResult::Contact(_), SemanticRayResult::Miss) => false,
+            }
+    }
+}
+
+impl SemanticRayContact {
+    fn agrees_with(&self, other: &Self, distance_tolerance: SemanticRayDistanceTolerance) -> bool {
+        self.volume_identity == other.volume_identity
+            && self.coordinate == other.coordinate
+            && self.material_identity == other.material_identity
+            && self.classification == other.classification
+            && (self.distance - other.distance).abs()
+                <= distance_tolerance.maximum_absolute_difference
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SemanticRayDistanceTolerance {
+    maximum_absolute_difference: f64,
+}
+
+impl SemanticRayDistanceTolerance {
+    pub fn new(
+        maximum_absolute_difference: f64,
+    ) -> Result<Self, SemanticRayDistanceToleranceError> {
+        if !maximum_absolute_difference.is_finite() || maximum_absolute_difference < 0.0 {
+            return Err(SemanticRayDistanceToleranceError::InvalidMaximumDifference);
+        }
+        Ok(Self {
+            maximum_absolute_difference,
+        })
+    }
+
+    pub fn maximum_absolute_difference(self) -> f64 {
+        self.maximum_absolute_difference
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -216,6 +267,12 @@ pub enum SemanticRayProbeError {
 }
 
 #[derive(Debug, Error)]
+pub enum SemanticRayDistanceToleranceError {
+    #[error("Semantic Ray distance tolerance must be finite and nonnegative")]
+    InvalidMaximumDifference,
+}
+
+#[derive(Debug, Error)]
 pub enum SemanticRayOracleError {
     #[error("could not read the pinned Voxel Scene View")]
     VoxelFrontend(#[from] VoxelFrontendError),
@@ -274,7 +331,19 @@ pub fn observe_probe(
 fn contact_precedes(candidate: &SemanticRayContact, current: &SemanticRayContact) -> bool {
     match candidate.distance.total_cmp(&current.distance) {
         std::cmp::Ordering::Less => true,
-        std::cmp::Ordering::Equal => candidate.volume_identity < current.volume_identity,
+        std::cmp::Ordering::Equal => {
+            match candidate.volume_identity.cmp(&current.volume_identity) {
+                std::cmp::Ordering::Less => true,
+                std::cmp::Ordering::Equal => matches!(
+                    (&candidate.classification, &current.classification),
+                    (
+                        SemanticRayContactClassification::StartedInside,
+                        SemanticRayContactClassification::Entered(_)
+                    )
+                ),
+                std::cmp::Ordering::Greater => false,
+            }
+        }
         std::cmp::Ordering::Greater => false,
     }
 }
