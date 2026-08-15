@@ -790,6 +790,14 @@ fn should_request_compute_edit_burst(
 }
 
 #[cfg(target_os = "windows")]
+fn should_wait_for_initial_raster_artifact(
+    configuration: &DesktopRenderConfiguration,
+    first_matching_frame_presented: bool,
+) -> bool {
+    configuration.compute_switch_demo && !first_matching_frame_presented
+}
+
+#[cfg(target_os = "windows")]
 fn compute_edit_burst_admission(
     diagnostics: &RenderPathSwitchDiagnostics,
     awaiting_space: bool,
@@ -4180,13 +4188,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if self
-                    .render_configuration
-                    .compute_shutdown_qualification
-                    .is_some()
-                    || self.render_configuration.portable_milestone_demo
-                        && !self.first_matching_frame_presented
-                {
+                if should_wait_for_initial_raster_artifact(
+                    &self.render_configuration,
+                    self.first_matching_frame_presented,
+                ) {
                     let initial_artifact_revision = match &self.artifact_installer {
                         Some(installer) => match installer.installed_source_revision() {
                             Ok(revision) => revision,
@@ -4923,7 +4928,7 @@ mod measurement_tests {
         format_convergence_characterization, format_convergence_overlay,
         format_render_path_overlay, parse_render_configuration, render_path_switch_admission,
         should_request_compute_edit_burst, should_request_render_path_switch,
-        should_start_edit_burst,
+        should_start_edit_burst, should_wait_for_initial_raster_artifact,
     };
 
     #[test]
@@ -5005,6 +5010,34 @@ mod measurement_tests {
                 .map(str::to_owned),
         );
         assert!(incompatible.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn every_compute_switch_mode_waits_for_the_initial_raster_artifact() -> Result<(), String> {
+        for arguments in [
+            vec!["--compute-switch-demo"],
+            vec!["--compute-switch-lifecycle-demo"],
+            vec!["--portable-compute-ray-milestone-demo"],
+            vec!["--compute-shutdown-qualification", "presenting"],
+        ] {
+            let (configuration, _) =
+                parse_render_configuration(arguments.into_iter().map(str::to_owned))?;
+            assert!(should_wait_for_initial_raster_artifact(
+                &configuration,
+                false
+            ));
+            assert!(!should_wait_for_initial_raster_artifact(
+                &configuration,
+                true
+            ));
+        }
+
+        let (raster_configuration, _) = parse_render_configuration(std::iter::empty())?;
+        assert!(!should_wait_for_initial_raster_artifact(
+            &raster_configuration,
+            false
+        ));
         Ok(())
     }
 
