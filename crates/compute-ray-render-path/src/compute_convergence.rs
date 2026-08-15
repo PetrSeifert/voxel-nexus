@@ -97,6 +97,8 @@ impl ComputePreparationBarrierShared {
 
 struct ComputeConvergenceControlState {
     pending_outcome: Option<VoxelEditOutcome>,
+    retry_requested: bool,
+    pending_failure: Option<ComputeConvergenceFailurePhase>,
     status: ComputeConvergenceStatus,
     events: VecDeque<ComputeConvergenceEvent>,
     preparation_barrier: Option<Arc<ComputePreparationBarrierShared>>,
@@ -115,6 +117,10 @@ pub enum ComputeConvergenceControlError {
     Unavailable,
     #[error("a compute edit outcome is already pending at the frame boundary")]
     PendingOutcome,
+    #[error("a compute convergence failure is already pending")]
+    PendingFailure,
+    #[error("a compute convergence retry is already pending")]
+    PendingRetry,
     #[error("the compute preparation barrier needs a positive completed-block count")]
     InvalidCompletedBlockCount,
     #[error("the compute preparation barrier has not been configured")]
@@ -126,6 +132,8 @@ impl ComputeConvergenceController {
         Self {
             state: Arc::new(Mutex::new(ComputeConvergenceControlState {
                 pending_outcome: None,
+                retry_requested: false,
+                pending_failure: None,
                 status,
                 events: VecDeque::new(),
                 preparation_barrier: None,
@@ -140,6 +148,9 @@ impl ComputeConvergenceController {
             .state
             .lock()
             .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if state.retry_requested {
+            return Err(ComputeConvergenceControlError::PendingRetry);
+        }
         if state.pending_outcome.is_some() {
             return Err(ComputeConvergenceControlError::PendingOutcome);
         }
@@ -162,6 +173,36 @@ impl ComputeConvergenceController {
             .lock()
             .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
         Ok(state.events.drain(..).collect())
+    }
+
+    pub fn request_retry(&self) -> Result<(), ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if state.pending_outcome.is_some() {
+            return Err(ComputeConvergenceControlError::PendingOutcome);
+        }
+        if state.retry_requested {
+            return Err(ComputeConvergenceControlError::PendingRetry);
+        }
+        state.retry_requested = true;
+        Ok(())
+    }
+
+    pub fn inject_next_failure(
+        &self,
+        phase: ComputeConvergenceFailurePhase,
+    ) -> Result<(), ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if state.pending_failure.is_some() {
+            return Err(ComputeConvergenceControlError::PendingFailure);
+        }
+        state.pending_failure = Some(phase);
+        Ok(())
     }
 
     pub fn hold_next_preparation_after_blocks(
@@ -238,6 +279,31 @@ impl ComputeConvergenceController {
             .lock()
             .map(|mut state| state.pending_outcome.take())
             .map_err(|_| ComputeConvergenceControlError::Unavailable)
+    }
+
+    pub(crate) fn take_retry_request(&self) -> Result<bool, ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        let retry_requested = state.retry_requested;
+        state.retry_requested = false;
+        Ok(retry_requested)
+    }
+
+    fn take_injected_failure(
+        &self,
+        phase: ComputeConvergenceFailurePhase,
+    ) -> Result<bool, ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if state.pending_failure != Some(phase) {
+            return Ok(false);
+        }
+        state.pending_failure = None;
+        Ok(true)
     }
 
     fn preparation_barrier(
@@ -745,6 +811,22 @@ impl ComputeConvergence {
         self.events.drain()
     }
 
+    pub(crate) fn apply_controlled_request_at_frame_boundary(
+        &mut self,
+    ) -> Result<(), ComputeConvergenceError> {
+        let Some(control) = self.control.as_ref() else {
+            return Ok(());
+        };
+        let outcome = control.take_pending_outcome()?;
+        let retry_requested = control.take_retry_request()?;
+        if let Some(outcome) = outcome {
+            self.accept(outcome)?;
+        } else if retry_requested {
+            self.request_retry()?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn retain_ready_candidate(&mut self) {
         self.poll_preparation();
         self.reject_stale_hidden();
@@ -827,6 +909,25 @@ impl ComputeConvergence {
         }
     }
 
+    pub(crate) fn fail_hidden_if_injected(
+        &mut self,
+        phase: ComputeConvergenceFailurePhase,
+    ) -> Result<bool, ComputeConvergenceError> {
+        let Some(control) = self.control.as_ref() else {
+            return Ok(false);
+        };
+        if !control.take_injected_failure(phase)? {
+            return Ok(false);
+        }
+        let source = match phase {
+            ComputeConvergenceFailurePhase::Preparation => "injected preparation failure",
+            ComputeConvergenceFailurePhase::Upload => "injected upload failure",
+            ComputeConvergenceFailurePhase::Installation => "injected installation failure",
+        };
+        self.fail_hidden(phase, source.to_owned());
+        Ok(true)
+    }
+
     pub(crate) fn shutdown(&mut self) -> Result<(), String> {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
@@ -873,8 +974,13 @@ impl ComputeConvergence {
                 .map(|active| (active.generation, active.target.clone()));
             drop(prior);
             let preparation_barrier = self.preparation_barrier()?;
-            let preparation =
-                Self::start_preparation(generation, target, &mut self.events, preparation_barrier);
+            let preparation = Self::start_preparation(
+                generation,
+                target,
+                &mut self.events,
+                self.control.clone(),
+                preparation_barrier,
+            );
             match preparation {
                 Ok(preparation) => {
                     if let Some(stamp) = prior_stamp {
@@ -904,8 +1010,13 @@ impl ComputeConvergence {
             return Ok(());
         }
         let preparation_barrier = self.preparation_barrier()?;
-        let preparation =
-            Self::start_preparation(generation, target, &mut self.events, preparation_barrier)?;
+        let preparation = Self::start_preparation(
+            generation,
+            target,
+            &mut self.events,
+            self.control.clone(),
+            preparation_barrier,
+        )?;
         self.pending = None;
         self.paused = None;
         self.active = Some(preparation);
@@ -916,6 +1027,7 @@ impl ComputeConvergence {
         generation: ComputeConvergenceGeneration,
         target: ComputePreparationTarget,
         events: &mut ComputeConvergenceEvents,
+        control: Option<ComputeConvergenceController>,
         preparation_barrier: Option<Arc<ComputePreparationBarrierShared>>,
     ) -> Result<ComputeActivePreparation, ComputeConvergenceError> {
         let stamp = target.stamp(generation);
@@ -928,20 +1040,32 @@ impl ComputeConvergence {
                 let cancellation = Arc::clone(&cancellation);
                 let preparation_barrier = preparation_barrier.clone();
                 move || {
-                    let mut result = ComputeSceneBundle::from_view_with_block_completion(
-                        &view,
-                        || cancellation.load(Ordering::Acquire),
-                        || {
-                            preparation_barrier
-                                .as_ref()
-                                .map(|barrier| {
-                                    barrier.complete_block_and_wait(view.revision()).map_err(|_| {
-                                        ComputeSceneBuildError::PreparationBarrier
+                    let injected_failure = control
+                        .as_ref()
+                        .map(|control| {
+                            control.take_injected_failure(
+                                ComputeConvergenceFailurePhase::Preparation,
+                            )
+                        })
+                        .transpose();
+                    let mut result = match injected_failure {
+                        Ok(Some(true)) => Err(ComputeSceneBuildError::InjectedPreparationFailure),
+                        Ok(_) => ComputeSceneBundle::from_view_with_block_completion(
+                            &view,
+                            || cancellation.load(Ordering::Acquire),
+                            || {
+                                preparation_barrier
+                                    .as_ref()
+                                    .map(|barrier| {
+                                        barrier.complete_block_and_wait(view.revision()).map_err(
+                                            |_| ComputeSceneBuildError::PreparationBarrier,
+                                        )
                                     })
-                                })
-                                .unwrap_or(Ok(()))
-                        },
-                    );
+                                    .unwrap_or(Ok(()))
+                            },
+                        ),
+                        Err(_) => Err(ComputeSceneBuildError::PreparationControl),
+                    };
                     if let Some(barrier) = &preparation_barrier {
                         let cancelled = matches!(result, Err(ComputeSceneBuildError::Cancelled));
                         if barrier.finish(view.revision(), cancelled).is_err() {
@@ -1100,6 +1224,7 @@ impl ComputeConvergence {
             generation,
             target.clone(),
             &mut self.events,
+            self.control.clone(),
             preparation_barrier,
         ) {
             Ok(preparation) => self.active = Some(preparation),
@@ -1241,6 +1366,27 @@ mod tests {
             thread::yield_now();
         }
         Err(format!("revision {revision} did not become ready").into())
+    }
+
+    fn drain_until_failure(
+        convergence: &mut ComputeConvergence,
+        phase: ComputeConvergenceFailurePhase,
+    ) -> Result<Vec<ComputeConvergenceEvent>, Box<dyn std::error::Error>> {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut observed = Vec::new();
+        while Instant::now() < deadline {
+            observed.extend(convergence.drain_events());
+            if observed.iter().any(|event| {
+                matches!(
+                    event,
+                    ComputeConvergenceEvent::Failure(failure) if failure.phase() == phase
+                )
+            }) {
+                return Ok(observed);
+            }
+            thread::yield_now();
+        }
+        Err(format!("{phase:?} failure was not observed").into())
     }
 
     #[test]
@@ -1457,6 +1603,7 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let frontend = frontend("retry", 80, VoxelExtent::new(1, 1, 1))?;
         let mut convergence = convergence(&frontend)?;
+        let controller = convergence.enable_control(false);
         assert_eq!(
             convergence.request_retry()?,
             ComputeConvergenceRetry::NoRequiredWork
@@ -1468,10 +1615,22 @@ mod tests {
         };
         drain_until_ready(&mut convergence, VoxelSceneRevision::new(81))?;
         convergence.retain_ready_candidate();
-        convergence.fail_hidden(
-            ComputeConvergenceFailurePhase::Upload,
-            "injected upload failure".to_owned(),
+        controller.inject_next_failure(ComputeConvergenceFailurePhase::Upload)?;
+        assert!(convergence.fail_hidden_if_injected(ComputeConvergenceFailurePhase::Upload)?);
+        let observed =
+            drain_until_failure(&mut convergence, ComputeConvergenceFailurePhase::Upload)?;
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(80)
         );
+        assert!(observed.iter().any(|event| matches!(
+            event,
+            ComputeConvergenceEvent::Failure(failure)
+                if failure.failed() == first
+                    && failure.required_revision() == VoxelSceneRevision::new(81)
+                    && failure.visible_revision() == VoxelSceneRevision::new(80)
+                    && failure.source().contains("injected upload failure")
+        )));
         assert_eq!(
             convergence
                 .status()
@@ -1480,10 +1639,12 @@ mod tests {
             Some(first.generation())
         );
 
-        let ComputeConvergenceRetry::Requested { stamp: retry } = convergence.request_retry()?
-        else {
-            return Err("retry was not requested".into());
-        };
+        controller.request_retry()?;
+        convergence.apply_controlled_request_at_frame_boundary()?;
+        let retry = convergence
+            .status()
+            .preparing()
+            .ok_or("retry did not start at the frame boundary")?;
         assert_eq!(retry.revision(), first.revision());
         assert!(retry.generation().value() > first.generation().value());
         drain_until_ready(&mut convergence, VoxelSceneRevision::new(81))?;
@@ -1501,6 +1662,162 @@ mod tests {
             retry.generation()
         );
         assert_eq!(convergence.status().cleanup_debt(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn preparation_failure_preserves_visible_state_and_retries_the_same_revision()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("preparation-failure", 100, VoxelExtent::new(1, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        let controller = convergence.enable_control(false);
+        controller.inject_next_failure(ComputeConvergenceFailurePhase::Preparation)?;
+        let ComputeConvergenceAcceptance::Accepted { stamp: failed } =
+            convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?
+        else {
+            return Err("changed outcome was not accepted".into());
+        };
+
+        let observed = drain_until_failure(
+            &mut convergence,
+            ComputeConvergenceFailurePhase::Preparation,
+        )?;
+
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(100)
+        );
+        assert_eq!(convergence.status().paused(), Some(failed));
+        assert!(observed.iter().any(|event| matches!(
+            event,
+            ComputeConvergenceEvent::Failure(failure)
+                if failure.failed() == failed
+                    && failure.required_revision() == VoxelSceneRevision::new(101)
+                    && failure.visible_revision() == VoxelSceneRevision::new(100)
+                    && failure.source().contains("injected preparation failure")
+        )));
+
+        controller.request_retry()?;
+        convergence.apply_controlled_request_at_frame_boundary()?;
+        let retry = convergence
+            .status()
+            .preparing()
+            .ok_or("retry did not start at the frame boundary")?;
+        assert_eq!(retry.revision(), failed.revision());
+        assert!(retry.generation().value() > failed.generation().value());
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(101))?;
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        convergence
+            .install_hidden(VoxelSceneRevision::new(100))?
+            .ok_or("retried preparation did not install")?;
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(101)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn pre_swap_installation_failure_preserves_visible_state_and_retries_the_same_revision()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("installation-failure", 110, VoxelExtent::new(1, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        let controller = convergence.enable_control(false);
+        let ComputeConvergenceAcceptance::Accepted { stamp: failed } =
+            convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?
+        else {
+            return Err("changed outcome was not accepted".into());
+        };
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(111))?;
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        controller.inject_next_failure(ComputeConvergenceFailurePhase::Installation)?;
+
+        assert!(convergence.fail_hidden_if_injected(ComputeConvergenceFailurePhase::Installation)?);
+        let observed = drain_until_failure(
+            &mut convergence,
+            ComputeConvergenceFailurePhase::Installation,
+        )?;
+
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(110)
+        );
+        assert_eq!(convergence.status().paused(), Some(failed));
+        assert!(observed.iter().any(|event| matches!(
+            event,
+            ComputeConvergenceEvent::Failure(failure)
+                if failure.failed() == failed
+                    && failure.required_revision() == VoxelSceneRevision::new(111)
+                    && failure.visible_revision() == VoxelSceneRevision::new(110)
+                    && failure.source().contains("injected installation failure")
+        )));
+
+        controller.request_retry()?;
+        convergence.apply_controlled_request_at_frame_boundary()?;
+        let retry = convergence
+            .status()
+            .preparing()
+            .ok_or("retry did not start at the frame boundary")?;
+        assert_eq!(retry.revision(), failed.revision());
+        assert!(retry.generation().value() > failed.generation().value());
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(111))?;
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        convergence
+            .install_hidden(VoxelSceneRevision::new(110))?
+            .ok_or("retried installation did not install")?;
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(111)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn newer_work_supersedes_a_paused_failure() -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("paused-supersession", 120, VoxelExtent::new(2, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        let controller = convergence.enable_control(false);
+        let ComputeConvergenceAcceptance::Accepted { stamp: failed } =
+            convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?
+        else {
+            return Err("first changed outcome was not accepted".into());
+        };
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(121))?;
+        convergence.retain_ready_candidate();
+        controller.inject_next_failure(ComputeConvergenceFailurePhase::Upload)?;
+        assert!(convergence.fail_hidden_if_injected(ComputeConvergenceFailurePhase::Upload)?);
+        assert_eq!(convergence.status().paused(), Some(failed));
+
+        let ComputeConvergenceAcceptance::Accepted { stamp: newer } =
+            convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(1, 0, 0))?)?
+        else {
+            return Err("newer changed outcome was not accepted".into());
+        };
+
+        assert_eq!(convergence.status().paused(), None);
+        let mut observed = drain_until_ready(&mut convergence, VoxelSceneRevision::new(122))?;
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        convergence
+            .install_hidden(VoxelSceneRevision::new(120))?
+            .ok_or("newer candidate was not installed")?;
+        observed.extend(convergence.drain_events());
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(122)
+        );
+        let installed = observed
+            .iter()
+            .filter_map(|event| match event {
+                ComputeConvergenceEvent::CandidateInstalled { stamp } => Some(*stamp),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(installed, vec![newer]);
+        assert!(!installed.contains(&failed));
         Ok(())
     }
 

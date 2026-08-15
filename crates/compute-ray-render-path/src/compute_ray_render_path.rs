@@ -577,6 +577,8 @@ enum ComputeRenderPathError {
     MissingFramebuffer,
     #[error("the compute convergence hidden candidate is unavailable")]
     MissingHiddenCandidate,
+    #[error("injected compute convergence {0:?} failure")]
+    InjectedConvergenceFailure(ComputeConvergenceFailurePhase),
 }
 
 pub struct ComputeRayRenderPathAdapter {
@@ -1508,21 +1510,32 @@ impl ComputeRayRenderPath {
             .hidden_scene_gpu_resources
             .as_ref()
             .map(|candidate| candidate.stamp);
-        if retained_gpu_stamp.is_some()
-            && retained_gpu_stamp != hidden_stamp
-            && let Some(candidate) = self.hidden_scene_gpu_resources.take()
-        {
-            if let Some(control) = &self.convergence_control {
-                control.clear_post_upload_revision(candidate.stamp.revision())?;
-            }
-            release_scene_gpu_resources(device, candidate.resources);
+        if retained_gpu_stamp.is_some() && retained_gpu_stamp != hidden_stamp {
+            self.release_hidden_scene_gpu_resources_with(|resources| {
+                release_scene_gpu_resources(device, resources);
+            })?;
         }
-        let Some(candidate_bundle) = self.convergence.hidden_bundle() else {
+        let Some(candidate_revision) = self
+            .convergence
+            .hidden_bundle()
+            .map(ComputeSceneBundle::revision)
+        else {
             return Ok(());
         };
-        let candidate_revision = candidate_bundle.revision();
         let candidate_stamp = hidden_stamp.ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
         if self.hidden_scene_gpu_resources.is_none() {
+            if self
+                .convergence
+                .fail_hidden_if_injected(ComputeConvergenceFailurePhase::Upload)?
+            {
+                return Err(ComputeRenderPathError::InjectedConvergenceFailure(
+                    ComputeConvergenceFailurePhase::Upload,
+                ));
+            }
+            let candidate_bundle = self
+                .convergence
+                .hidden_bundle()
+                .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
             let candidate_range = match scene_storage_byte_size(device, candidate_bundle) {
                 Ok(range) => range,
                 Err(error) => {
@@ -1551,18 +1564,29 @@ impl ComputeRayRenderPath {
         {
             return Ok(());
         }
+        if self
+            .convergence
+            .fail_hidden_if_injected(ComputeConvergenceFailurePhase::Installation)?
+        {
+            self.release_hidden_scene_gpu_resources_with(|resources| {
+                release_scene_gpu_resources(device, resources);
+            })?;
+            return Err(ComputeRenderPathError::InjectedConvergenceFailure(
+                ComputeConvergenceFailurePhase::Installation,
+            ));
+        }
         let retired_bundle = match self.convergence.install_hidden(self.scene_gpu_revision) {
             Ok(Some(bundle)) => bundle,
             Ok(None) => {
-                if let Some(candidate) = self.hidden_scene_gpu_resources.take() {
-                    release_scene_gpu_resources(device, candidate.resources);
-                }
+                self.release_hidden_scene_gpu_resources_with(|resources| {
+                    release_scene_gpu_resources(device, resources);
+                })?;
                 return Ok(());
             }
             Err(error) => {
-                if let Some(candidate) = self.hidden_scene_gpu_resources.take() {
-                    release_scene_gpu_resources(device, candidate.resources);
-                }
+                self.release_hidden_scene_gpu_resources_with(|resources| {
+                    release_scene_gpu_resources(device, resources);
+                })?;
                 self.convergence.fail_hidden(
                     ComputeConvergenceFailurePhase::Installation,
                     error.to_string(),
@@ -1594,6 +1618,23 @@ impl ComputeRayRenderPath {
         }
         release_scene_gpu_resources(device, retired_resources);
         drop(retired_bundle);
+        Ok(())
+    }
+
+    fn release_hidden_scene_gpu_resources_with(
+        &mut self,
+        mut release: impl FnMut(ComputeSceneGpuResources),
+    ) -> Result<(), ComputeConvergenceControlError> {
+        let Some(candidate) = self.hidden_scene_gpu_resources.take() else {
+            return Ok(());
+        };
+        let control_result = self
+            .convergence_control
+            .as_ref()
+            .map(|control| control.clear_post_upload_revision(candidate.stamp.revision()))
+            .transpose();
+        release(candidate.resources);
+        control_result?;
         Ok(())
     }
 
@@ -1738,15 +1779,8 @@ impl RenderPath for ComputeRayRenderPath {
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
         self.collect_semantic_ray_observations(&device)?;
-        let controlled_outcome = self
-            .convergence_control
-            .as_ref()
-            .map(ComputeConvergenceController::take_pending_outcome)
-            .transpose()?
-            .flatten();
-        if let Some(outcome) = controlled_outcome {
-            self.convergence.accept(outcome)?;
-        }
+        self.convergence
+            .apply_controlled_request_at_frame_boundary()?;
         let convergence_result = self.advance_convergence_at_frame_boundary(&device, target);
         let control_result = self.convergence_control.as_ref().map(|control| {
             control.synchronize(self.convergence.status(), self.convergence.drain_events())
@@ -2135,6 +2169,55 @@ fn create_shader_module(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hidden_gpu_candidate_release_clears_control_and_owned_resources()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use voxel_frontend::{DenseVoxelScene, VoxelFrontend, VoxelSceneId};
+
+        let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+            VoxelSceneId::new("hidden-release"),
+            VoxelSceneRevision::new(1),
+            Vec::new(),
+            Vec::new(),
+        ))?;
+        let bundle = ComputeSceneBundle::from_view(&view)?;
+        let mut render_path = ComputeRayRenderPath::new(
+            bundle,
+            CameraState::new(
+                [2.0, 2.0, 2.0],
+                [0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                50.0,
+                0.1,
+                100.0,
+            ),
+        );
+        let controller = render_path.convergence.enable_control(true);
+        render_path.convergence_control = Some(controller.clone());
+        let installed = render_path.convergence.status().installed();
+        render_path.hidden_scene_gpu_resources = Some(ComputeHiddenSceneGpuResources {
+            stamp: installed,
+            resources: ComputeSceneGpuResources {
+                buffer: vk::Buffer::null(),
+                memory: vk::DeviceMemory::null(),
+            },
+            range: 0,
+        });
+        assert!(controller.hold_post_upload(installed.revision())?);
+        let mut release_count = 0;
+
+        render_path.release_hidden_scene_gpu_resources_with(|resources| {
+            assert_eq!(resources.buffer, vk::Buffer::null());
+            assert_eq!(resources.memory, vk::DeviceMemory::null());
+            release_count += 1;
+        })?;
+
+        assert_eq!(release_count, 1);
+        assert!(render_path.hidden_scene_gpu_resources.is_none());
+        assert_eq!(controller.post_upload_revision()?, None);
+        Ok(())
+    }
 
     #[test]
     fn first_dispatch_discards_undefined_contents_before_compute_writes() {

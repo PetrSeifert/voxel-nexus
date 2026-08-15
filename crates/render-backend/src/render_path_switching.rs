@@ -156,6 +156,17 @@ pub enum RenderPathSwitchEvent {
         presenting: RenderPathStrategy,
         replacement: RenderPathStrategy,
     },
+    ReplacementFailed {
+        replacement: RenderPathStrategy,
+        message: String,
+    },
+    ReplacementCleaned {
+        replacement: RenderPathStrategy,
+    },
+    ReplacementCleanupFailed {
+        replacement: RenderPathStrategy,
+        message: String,
+    },
     Rejected {
         presenting: RenderPathStrategy,
         reason: RenderPathSwitchRequestError,
@@ -266,9 +277,18 @@ pub struct RenderPathSwitchOwner {
     presenting: Box<dyn SwitchableRenderPath>,
     replacement: Option<Box<dyn SwitchableRenderPath>>,
     replacement_needs_configuration: bool,
+    replacement_cleanup_pending: bool,
     retiring: Option<Box<dyn SwitchableRenderPath>>,
     handoff_control: RenderPathHandoffControl,
     events: Vec<RenderPathSwitchEvent>,
+}
+
+#[derive(Debug, Error)]
+#[error("Replacement Render Path failed: {failure}; replacement cleanup failed: {cleanup}")]
+struct RenderPathReplacementCleanupError {
+    #[source]
+    failure: Box<dyn std::error::Error + Send + Sync>,
+    cleanup: Box<dyn std::error::Error + Send + Sync>,
 }
 
 impl RenderPathSwitchOwner {
@@ -277,6 +297,7 @@ impl RenderPathSwitchOwner {
             presenting,
             replacement: None,
             replacement_needs_configuration: false,
+            replacement_cleanup_pending: false,
             retiring: None,
             handoff_control: RenderPathHandoffControl {
                 held: Arc::new(AtomicBool::new(false)),
@@ -322,6 +343,7 @@ impl RenderPathSwitchOwner {
         });
         self.replacement = Some(replacement);
         self.replacement_needs_configuration = true;
+        self.replacement_cleanup_pending = false;
         Ok(())
     }
 
@@ -398,12 +420,82 @@ impl RenderPathSwitchOwner {
             return;
         };
         self.replacement_needs_configuration = false;
+        self.replacement_cleanup_pending = false;
         let retiring = std::mem::replace(&mut self.presenting, replacement);
         self.events.push(RenderPathSwitchEvent::HandedOff {
             presenting: self.presenting.stamp().strategy(),
             retiring: retiring.stamp().strategy(),
         });
         self.retiring = Some(retiring);
+    }
+
+    fn record_replacement_failure(&mut self, failure: &(dyn std::error::Error + Send + Sync)) {
+        let Some(replacement) = self.replacement.as_ref() else {
+            return;
+        };
+        self.events.push(RenderPathSwitchEvent::ReplacementFailed {
+            replacement: replacement.stamp().strategy(),
+            message: failure.to_string(),
+        });
+        self.replacement_cleanup_pending = true;
+    }
+
+    fn clean_pending_replacement(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+    ) -> RenderPathResult<()> {
+        let Some(mut replacement) = self.replacement.take() else {
+            self.replacement_cleanup_pending = false;
+            return Ok(());
+        };
+        let replacement_strategy = replacement.stamp().strategy();
+        self.replacement_needs_configuration = false;
+        match replacement.shutdown(device) {
+            Ok(()) => {
+                self.replacement_cleanup_pending = false;
+                self.events.push(RenderPathSwitchEvent::ReplacementCleaned {
+                    replacement: replacement_strategy,
+                });
+                Ok(())
+            }
+            Err(cleanup) => {
+                let cleanup_message = cleanup.to_string();
+                self.events
+                    .push(RenderPathSwitchEvent::ReplacementCleanupFailed {
+                        replacement: replacement_strategy,
+                        message: cleanup_message.clone(),
+                    });
+                self.replacement = Some(replacement);
+                Err(cleanup)
+            }
+        }
+    }
+
+    fn fail_and_clean_replacement(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+        failure: Box<dyn std::error::Error + Send + Sync>,
+    ) -> Box<dyn std::error::Error + Send + Sync> {
+        self.record_replacement_failure(failure.as_ref());
+        match self.clean_pending_replacement(device) {
+            Ok(()) => failure,
+            Err(cleanup) => Box::new(RenderPathReplacementCleanupError { failure, cleanup }),
+        }
+    }
+
+    fn configure_replacement(
+        &mut self,
+        device: RenderPathDeviceContext<'_>,
+        target: RenderPathTarget<'_>,
+    ) -> RenderPathResult<()> {
+        let Some(replacement) = self.replacement.as_mut() else {
+            return Ok(());
+        };
+        if let Err(error) = replacement.configure(device, target) {
+            return Err(self.fail_and_clean_replacement(device, error));
+        }
+        self.replacement_needs_configuration = false;
+        Ok(())
     }
 }
 
@@ -415,8 +507,13 @@ impl RenderPath for RenderPathSwitchOwner {
     ) -> RenderPathResult<()> {
         self.presenting
             .publish_camera_state(camera_state, camera_state_revision)?;
-        if let Some(replacement) = self.replacement.as_mut() {
-            replacement.publish_camera_state(camera_state, camera_state_revision)?;
+        if !self.replacement_cleanup_pending
+            && let Some(replacement) = self.replacement.as_mut()
+            && let Err(error) =
+                replacement.publish_camera_state(camera_state, camera_state_revision)
+        {
+            self.record_replacement_failure(error.as_ref());
+            return Err(error);
         }
         Ok(())
     }
@@ -434,8 +531,12 @@ impl RenderPath for RenderPathSwitchOwner {
 
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         self.presenting.release(device)?;
-        if let Some(replacement) = self.replacement.as_mut() {
-            replacement.release(device)?;
+        if self.replacement_cleanup_pending {
+            self.clean_pending_replacement(device)?;
+        } else if let Some(replacement) = self.replacement.as_mut() {
+            if let Err(error) = replacement.release(device) {
+                return Err(self.fail_and_clean_replacement(device, error));
+            }
             self.replacement_needs_configuration = true;
         }
         if let Some(retiring) = self.retiring.as_mut() {
@@ -450,9 +551,10 @@ impl RenderPath for RenderPathSwitchOwner {
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
         self.presenting.configure(device, target)?;
-        if let Some(replacement) = self.replacement.as_mut() {
-            replacement.configure(device, target)?;
-            self.replacement_needs_configuration = false;
+        if self.replacement_cleanup_pending {
+            self.clean_pending_replacement(device)?;
+        } else {
+            self.configure_replacement(device, target)?;
         }
         if let Some(retiring) = self.retiring.as_mut() {
             retiring.configure(device, target)?;
@@ -466,12 +568,19 @@ impl RenderPath for RenderPathSwitchOwner {
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
         self.presenting.advance_frame_boundary(device, target)?;
-        if let Some(replacement) = self.replacement.as_mut() {
+        if self.replacement_cleanup_pending {
+            self.clean_pending_replacement(device)?;
+        } else if self.replacement.is_some() {
             if self.replacement_needs_configuration {
-                replacement.configure(device, target)?;
-                self.replacement_needs_configuration = false;
+                self.configure_replacement(device, target)?;
             }
-            replacement.advance_frame_boundary(device, target)?;
+            let replacement_result = self
+                .replacement
+                .as_mut()
+                .map(|replacement| replacement.advance_frame_boundary(device, target));
+            if let Some(Err(error)) = replacement_result {
+                return Err(self.fail_and_clean_replacement(device, error));
+            }
         }
         if let Some(retiring) = self.retiring.as_mut() {
             let retiring_strategy = retiring.stamp().strategy();
@@ -525,14 +634,24 @@ mod tests {
     use std::ptr;
     use std::sync::atomic::AtomicUsize;
 
+    #[derive(Clone, Copy)]
+    enum ProofFailurePoint {
+        Publication,
+        Release,
+        Configure,
+        AdvanceFrameBoundary,
+    }
+
     struct ProofRenderPath {
         stamp: RenderPathStamp,
         pending_camera_state_revision: Option<CameraStateRevision>,
         configuration_tracks_target: bool,
         become_recordable: Option<Arc<AtomicBool>>,
+        failure_point: Option<ProofFailurePoint>,
         retirement_fails: bool,
         configure_count: Option<Arc<AtomicUsize>>,
         record_count: Option<Arc<AtomicUsize>>,
+        shutdown_count: Option<Arc<AtomicUsize>>,
     }
 
     impl RenderPath for ProofRenderPath {
@@ -541,11 +660,17 @@ mod tests {
             _camera_state: CameraState,
             camera_state_revision: CameraStateRevision,
         ) -> RenderPathResult<()> {
+            if matches!(self.failure_point, Some(ProofFailurePoint::Publication)) {
+                return Err(std::io::Error::other("proof replacement failure").into());
+            }
             self.pending_camera_state_revision = Some(camera_state_revision);
             Ok(())
         }
 
         fn release(&mut self, _device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+            if matches!(self.failure_point, Some(ProofFailurePoint::Release)) {
+                return Err(std::io::Error::other("proof replacement failure").into());
+            }
             if self.configuration_tracks_target {
                 self.stamp.presentation_configuration = None;
             }
@@ -557,6 +682,9 @@ mod tests {
             _device: RenderPathDeviceContext<'_>,
             target: RenderPathTarget<'_>,
         ) -> RenderPathResult<()> {
+            if matches!(self.failure_point, Some(ProofFailurePoint::Configure)) {
+                return Err(std::io::Error::other("proof replacement failure").into());
+            }
             if self.configuration_tracks_target {
                 self.stamp.presentation_configuration = Some(target.configuration_id());
             }
@@ -571,6 +699,12 @@ mod tests {
             _device: RenderPathDeviceContext<'_>,
             _target: RenderPathTarget<'_>,
         ) -> RenderPathResult<()> {
+            if matches!(
+                self.failure_point,
+                Some(ProofFailurePoint::AdvanceFrameBoundary)
+            ) {
+                return Err(std::io::Error::other("proof replacement failure").into());
+            }
             if let Some(camera_state_revision) = self.pending_camera_state_revision.take() {
                 self.stamp.camera_state_revision = camera_state_revision;
             }
@@ -580,6 +714,13 @@ mod tests {
                 .is_some_and(|signal| signal.load(Ordering::SeqCst))
             {
                 self.stamp.readiness = RenderPathReadiness::Recordable;
+            }
+            Ok(())
+        }
+
+        fn shutdown(&mut self, _device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+            if let Some(shutdown_count) = self.shutdown_count.as_ref() {
+                shutdown_count.fetch_add(1, Ordering::SeqCst);
             }
             Ok(())
         }
@@ -631,10 +772,33 @@ mod tests {
             pending_camera_state_revision: None,
             configuration_tracks_target: false,
             become_recordable: None,
+            failure_point: None,
             retirement_fails: false,
             configure_count: None,
             record_count: None,
+            shutdown_count: None,
         })
+    }
+
+    fn failing_path(
+        stamp: RenderPathStamp,
+        failure_point: ProofFailurePoint,
+    ) -> (Box<dyn SwitchableRenderPath>, Arc<AtomicUsize>) {
+        let shutdown_count = Arc::new(AtomicUsize::new(0));
+        (
+            Box::new(ProofRenderPath {
+                stamp,
+                pending_camera_state_revision: None,
+                configuration_tracks_target: false,
+                become_recordable: None,
+                failure_point: Some(failure_point),
+                retirement_fails: false,
+                configure_count: None,
+                record_count: None,
+                shutdown_count: Some(Arc::clone(&shutdown_count)),
+            }),
+            shutdown_count,
+        )
     }
 
     fn retirement_failing_path(stamp: RenderPathStamp) -> Box<dyn SwitchableRenderPath> {
@@ -643,9 +807,11 @@ mod tests {
             pending_camera_state_revision: None,
             configuration_tracks_target: false,
             become_recordable: None,
+            failure_point: None,
             retirement_fails: true,
             configure_count: None,
             record_count: None,
+            shutdown_count: None,
         })
     }
 
@@ -665,9 +831,11 @@ mod tests {
                 pending_camera_state_revision: None,
                 configuration_tracks_target: false,
                 become_recordable: Some(Arc::clone(&become_recordable)),
+                failure_point: None,
                 retirement_fails: false,
                 configure_count: Some(Arc::clone(&configure_count)),
                 record_count: None,
+                shutdown_count: None,
             }),
             become_recordable,
             configure_count,
@@ -693,9 +861,11 @@ mod tests {
                 pending_camera_state_revision: None,
                 configuration_tracks_target: false,
                 become_recordable: starts_preparing.then(|| Arc::clone(&become_recordable)),
+                failure_point: None,
                 retirement_fails: false,
                 configure_count: None,
                 record_count: Some(Arc::clone(&record_count)),
+                shutdown_count: None,
             }),
             become_recordable,
             record_count,
@@ -717,9 +887,11 @@ mod tests {
                 pending_camera_state_revision: None,
                 configuration_tracks_target: true,
                 become_recordable: None,
+                failure_point: None,
                 retirement_fails: false,
                 configure_count: Some(Arc::clone(&configure_count)),
                 record_count: Some(Arc::clone(&record_count)),
+                shutdown_count: None,
             }),
             configure_count,
             record_count,
@@ -1087,6 +1259,72 @@ mod tests {
     }
 
     #[test]
+    fn failed_replacement_is_cleaned_before_a_fresh_cold_switch() -> RenderPathResult<()> {
+        let device = proof_device();
+        for failure_point in [
+            ProofFailurePoint::Publication,
+            ProofFailurePoint::Release,
+            ProofFailurePoint::Configure,
+            ProofFailurePoint::AdvanceFrameBoundary,
+        ] {
+            let mut owner =
+                RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 1, 1)));
+            let (failed_replacement, shutdown_count) =
+                failing_path(stamp(RenderPathStrategy::ComputeRay, 1, 1), failure_point);
+            owner.request_switch(failed_replacement)?;
+
+            let failure = match failure_point {
+                ProofFailurePoint::Publication => {
+                    owner.publish_camera_state(changed_camera_state(), CameraStateRevision::new(2))
+                }
+                ProofFailurePoint::Release => owner.release(proof_device_context(&device)),
+                ProofFailurePoint::Configure => {
+                    owner.configure(proof_device_context(&device), proof_target(1, 800, 600))
+                }
+                ProofFailurePoint::AdvanceFrameBoundary => advance_owner(&mut owner, &device),
+            };
+            let Err(error) = failure else {
+                return Err("the injected replacement failure did not reach the caller".into());
+            };
+            assert_eq!(error.to_string(), "proof replacement failure");
+            if matches!(failure_point, ProofFailurePoint::Publication) {
+                assert_eq!(shutdown_count.load(Ordering::SeqCst), 0);
+                assert_eq!(
+                    owner.role_status().replacement(),
+                    Some(RenderPathStrategy::ComputeRay)
+                );
+                advance_owner(&mut owner, &device)?;
+            }
+
+            assert_eq!(shutdown_count.load(Ordering::SeqCst), 1);
+            assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
+            assert_eq!(owner.role_status().replacement(), None);
+            assert_eq!(owner.role_status().retiring(), None);
+            assert!(owner.events().ends_with(&[
+                RenderPathSwitchEvent::ReplacementFailed {
+                    replacement: RenderPathStrategy::ComputeRay,
+                    message: "proof replacement failure".to_owned(),
+                },
+                RenderPathSwitchEvent::ReplacementCleaned {
+                    replacement: RenderPathStrategy::ComputeRay,
+                },
+            ]));
+
+            let mut fresh_stamp = stamp(RenderPathStrategy::ComputeRay, 1, 1);
+            if matches!(failure_point, ProofFailurePoint::Publication) {
+                fresh_stamp.camera_state_revision = CameraStateRevision::new(2);
+            }
+            owner.request_switch(proof_path(fresh_stamp))?;
+            advance_owner(&mut owner, &device)?;
+            assert_eq!(
+                owner.role_status().presenting(),
+                RenderPathStrategy::ComputeRay
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn post_handoff_retirement_failure_retains_the_new_presenting_path_without_rollback()
     -> RenderPathResult<()> {
         let mut owner = RenderPathSwitchOwner::new(retirement_failing_path(stamp(
@@ -1120,6 +1358,23 @@ mod tests {
                 message: "proof retirement failure".to_owned(),
             })
         );
+        let diagnostics = owner.diagnostics();
+        assert_eq!(
+            diagnostics.presenting().strategy(),
+            RenderPathStrategy::ComputeRay
+        );
+        assert_eq!(diagnostics.replacement(), None);
+        assert_eq!(
+            diagnostics.retiring().map(RenderPathStamp::strategy),
+            Some(RenderPathStrategy::Raster)
+        );
+        assert!(diagnostics.events().iter().any(|event| matches!(
+            event,
+            RenderPathSwitchEvent::HandedOff {
+                presenting: RenderPathStrategy::ComputeRay,
+                retiring: RenderPathStrategy::Raster,
+            }
+        )));
         Ok(())
     }
 

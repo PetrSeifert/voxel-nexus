@@ -251,6 +251,10 @@ pub enum ComputeSceneBuildError {
     VoxelFrontend(#[from] VoxelFrontendError),
     #[error("the compute convergence preparation barrier is unavailable")]
     PreparationBarrier,
+    #[error("the compute convergence control state is unavailable during preparation")]
+    PreparationControl,
+    #[error("injected preparation failure")]
+    InjectedPreparationFailure,
 }
 
 fn populate_volume_words(
