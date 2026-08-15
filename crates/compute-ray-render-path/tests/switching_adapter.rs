@@ -1,4 +1,6 @@
-use compute_ray_render_path::{ComputeConvergenceAcceptance, ComputeRayRenderPathAdapter};
+use compute_ray_render_path::{
+    ComputeConvergenceAcceptance, ComputeRayRenderPathAdapter, ComputeTimingPhase,
+};
 use render_backend::{
     CameraState, CameraStateRevision, RenderPath, RenderPathReadiness, RenderPathStrategy,
     SwitchableRenderPath,
@@ -39,6 +41,46 @@ fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
     assert_eq!(stamp.readiness(), RenderPathReadiness::Preparing);
     assert_eq!(adapter.capability_assessment(), None);
     assert_eq!(adapter.camera_state(), camera);
+    Ok(())
+}
+
+#[test]
+fn cold_compute_construction_records_revision_attributed_preparation_time()
+-> Result<(), Box<dyn std::error::Error>> {
+    let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("compute-measurement"),
+        VoxelSceneRevision::new(9),
+        Vec::new(),
+        Vec::new(),
+    ))?;
+    let camera = CameraState::new(
+        [2.0, 2.0, 2.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        50.0,
+        0.1,
+        100.0,
+    );
+
+    let (_adapter, measurement) = ComputeRayRenderPathAdapter::new_with_measurement(
+        view,
+        camera,
+        CameraStateRevision::new(3),
+    )?;
+    let events = measurement.drain()?;
+    let event = events
+        .first()
+        .ok_or_else(|| std::io::Error::other("missing preparation timing event"))?;
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(event.phase(), ComputeTimingPhase::Preparation);
+    assert_eq!(
+        event.scene_identity(),
+        &VoxelSceneId::new("compute-measurement")
+    );
+    assert_eq!(event.revision(), VoxelSceneRevision::new(9));
+    assert!(event.elapsed_milliseconds().is_finite());
+    assert!(event.elapsed_milliseconds() >= 0.0);
     Ok(())
 }
 

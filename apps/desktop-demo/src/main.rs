@@ -9,8 +9,8 @@ use canonical_scene::{
 #[cfg(target_os = "windows")]
 use compute_ray_render_path::{
     ComputeCandidateDisposition, ComputeConvergenceController, ComputeConvergenceEvent,
-    ComputeLifecycleController, ComputeRayRenderPathAdapter, ComputeSemanticRayController,
-    ComputeSemanticRayProbeObservation,
+    ComputeLifecycleController, ComputeMeasurementController, ComputeRayRenderPathAdapter,
+    ComputeSemanticRayController, ComputeSemanticRayProbeObservation,
 };
 #[cfg(target_os = "windows")]
 use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionIdentity};
@@ -1308,6 +1308,7 @@ struct DesktopApplication {
     last_overlay_report: Option<String>,
     edit_burst_started_at: Option<Instant>,
     compute_switch_requested: bool,
+    compute_switch_requested_at: Option<Instant>,
     compute_first_frame_presented: bool,
     compute_switch_complete_reported: bool,
     render_path_handoff_control: Option<RenderPathHandoffControl>,
@@ -1321,6 +1322,7 @@ struct DesktopApplication {
     render_path_control_feedback: String,
     compute_convergence_controller: Option<ComputeConvergenceController>,
     compute_lifecycle_controller: Option<ComputeLifecycleController>,
+    compute_measurement_controller: Option<ComputeMeasurementController>,
     compute_edit_burst_stage: Option<ComputeEditBurstStage>,
     compute_edit_burst_events: Vec<ComputeConvergenceEvent>,
     compute_edit_burst_presented_revisions: Vec<VoxelSceneRevision>,
@@ -1341,6 +1343,7 @@ struct InteractiveRenderPathSwitch {
     revision: VoxelSceneRevision,
     handoff_reported: bool,
     retiring_raster: Option<RasterLifecycleController>,
+    requested_at: Instant,
 }
 
 #[cfg(target_os = "windows")]
@@ -1421,6 +1424,7 @@ impl DesktopApplication {
             last_overlay_report: None,
             edit_burst_started_at: None,
             compute_switch_requested: false,
+            compute_switch_requested_at: None,
             compute_first_frame_presented: false,
             compute_switch_complete_reported: false,
             render_path_handoff_control: None,
@@ -1434,6 +1438,7 @@ impl DesktopApplication {
             render_path_control_feedback: "Tab-waiting-for-convergence".to_owned(),
             compute_convergence_controller: None,
             compute_lifecycle_controller: None,
+            compute_measurement_controller: None,
             compute_edit_burst_stage: None,
             compute_edit_burst_events: Vec::new(),
             compute_edit_burst_presented_revisions: Vec::new(),
@@ -1565,6 +1570,7 @@ impl DesktopApplication {
             None
         };
         let mut compute_burst_setup = None;
+        let switch_requested_at = Instant::now();
 
         match replacement {
             RenderPathStrategy::ComputeRay => {
@@ -1583,14 +1589,17 @@ impl DesktopApplication {
                         Ok::<_, String>(plan)
                     })
                     .transpose()?;
-                let mut replacement_path = ComputeRayRenderPathAdapter::new(
-                    view.clone(),
-                    self.camera_state,
-                    self.camera_state_revision,
-                )
-                .map_err(|error| {
-                    format!("could not cold-build the compute replacement: {error}")
-                })?;
+                self.report_compute_timing_events()?;
+                let (mut replacement_path, measurement_controller) =
+                    ComputeRayRenderPathAdapter::new_with_measurement(
+                        view.clone(),
+                        self.camera_state,
+                        self.camera_state_revision,
+                    )
+                    .map_err(|error| {
+                        format!("could not cold-build the compute replacement: {error}")
+                    })?;
+                self.compute_measurement_controller = Some(measurement_controller);
                 self.compute_lifecycle_controller =
                     Some(replacement_path.enable_lifecycle_control());
                 self.semantic_qualification
@@ -1672,6 +1681,7 @@ impl DesktopApplication {
             revision,
             handoff_reported: false,
             retiring_raster,
+            requested_at: switch_requested_at,
         });
         self.render_path_control_feedback = format!("Tab-accepted-{replacement:?}");
         println!(
@@ -1730,6 +1740,13 @@ impl DesktopApplication {
                 .as_mut()
                 .ok_or_else(|| "the active Render Path switch disappeared".to_owned())?;
             active_switch.handoff_reported = true;
+            println!(
+                "Render Path timing event: phase=Switching source={:?} replacement={:?} revision={} elapsed_ms={:.6}",
+                active_switch.source,
+                active_switch.replacement,
+                presenting.visible_revision(),
+                active_switch.requested_at.elapsed().as_secs_f64() * 1_000.0,
+            );
             println!(
                 "First replacement frame presented: Presenting={:?} Retiring={:?} revision={} CameraStateRevision={:?} PresentationConfiguration={:?}",
                 active_switch.replacement,
@@ -2184,12 +2201,16 @@ impl DesktopApplication {
             view.revision(),
             self.camera_state_revision
         );
-        let mut replacement = ComputeRayRenderPathAdapter::new(
-            view.clone(),
-            self.camera_state,
-            self.camera_state_revision,
-        )
-        .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
+        let switch_requested_at = Instant::now();
+        self.report_compute_timing_events()?;
+        let (mut replacement, measurement_controller) =
+            ComputeRayRenderPathAdapter::new_with_measurement(
+                view.clone(),
+                self.camera_state,
+                self.camera_state_revision,
+            )
+            .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
+        self.compute_measurement_controller = Some(measurement_controller);
         self.compute_lifecycle_controller = Some(replacement.enable_lifecycle_control());
         self.semantic_qualification
             .register_compute(&mut replacement, &view)?;
@@ -2200,10 +2221,61 @@ impl DesktopApplication {
             })?
             .request_render_path_switch(Box::new(replacement))
             .map_err(|error| error.to_string())?;
+        self.compute_switch_requested_at = Some(switch_requested_at);
         self.compute_switch_requested = true;
         println!("Compute replacement requested while raster remains Presenting");
         if self.render_configuration.compute_switch_lifecycle_demo {
             self.set_status("compute-replacement-requested");
+        }
+        Ok(())
+    }
+
+    fn report_compute_timing_events(&self) -> Result<(), String> {
+        let Some(controller) = &self.compute_measurement_controller else {
+            return Ok(());
+        };
+        for event in controller.drain().map_err(|error| error.to_string())? {
+            println!(
+                "Compute timing event: phase={:?} scene={:?} revision={} generation={} elapsed_ms={:.6}",
+                event.phase(),
+                event.scene_identity(),
+                event.revision(),
+                event.generation(),
+                event.elapsed_milliseconds(),
+            );
+        }
+        Ok(())
+    }
+
+    fn report_compute_resource_observations(&self) -> Result<(), String> {
+        let Some(controller) = &self.compute_lifecycle_controller else {
+            return Ok(());
+        };
+        for observation in controller
+            .drain_resource_observations()
+            .map_err(|error| error.to_string())?
+        {
+            let status = observation.status();
+            let resources = observation.resources();
+            println!(
+                "Compute resource observation: sequence={} point={:?} role={:?} scene={:?} installed_revision={} installed_generation={} preparing={:?} pending={:?} paused={:?} hidden={:?} cleanup_debt={:?} bytes={} objects={} allocations={} workers={} views={}",
+                observation.sequence(),
+                observation.point(),
+                observation.role(),
+                observation.scene_identity(),
+                status.installed().revision(),
+                status.installed().generation().value(),
+                status.preparing(),
+                status.pending(),
+                status.paused(),
+                status.hidden(),
+                status.cleanup_debt(),
+                resources.bytes(),
+                resources.objects(),
+                resources.allocations(),
+                resources.workers(),
+                resources.views(),
+            );
         }
         Ok(())
     }
@@ -2263,6 +2335,16 @@ impl DesktopApplication {
                 );
             }
             self.compute_first_frame_presented = true;
+            let switching_milliseconds = self
+                .compute_switch_requested_at
+                .ok_or_else(|| "the compute switch start time is unavailable".to_owned())?
+                .elapsed()
+                .as_secs_f64()
+                * 1_000.0;
+            println!(
+                "Render Path timing event: phase=Switching source=Raster replacement=ComputeRay revision={} elapsed_ms={switching_milliseconds:.6}",
+                compute.visible_revision(),
+            );
             self.set_status("compute-presenting");
             println!(
                 "First compute frame presented after atomic handoff: revision={} CameraStateRevision={:?} PresentationConfiguration={:?}",
@@ -3775,6 +3857,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 {
                     self.record_close_error(error);
                 }
+                if let Err(error) = self.report_compute_timing_events() {
+                    self.record_close_error(error);
+                }
+                if let Err(error) = self.report_compute_resource_observations() {
+                    self.record_close_error(error);
+                }
                 if self
                     .backend
                     .as_ref()
@@ -4010,6 +4098,26 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     return;
                 }
                 let cpu_frame_milliseconds = frame_started_at.elapsed().as_secs_f64() * 1_000.0;
+                if self.render_configuration.compute_switch_demo
+                    && let Some(diagnostics) = self
+                        .backend
+                        .as_ref()
+                        .and_then(RenderBackend::render_path_switch_diagnostics)
+                {
+                    println!(
+                        "Render Path timing event: phase=Presentation render_path={:?} revision={} elapsed_ms={cpu_frame_milliseconds:.6}",
+                        diagnostics.presenting().strategy(),
+                        diagnostics.presenting().visible_revision(),
+                    );
+                }
+                if let Err(error) = self.report_compute_timing_events() {
+                    self.fail(event_loop, error);
+                    return;
+                }
+                if let Err(error) = self.report_compute_resource_observations() {
+                    self.fail(event_loop, error);
+                    return;
+                }
                 if let Some(measurement) = &mut self.measurement
                     && measurement.mode == MeasurementMode::SteadyState
                     && let Some(sequence) = submitted_frame_sequence

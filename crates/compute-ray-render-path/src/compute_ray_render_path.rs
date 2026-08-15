@@ -11,8 +11,11 @@ use semantic_ray_oracle::{
 };
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use thiserror::Error;
-use voxel_frontend::{VoxelCoordinate, VoxelEditOutcome, VoxelSceneRevision, VoxelSceneView};
+use voxel_frontend::{
+    VoxelCoordinate, VoxelEditOutcome, VoxelSceneId, VoxelSceneRevision, VoxelSceneView,
+};
 
 mod compute_convergence;
 mod compute_scene;
@@ -579,6 +582,12 @@ enum ComputeRenderPathError {
     InjectedConvergenceFailure(ComputeConvergenceFailurePhase),
     #[error("compute shutdown failed: {0}")]
     Shutdown(String),
+    #[error(transparent)]
+    Measurement(#[from] ComputeMeasurementControlError),
+    #[error(transparent)]
+    LifecycleControl(#[from] ComputeLifecycleControlError),
+    #[error("compute resource byte accounting overflowed")]
+    ResourceAccountingOverflow,
 }
 
 pub struct ComputeRayRenderPathAdapter {
@@ -587,8 +596,89 @@ pub struct ComputeRayRenderPathAdapter {
     published_camera_state_revision: CameraStateRevision,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComputeTimingPhase {
+    Preparation,
+    Upload,
+    Installation,
+    Dispatch,
+    Composite,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComputeTimingEvent {
+    phase: ComputeTimingPhase,
+    scene_identity: VoxelSceneId,
+    revision: VoxelSceneRevision,
+    generation: u64,
+    elapsed_milliseconds: f64,
+}
+
+impl ComputeTimingEvent {
+    pub fn phase(&self) -> ComputeTimingPhase {
+        self.phase
+    }
+
+    pub fn scene_identity(&self) -> &VoxelSceneId {
+        &self.scene_identity
+    }
+
+    pub fn revision(&self) -> VoxelSceneRevision {
+        self.revision
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn elapsed_milliseconds(&self) -> f64 {
+        self.elapsed_milliseconds
+    }
+}
+
+#[derive(Default)]
+struct ComputeMeasurementState {
+    events: Vec<ComputeTimingEvent>,
+}
+
+#[derive(Clone)]
+pub struct ComputeMeasurementController {
+    state: Arc<Mutex<ComputeMeasurementState>>,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[error("the compute measurement state is unavailable")]
+pub struct ComputeMeasurementControlError;
+
+impl ComputeMeasurementController {
+    fn with_initial_event(event: ComputeTimingEvent) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ComputeMeasurementState {
+                events: vec![event],
+            })),
+        }
+    }
+
+    pub fn drain(&self) -> Result<Vec<ComputeTimingEvent>, ComputeMeasurementControlError> {
+        self.state
+            .lock()
+            .map(|mut state| std::mem::take(&mut state.events))
+            .map_err(|_| ComputeMeasurementControlError)
+    }
+
+    fn record(&self, event: ComputeTimingEvent) -> Result<(), ComputeMeasurementControlError> {
+        self.state
+            .lock()
+            .map_err(|_| ComputeMeasurementControlError)?
+            .events
+            .push(event);
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ComputeOwnedResourceCounts {
+    bytes: u64,
     objects: usize,
     allocations: usize,
     workers: usize,
@@ -596,6 +686,10 @@ pub struct ComputeOwnedResourceCounts {
 }
 
 impl ComputeOwnedResourceCounts {
+    pub fn bytes(self) -> u64 {
+        self.bytes
+    }
+
     pub fn objects(self) -> usize {
         self.objects
     }
@@ -617,9 +711,81 @@ impl ComputeOwnedResourceCounts {
     }
 }
 
-#[derive(Default)]
 struct ComputeLifecycleControlState {
     shutdown_owned_resources: Option<ComputeOwnedResourceCounts>,
+    resource_observations: Vec<ComputeResourceObservation>,
+    next_resource_observation_sequence: u64,
+    role: ComputeResourceRole,
+    last_resource_state: Option<(
+        ComputeResourceRole,
+        VoxelSceneId,
+        ComputeConvergenceStatus,
+        ComputeOwnedResourceCounts,
+    )>,
+}
+
+impl Default for ComputeLifecycleControlState {
+    fn default() -> Self {
+        Self {
+            shutdown_owned_resources: None,
+            resource_observations: Vec::new(),
+            next_resource_observation_sequence: 0,
+            role: ComputeResourceRole::Replacement,
+            last_resource_state: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComputeResourceRole {
+    Presenting,
+    Replacement,
+    Retiring,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ComputeResourceObservationPoint {
+    Configured,
+    Convergence,
+    Released,
+    Presentation,
+    Shutdown,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ComputeResourceObservation {
+    sequence: u64,
+    point: ComputeResourceObservationPoint,
+    role: ComputeResourceRole,
+    scene_identity: VoxelSceneId,
+    status: ComputeConvergenceStatus,
+    resources: ComputeOwnedResourceCounts,
+}
+
+impl ComputeResourceObservation {
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    pub fn point(&self) -> ComputeResourceObservationPoint {
+        self.point
+    }
+
+    pub fn role(&self) -> ComputeResourceRole {
+        self.role
+    }
+
+    pub fn scene_identity(&self) -> &VoxelSceneId {
+        &self.scene_identity
+    }
+
+    pub fn status(&self) -> ComputeConvergenceStatus {
+        self.status
+    }
+
+    pub fn resources(&self) -> ComputeOwnedResourceCounts {
+        self.resources
+    }
 }
 
 #[derive(Clone)]
@@ -647,10 +813,71 @@ impl ComputeLifecycleController {
             .map_err(|_| ComputeLifecycleControlError)
     }
 
+    pub fn drain_resource_observations(
+        &self,
+    ) -> Result<Vec<ComputeResourceObservation>, ComputeLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|mut state| std::mem::take(&mut state.resource_observations))
+            .map_err(|_| ComputeLifecycleControlError)
+    }
+
+    fn record_resources(
+        &self,
+        point: ComputeResourceObservationPoint,
+        scene_identity: VoxelSceneId,
+        status: ComputeConvergenceStatus,
+        resources: ComputeOwnedResourceCounts,
+    ) -> Result<(), ComputeLifecycleControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeLifecycleControlError)?;
+        let role = state.role;
+        let resource_state = (role, scene_identity.clone(), status, resources);
+        if point != ComputeResourceObservationPoint::Shutdown
+            && state.last_resource_state.as_ref() == Some(&resource_state)
+        {
+            return Ok(());
+        }
+        state.last_resource_state = Some(resource_state);
+        let sequence = state.next_resource_observation_sequence;
+        state.next_resource_observation_sequence = sequence
+            .checked_add(1)
+            .ok_or(ComputeLifecycleControlError)?;
+        state
+            .resource_observations
+            .push(ComputeResourceObservation {
+                sequence,
+                point,
+                role,
+                scene_identity,
+                status,
+                resources,
+            });
+        Ok(())
+    }
+
+    fn set_role(&self, role: ComputeResourceRole) -> Result<(), ComputeLifecycleControlError> {
+        self.state
+            .lock()
+            .map_err(|_| ComputeLifecycleControlError)?
+            .role = role;
+        Ok(())
+    }
+
     fn record_shutdown(
         &self,
+        scene_identity: VoxelSceneId,
+        status: ComputeConvergenceStatus,
         owned_resources: ComputeOwnedResourceCounts,
     ) -> Result<(), ComputeLifecycleControlError> {
+        self.record_resources(
+            ComputeResourceObservationPoint::Shutdown,
+            scene_identity,
+            status,
+            owned_resources,
+        )?;
         self.state
             .lock()
             .map_err(|_| ComputeLifecycleControlError)?
@@ -667,10 +894,38 @@ impl ComputeRayRenderPathAdapter {
     ) -> Result<Self, ComputeSceneBuildError> {
         let scene_bundle = ComputeSceneBundle::from_view(&view)?;
         Ok(Self {
-            render_path: ComputeRayRenderPath::new(scene_bundle, camera_state),
+            render_path: ComputeRayRenderPath::new(scene_bundle, camera_state, None),
             camera_state_revision,
             published_camera_state_revision: camera_state_revision,
         })
+    }
+
+    pub fn new_with_measurement(
+        view: VoxelSceneView,
+        camera_state: CameraState,
+        camera_state_revision: CameraStateRevision,
+    ) -> Result<(Self, ComputeMeasurementController), ComputeSceneBuildError> {
+        let started_at = Instant::now();
+        let scene_bundle = ComputeSceneBundle::from_view(&view)?;
+        let measurement = ComputeMeasurementController::with_initial_event(ComputeTimingEvent {
+            phase: ComputeTimingPhase::Preparation,
+            scene_identity: scene_bundle.scene_identity().clone(),
+            revision: scene_bundle.revision(),
+            generation: 0,
+            elapsed_milliseconds: started_at.elapsed().as_secs_f64() * 1_000.0,
+        });
+        Ok((
+            Self {
+                render_path: ComputeRayRenderPath::new(
+                    scene_bundle,
+                    camera_state,
+                    Some(measurement.clone()),
+                ),
+                camera_state_revision,
+                published_camera_state_revision: camera_state_revision,
+            },
+            measurement,
+        ))
     }
 
     pub fn capability_assessment(&self) -> Option<&ComputeCapabilityAssessment> {
@@ -774,7 +1029,13 @@ impl RenderPath for ComputeRayRenderPathAdapter {
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
-        self.render_path.record(frame)
+        if let Some(controller) = &self.render_path.lifecycle_controller {
+            controller.set_role(ComputeResourceRole::Presenting)?;
+        }
+        self.render_path.record(frame)?;
+        self.render_path
+            .record_resource_observation(ComputeResourceObservationPoint::Presentation)?;
+        Ok(())
     }
 }
 
@@ -804,6 +1065,9 @@ impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
         &mut self,
         device: RenderPathDeviceContext<'_>,
     ) -> RenderPathResult<RenderPathRetirement> {
+        if let Some(controller) = &self.render_path.lifecycle_controller {
+            controller.set_role(ComputeResourceRole::Retiring)?;
+        }
         self.render_path.shutdown(device)?;
         Ok(RenderPathRetirement::Complete)
     }
@@ -815,18 +1079,22 @@ struct ComputeRayRenderPath {
     capability_assessment: Option<ComputeCapabilityAssessment>,
     output_image: vk::Image,
     output_memory: vk::DeviceMemory,
+    output_allocation_bytes: u64,
     output_view: vk::ImageView,
     sampler: vk::Sampler,
     scene_buffer: vk::Buffer,
     scene_memory: vk::DeviceMemory,
+    scene_allocation_bytes: u64,
     scene_gpu_revision: VoxelSceneRevision,
     hidden_scene_gpu_resources: Option<ComputeHiddenSceneGpuResources>,
     convergence_control: Option<ComputeConvergenceController>,
     lifecycle_controller: Option<ComputeLifecycleController>,
     camera_buffer: vk::Buffer,
     camera_memory: vk::DeviceMemory,
+    camera_allocation_bytes: u64,
     semantic_ray_buffer: vk::Buffer,
     semantic_ray_memory: vk::DeviceMemory,
+    semantic_ray_allocation_bytes: u64,
     semantic_ray_controller: Option<ComputeSemanticRayController>,
     armed_semantic_ray_probes: Option<Vec<SemanticRayProbe>>,
     recorded_semantic_ray_frame: Option<(u64, VoxelSceneRevision)>,
@@ -844,10 +1112,15 @@ struct ComputeRayRenderPath {
     output_extent: vk::Extent2D,
     dispatch_group_count: [u32; 3],
     output_initialized: bool,
+    measurement_controller: Option<ComputeMeasurementController>,
 }
 
 impl ComputeRayRenderPath {
-    fn new(scene_bundle: ComputeSceneBundle, camera_state: CameraState) -> Self {
+    fn new(
+        scene_bundle: ComputeSceneBundle,
+        camera_state: CameraState,
+        measurement_controller: Option<ComputeMeasurementController>,
+    ) -> Self {
         let scene_gpu_revision = scene_bundle.revision();
         Self {
             convergence: compute_convergence::ComputeConvergence::new(scene_bundle),
@@ -855,18 +1128,22 @@ impl ComputeRayRenderPath {
             capability_assessment: None,
             output_image: vk::Image::null(),
             output_memory: vk::DeviceMemory::null(),
+            output_allocation_bytes: 0,
             output_view: vk::ImageView::null(),
             sampler: vk::Sampler::null(),
             scene_buffer: vk::Buffer::null(),
             scene_memory: vk::DeviceMemory::null(),
+            scene_allocation_bytes: 0,
             scene_gpu_revision,
             hidden_scene_gpu_resources: None,
             convergence_control: None,
             lifecycle_controller: None,
             camera_buffer: vk::Buffer::null(),
             camera_memory: vk::DeviceMemory::null(),
+            camera_allocation_bytes: 0,
             semantic_ray_buffer: vk::Buffer::null(),
             semantic_ray_memory: vk::DeviceMemory::null(),
+            semantic_ray_allocation_bytes: 0,
             semantic_ray_controller: None,
             armed_semantic_ray_probes: None,
             recorded_semantic_ray_frame: None,
@@ -884,6 +1161,7 @@ impl ComputeRayRenderPath {
             output_extent: vk::Extent2D::default(),
             dispatch_group_count: [0; 3],
             output_initialized: false,
+            measurement_controller,
         }
     }
 
@@ -893,10 +1171,17 @@ impl ComputeRayRenderPath {
         target: RenderPathTarget<'_>,
         qualification: ComputeCapabilityRecord,
     ) -> Result<(), ComputeRenderPathError> {
+        let installation_started_at = Instant::now();
         if self.scene_buffer == vk::Buffer::null() || self.scene_memory == vk::DeviceMemory::null()
         {
             self.release_scene_resources(device);
+            let upload_started_at = Instant::now();
             self.create_scene_buffer(device)?;
+            self.record_timing(
+                ComputeTimingPhase::Upload,
+                self.convergence.status().installed(),
+                upload_started_at,
+            )?;
         }
         if self.semantic_ray_buffer == vk::Buffer::null()
             || self.semantic_ray_memory == vk::DeviceMemory::null()
@@ -919,6 +1204,30 @@ impl ComputeRayRenderPath {
         self.configuration_id = Some(target.configuration_id());
         self.output_extent = target.extent();
         self.dispatch_group_count = qualification.dispatch().group_count();
+        self.record_timing(
+            ComputeTimingPhase::Installation,
+            self.convergence.status().installed(),
+            installation_started_at,
+        )?;
+        Ok(())
+    }
+
+    fn record_timing(
+        &self,
+        phase: ComputeTimingPhase,
+        stamp: ComputeConvergenceWorkStamp,
+        started_at: Instant,
+    ) -> Result<(), ComputeRenderPathError> {
+        let Some(controller) = &self.measurement_controller else {
+            return Ok(());
+        };
+        controller.record(ComputeTimingEvent {
+            phase,
+            scene_identity: self.convergence.installed_bundle().scene_identity().clone(),
+            revision: stamp.revision(),
+            generation: stamp.generation().value(),
+            elapsed_milliseconds: started_at.elapsed().as_secs_f64() * 1_000.0,
+        })?;
         Ok(())
     }
 
@@ -957,6 +1266,7 @@ impl ComputeRayRenderPath {
             .memory_type_index(memory_type_index);
         self.output_memory = unsafe { device.allocate_memory(&allocation_info) }
             .map_err(ComputeRenderPathError::AllocateOutputMemory)?;
+        self.output_allocation_bytes = requirements.size;
         unsafe { device.bind_image_memory(self.output_image, self.output_memory) }
             .map_err(ComputeRenderPathError::BindOutputMemory)?;
         let view_info = vk::ImageViewCreateInfo::default()
@@ -988,6 +1298,7 @@ impl ComputeRayRenderPath {
         let resources = create_scene_gpu_resources(device, self.convergence.installed_bundle())?;
         self.scene_buffer = resources.buffer;
         self.scene_memory = resources.memory;
+        self.scene_allocation_bytes = resources.allocation_bytes;
         self.scene_gpu_revision = self.convergence.installed_bundle().revision();
         Ok(())
     }
@@ -1016,6 +1327,7 @@ impl ComputeRayRenderPath {
             .memory_type_index(memory_type_index);
         self.camera_memory = unsafe { device.allocate_memory(&allocation_info) }
             .map_err(ComputeRenderPathError::AllocateCameraMemory)?;
+        self.camera_allocation_bytes = requirements.size;
         unsafe { device.bind_buffer_memory(self.camera_buffer, self.camera_memory) }
             .map_err(ComputeRenderPathError::BindCameraMemory)?;
         unsafe { device.write_memory(self.camera_memory, f32_bytes(&camera_words)) }
@@ -1068,6 +1380,7 @@ impl ComputeRayRenderPath {
                 return Err(ComputeRenderPathError::AllocateSemanticRayMemory(error));
             }
         };
+        self.semantic_ray_allocation_bytes = requirements.size;
         if let Err(error) =
             unsafe { device.bind_buffer_memory(self.semantic_ray_buffer, self.semantic_ray_memory) }
         {
@@ -1077,6 +1390,7 @@ impl ComputeRayRenderPath {
             }
             self.semantic_ray_buffer = vk::Buffer::null();
             self.semantic_ray_memory = vk::DeviceMemory::null();
+            self.semantic_ray_allocation_bytes = 0;
             return Err(ComputeRenderPathError::BindSemanticRayMemory(error));
         }
         let words = [0_u32; SEMANTIC_RAY_BUFFER_WORD_COUNT];
@@ -1522,6 +1836,7 @@ impl ComputeRayRenderPath {
             .size(u64::from(SEMANTIC_RAY_BUFFER_SIZE))];
         let semantic_ray_request_is_armed = self.armed_semantic_ray_probes.is_some();
 
+        let dispatch_started_at = Instant::now();
         unsafe {
             if semantic_ray_request_is_armed {
                 frame.buffer_pipeline_barrier(
@@ -1554,6 +1869,14 @@ impl ComputeRayRenderPath {
                 sampling_barrier.destination_stage,
                 &prepare_for_sampling,
             );
+        }
+        self.record_timing(
+            ComputeTimingPhase::Dispatch,
+            self.convergence.status().installed(),
+            dispatch_started_at,
+        )?;
+        let composite_started_at = Instant::now();
+        unsafe {
             frame.begin_render_pass(&render_pass_info, vk::SubpassContents::INLINE);
             frame.bind_pipeline(vk::PipelineBindPoint::GRAPHICS, self.composite_pipeline);
             frame.bind_descriptor_sets(
@@ -1564,6 +1887,11 @@ impl ComputeRayRenderPath {
             frame.draw(3, 1, 0, 0);
             frame.end_render_pass();
         }
+        self.record_timing(
+            ComputeTimingPhase::Composite,
+            self.convergence.status().installed(),
+            composite_started_at,
+        )?;
         if semantic_ray_request_is_armed && self.recorded_semantic_ray_frame.is_none() {
             self.recorded_semantic_ray_frame = Some((
                 target.frame_sequence(),
@@ -1624,6 +1952,7 @@ impl ComputeRayRenderPath {
                     return Err(error);
                 }
             };
+            let upload_started_at = Instant::now();
             let candidate_resources = match create_scene_gpu_resources(device, candidate_bundle) {
                 Ok(resources) => resources,
                 Err(error) => {
@@ -1637,6 +1966,11 @@ impl ComputeRayRenderPath {
                 resources: candidate_resources,
                 range: candidate_range,
             });
+            self.record_timing(
+                ComputeTimingPhase::Upload,
+                candidate_stamp,
+                upload_started_at,
+            )?;
             self.convergence.mark_hidden_uploaded();
         }
         if let Some(control) = &self.convergence_control
@@ -1644,6 +1978,7 @@ impl ComputeRayRenderPath {
         {
             return Ok(());
         }
+        let installation_started_at = Instant::now();
         if self
             .convergence
             .fail_hidden_if_injected(ComputeConvergenceFailurePhase::Installation)?
@@ -1691,6 +2026,10 @@ impl ComputeRayRenderPath {
         let retired_resources = ComputeSceneGpuResources {
             buffer: std::mem::replace(&mut self.scene_buffer, candidate.resources.buffer),
             memory: std::mem::replace(&mut self.scene_memory, candidate.resources.memory),
+            allocation_bytes: std::mem::replace(
+                &mut self.scene_allocation_bytes,
+                candidate.resources.allocation_bytes,
+            ),
         };
         self.scene_gpu_revision = candidate_revision;
         if let Some(control) = &self.convergence_control {
@@ -1698,6 +2037,11 @@ impl ComputeRayRenderPath {
         }
         release_scene_gpu_resources(device, retired_resources);
         drop(retired_bundle);
+        self.record_timing(
+            ComputeTimingPhase::Installation,
+            candidate_stamp,
+            installation_started_at,
+        )?;
         Ok(())
     }
 
@@ -1768,6 +2112,7 @@ impl ComputeRayRenderPath {
                 device.free_memory(self.output_memory);
                 self.output_memory = vk::DeviceMemory::null();
             }
+            self.output_allocation_bytes = 0;
             if self.camera_buffer != vk::Buffer::null() {
                 device.destroy_buffer(self.camera_buffer);
                 self.camera_buffer = vk::Buffer::null();
@@ -1776,6 +2121,7 @@ impl ComputeRayRenderPath {
                 device.free_memory(self.camera_memory);
                 self.camera_memory = vk::DeviceMemory::null();
             }
+            self.camera_allocation_bytes = 0;
         }
         self.configured_attachments.clear();
         self.configuration_id = None;
@@ -1797,6 +2143,7 @@ impl ComputeRayRenderPath {
                 device.free_memory(self.scene_memory);
                 self.scene_memory = vk::DeviceMemory::null();
             }
+            self.scene_allocation_bytes = 0;
             if self.semantic_ray_buffer != vk::Buffer::null() {
                 device.destroy_buffer(self.semantic_ray_buffer);
                 self.semantic_ray_buffer = vk::Buffer::null();
@@ -1805,12 +2152,13 @@ impl ComputeRayRenderPath {
                 device.free_memory(self.semantic_ray_memory);
                 self.semantic_ray_memory = vk::DeviceMemory::null();
             }
+            self.semantic_ray_allocation_bytes = 0;
         }
         self.armed_semantic_ray_probes = None;
         self.recorded_semantic_ray_frame = None;
     }
 
-    fn owned_resource_counts(&self) -> ComputeOwnedResourceCounts {
+    fn owned_resource_counts(&self) -> Result<ComputeOwnedResourceCounts, ComputeRenderPathError> {
         let hidden_resources = self
             .hidden_scene_gpu_resources
             .as_ref()
@@ -1846,18 +2194,46 @@ impl ComputeRayRenderPath {
         .into_iter()
         .filter(|owned| *owned)
         .count();
-        ComputeOwnedResourceCounts {
+        let hidden_allocation_bytes = hidden_resources
+            .map(|resources| resources.allocation_bytes)
+            .unwrap_or(0);
+        let bytes = self
+            .output_allocation_bytes
+            .checked_add(self.scene_allocation_bytes)
+            .and_then(|bytes| bytes.checked_add(hidden_allocation_bytes))
+            .and_then(|bytes| bytes.checked_add(self.camera_allocation_bytes))
+            .and_then(|bytes| bytes.checked_add(self.semantic_ray_allocation_bytes))
+            .ok_or(ComputeRenderPathError::ResourceAccountingOverflow)?;
+        Ok(ComputeOwnedResourceCounts {
+            bytes,
             objects,
             allocations,
             workers: self.convergence.status().worker_count(),
             views: self.convergence.owned_view_count(),
-        }
+        })
+    }
+
+    fn record_resource_observation(
+        &self,
+        point: ComputeResourceObservationPoint,
+    ) -> Result<(), ComputeRenderPathError> {
+        let Some(controller) = &self.lifecycle_controller else {
+            return Ok(());
+        };
+        controller.record_resources(
+            point,
+            self.convergence.installed_bundle().scene_identity().clone(),
+            self.convergence.status(),
+            self.owned_resource_counts()?,
+        )?;
+        Ok(())
     }
 }
 
 impl RenderPath for ComputeRayRenderPath {
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         self.release_presentation_resources(&device);
+        self.record_resource_observation(ComputeResourceObservationPoint::Released)?;
         Ok(())
     }
 
@@ -1883,6 +2259,7 @@ impl RenderPath for ComputeRayRenderPath {
             self.release_presentation_resources(&device);
             return Err(Box::new(error));
         }
+        self.record_resource_observation(ComputeResourceObservationPoint::Configured)?;
         Ok(())
     }
 
@@ -1907,11 +2284,19 @@ impl RenderPath for ComputeRayRenderPath {
         {
             failures.push(format!("convergence control: {error}"));
         }
-        let owned_resources = self.owned_resource_counts();
-        if let Some(controller) = &self.lifecycle_controller
-            && let Err(error) = controller.record_shutdown(owned_resources)
-        {
-            failures.push(format!("lifecycle control: {error}"));
+        match self.owned_resource_counts() {
+            Ok(owned_resources) => {
+                if let Some(controller) = &self.lifecycle_controller
+                    && let Err(error) = controller.record_shutdown(
+                        self.convergence.installed_bundle().scene_identity().clone(),
+                        self.convergence.status(),
+                        owned_resources,
+                    )
+                {
+                    failures.push(format!("lifecycle control: {error}"));
+                }
+            }
+            Err(error) => failures.push(format!("resource accounting: {error}")),
         }
         if failures.is_empty() {
             Ok(())
@@ -1934,7 +2319,10 @@ impl RenderPath for ComputeRayRenderPath {
         let control_result = self.convergence_control.as_ref().map(|control| {
             control.synchronize(self.convergence.status(), self.convergence.drain_events())
         });
+        let resource_result =
+            self.record_resource_observation(ComputeResourceObservationPoint::Convergence);
         convergence_result?;
+        resource_result?;
         if let Some(control_result) = control_result {
             control_result?;
         }
@@ -1951,6 +2339,7 @@ impl RenderPath for ComputeRayRenderPath {
 struct ComputeSceneGpuResources {
     buffer: vk::Buffer,
     memory: vk::DeviceMemory,
+    allocation_bytes: u64,
 }
 
 struct ComputeHiddenSceneGpuResources {
@@ -2009,14 +2398,32 @@ fn create_scene_gpu_resources(
         }
     };
     if let Err(error) = unsafe { device.bind_buffer_memory(buffer, memory) } {
-        release_scene_gpu_resources(device, ComputeSceneGpuResources { buffer, memory });
+        release_scene_gpu_resources(
+            device,
+            ComputeSceneGpuResources {
+                buffer,
+                memory,
+                allocation_bytes: requirements.size,
+            },
+        );
         return Err(ComputeRenderPathError::BindSceneMemory(error));
     }
     if let Err(error) = unsafe { device.write_memory(memory, bytes) } {
-        release_scene_gpu_resources(device, ComputeSceneGpuResources { buffer, memory });
+        release_scene_gpu_resources(
+            device,
+            ComputeSceneGpuResources {
+                buffer,
+                memory,
+                allocation_bytes: requirements.size,
+            },
+        );
         return Err(ComputeRenderPathError::WriteSceneMemory(error));
     }
-    Ok(ComputeSceneGpuResources { buffer, memory })
+    Ok(ComputeSceneGpuResources {
+        buffer,
+        memory,
+        allocation_bytes: requirements.size,
+    })
 }
 
 fn release_scene_gpu_resources(
@@ -2341,6 +2748,7 @@ mod tests {
                 0.1,
                 100.0,
             ),
+            None,
         );
         let controller = render_path.convergence.enable_control(true);
         render_path.convergence_control = Some(controller.clone());
@@ -2350,6 +2758,7 @@ mod tests {
             resources: ComputeSceneGpuResources {
                 buffer: vk::Buffer::null(),
                 memory: vk::DeviceMemory::null(),
+                allocation_bytes: 0,
             },
             range: 0,
         });
