@@ -5,10 +5,14 @@ use render_backend::{
     RenderPathFrameContext, RenderPathReadiness, RenderPathResult, RenderPathRetirement,
     RenderPathStamp, RenderPathStrategy, RenderPathTarget, SwitchableRenderPath,
 };
-use semantic_ray_oracle::{SemanticRay, SemanticRayError};
+use semantic_ray_oracle::{
+    AxisNormal, SemanticRay, SemanticRayContact, SemanticRayContactClassification,
+    SemanticRayError, SemanticRayObservation, SemanticRayProbe, SemanticRayResult,
+};
 use std::io::Cursor;
+use std::sync::{Arc, Mutex};
 use thiserror::Error;
-use voxel_frontend::{VoxelEditOutcome, VoxelSceneRevision, VoxelSceneView};
+use voxel_frontend::{VoxelCoordinate, VoxelEditOutcome, VoxelSceneRevision, VoxelSceneView};
 
 mod compute_convergence;
 mod compute_scene;
@@ -75,6 +79,128 @@ const OUTPUT_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 const WORKGROUP_SIZE: [u32; 3] = [8, 8, 1];
 const CAMERA_WORD_COUNT: usize = 20;
 const CAMERA_BUFFER_SIZE: u32 = (CAMERA_WORD_COUNT * std::mem::size_of::<f32>()) as u32;
+const MAXIMUM_SEMANTIC_RAY_PROBES: usize = 8;
+const SEMANTIC_RAY_INPUT_WORD_COUNT: usize = 8;
+const SEMANTIC_RAY_OUTPUT_WORD_COUNT: usize = 8;
+const SEMANTIC_RAY_INPUT_START: usize = 1;
+const SEMANTIC_RAY_OUTPUT_START: usize =
+    SEMANTIC_RAY_INPUT_START + MAXIMUM_SEMANTIC_RAY_PROBES * SEMANTIC_RAY_INPUT_WORD_COUNT;
+const SEMANTIC_RAY_BUFFER_WORD_COUNT: usize =
+    SEMANTIC_RAY_OUTPUT_START + MAXIMUM_SEMANTIC_RAY_PROBES * SEMANTIC_RAY_OUTPUT_WORD_COUNT;
+const SEMANTIC_RAY_BUFFER_SIZE: u32 =
+    (SEMANTIC_RAY_BUFFER_WORD_COUNT * std::mem::size_of::<u32>()) as u32;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ComputeSemanticRayProbeObservation {
+    probe_identity: String,
+    frame_sequence: u64,
+    observation: SemanticRayObservation,
+}
+
+impl ComputeSemanticRayProbeObservation {
+    pub fn probe_identity(&self) -> &str {
+        &self.probe_identity
+    }
+
+    pub fn frame_sequence(&self) -> u64 {
+        self.frame_sequence
+    }
+
+    pub fn observation(&self) -> &SemanticRayObservation {
+        &self.observation
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ComputeSemanticRayController {
+    state: Arc<Mutex<ComputeSemanticRayControlState>>,
+}
+
+#[derive(Debug, Default)]
+struct ComputeSemanticRayControlState {
+    pending: Option<Vec<SemanticRayProbe>>,
+    retained: Vec<ComputeSemanticRayProbeObservation>,
+}
+
+#[derive(Clone, Debug, Error, PartialEq)]
+pub enum ComputeSemanticRayControlError {
+    #[error("at most {maximum} compute Semantic Ray probes can be requested at once")]
+    TooManyProbes { maximum: usize },
+    #[error("compute Semantic Ray probe {probe_identity} cannot be represented as f32 GPU input")]
+    InputNotRepresentable { probe_identity: String },
+    #[error("a compute Semantic Ray observation request is already pending")]
+    RequestPending,
+    #[error("compute Semantic Ray observation control is unavailable")]
+    Unavailable,
+}
+
+impl ComputeSemanticRayController {
+    pub fn request(
+        &self,
+        probes: Vec<SemanticRayProbe>,
+    ) -> Result<(), ComputeSemanticRayControlError> {
+        if probes.len() > MAXIMUM_SEMANTIC_RAY_PROBES {
+            return Err(ComputeSemanticRayControlError::TooManyProbes {
+                maximum: MAXIMUM_SEMANTIC_RAY_PROBES,
+            });
+        }
+        if let Some(probe) = probes.iter().find(|probe| !probe_is_representable(probe)) {
+            return Err(ComputeSemanticRayControlError::InputNotRepresentable {
+                probe_identity: probe.identity().to_owned(),
+            });
+        }
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeSemanticRayControlError::Unavailable)?;
+        if state.pending.is_some() {
+            return Err(ComputeSemanticRayControlError::RequestPending);
+        }
+        state.pending = Some(probes);
+        Ok(())
+    }
+
+    pub fn drain(
+        &self,
+    ) -> Result<Vec<ComputeSemanticRayProbeObservation>, ComputeSemanticRayControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeSemanticRayControlError::Unavailable)?;
+        Ok(std::mem::take(&mut state.retained))
+    }
+
+    fn take_pending(
+        &self,
+    ) -> Result<Option<Vec<SemanticRayProbe>>, ComputeSemanticRayControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeSemanticRayControlError::Unavailable)?;
+        Ok(state.pending.take())
+    }
+
+    fn retain(
+        &self,
+        observations: Vec<ComputeSemanticRayProbeObservation>,
+    ) -> Result<(), ComputeSemanticRayControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeSemanticRayControlError::Unavailable)?;
+        state.retained.extend(observations);
+        Ok(())
+    }
+}
+
+fn probe_is_representable(probe: &SemanticRayProbe) -> bool {
+    let ray = probe.ray();
+    ray.origin()
+        .into_iter()
+        .chain(ray.direction())
+        .chain([ray.minimum_distance(), ray.maximum_distance()])
+        .all(|value| (value as f32).is_finite())
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComputeDispatchConfiguration {
@@ -253,12 +379,12 @@ pub fn qualify_compute_render_path(
         (
             ComputeDescriptorRequirement::StorageBufferPerStage,
             queried.max_per_stage_descriptor_storage_buffers,
-            2,
+            3,
         ),
         (
             ComputeDescriptorRequirement::StorageBufferPerSet,
             queried.max_descriptor_set_storage_buffers,
-            2,
+            3,
         ),
         (
             ComputeDescriptorRequirement::SampledImagePerStage,
@@ -291,9 +417,10 @@ pub fn qualify_compute_render_path(
             available,
         });
     }
-    if queried.max_storage_buffer_range < CAMERA_BUFFER_SIZE {
+    let required_storage_buffer_range = CAMERA_BUFFER_SIZE.max(SEMANTIC_RAY_BUFFER_SIZE);
+    if queried.max_storage_buffer_range < required_storage_buffer_range {
         return Err(ComputeRenderPathRejection::StorageBufferBindingRange {
-            required: CAMERA_BUFFER_SIZE,
+            required: required_storage_buffer_range,
             available: queried.max_storage_buffer_range,
         });
     }
@@ -359,6 +486,8 @@ enum ComputeRenderPathError {
     Convergence(#[from] ComputeConvergenceError),
     #[error(transparent)]
     ConvergenceControl(#[from] ComputeConvergenceControlError),
+    #[error(transparent)]
+    SemanticRayControl(#[from] ComputeSemanticRayControlError),
     #[error("compute convergence shutdown failed: {0}")]
     ConvergenceShutdown(String),
     #[error(transparent)]
@@ -399,6 +528,25 @@ enum ComputeRenderPathError {
     BindCameraMemory(vk::Result),
     #[error("could not write the compute Camera State buffer: {0}")]
     WriteCameraMemory(vk::Result),
+    #[error("could not create the compute Semantic Ray buffer: {0}")]
+    CreateSemanticRayBuffer(vk::Result),
+    #[error("no host-visible coherent memory type can hold the compute Semantic Ray buffer")]
+    MissingSemanticRayMemory,
+    #[error("could not allocate compute Semantic Ray buffer memory: {0}")]
+    AllocateSemanticRayMemory(vk::Result),
+    #[error("could not bind compute Semantic Ray buffer memory: {0}")]
+    BindSemanticRayMemory(vk::Result),
+    #[error("could not write compute Semantic Ray input: {0}")]
+    WriteSemanticRayMemory(vk::Result),
+    #[error("could not read compute Semantic Ray output: {0}")]
+    ReadSemanticRayMemory(vk::Result),
+    #[error("the compute Semantic Ray buffer is unavailable")]
+    SemanticRayResourcesUnavailable,
+    #[error("compute Semantic Ray probe {probe_identity} returned invalid GPU data: {reason}")]
+    InvalidSemanticRayOutput {
+        probe_identity: String,
+        reason: &'static str,
+    },
     #[error("the compute Camera State buffer is unavailable")]
     CameraResourcesUnavailable,
     #[error("could not create the compute descriptor-set layout: {0}")]
@@ -495,6 +643,14 @@ impl ComputeRayRenderPathAdapter {
         self.render_path.convergence_control = Some(controller.clone());
         controller
     }
+
+    pub fn enable_semantic_ray_observation(&mut self) -> ComputeSemanticRayController {
+        let controller = ComputeSemanticRayController {
+            state: Arc::new(Mutex::new(ComputeSemanticRayControlState::default())),
+        };
+        self.render_path.semantic_ray_controller = Some(controller.clone());
+        controller
+    }
 }
 
 impl RenderPath for ComputeRayRenderPathAdapter {
@@ -588,6 +744,11 @@ struct ComputeRayRenderPath {
     convergence_control: Option<ComputeConvergenceController>,
     camera_buffer: vk::Buffer,
     camera_memory: vk::DeviceMemory,
+    semantic_ray_buffer: vk::Buffer,
+    semantic_ray_memory: vk::DeviceMemory,
+    semantic_ray_controller: Option<ComputeSemanticRayController>,
+    armed_semantic_ray_probes: Option<Vec<SemanticRayProbe>>,
+    recorded_semantic_ray_frame: Option<(u64, VoxelSceneRevision)>,
     descriptor_set_layout: vk::DescriptorSetLayout,
     descriptor_pool: vk::DescriptorPool,
     descriptor_set: vk::DescriptorSet,
@@ -622,6 +783,11 @@ impl ComputeRayRenderPath {
             convergence_control: None,
             camera_buffer: vk::Buffer::null(),
             camera_memory: vk::DeviceMemory::null(),
+            semantic_ray_buffer: vk::Buffer::null(),
+            semantic_ray_memory: vk::DeviceMemory::null(),
+            semantic_ray_controller: None,
+            armed_semantic_ray_probes: None,
+            recorded_semantic_ray_frame: None,
             descriptor_set_layout: vk::DescriptorSetLayout::null(),
             descriptor_pool: vk::DescriptorPool::null(),
             descriptor_set: vk::DescriptorSet::null(),
@@ -649,6 +815,11 @@ impl ComputeRayRenderPath {
         {
             self.release_scene_resources(device);
             self.create_scene_buffer(device)?;
+        }
+        if self.semantic_ray_buffer == vk::Buffer::null()
+            || self.semantic_ray_memory == vk::DeviceMemory::null()
+        {
+            self.create_semantic_ray_buffer(device)?;
         }
         self.create_output_resources(device, qualification.dispatch())?;
         self.create_descriptor_resources(device)?;
@@ -785,6 +956,105 @@ impl ComputeRayRenderPath {
             .map_err(ComputeRenderPathError::WriteCameraMemory)
     }
 
+    fn create_semantic_ray_buffer(
+        &mut self,
+        device: &RenderPathDeviceContext<'_>,
+    ) -> Result<(), ComputeRenderPathError> {
+        let buffer_info = vk::BufferCreateInfo::default()
+            .size(u64::from(SEMANTIC_RAY_BUFFER_SIZE))
+            .usage(vk::BufferUsageFlags::STORAGE_BUFFER)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        self.semantic_ray_buffer = unsafe { device.create_buffer(&buffer_info) }
+            .map_err(ComputeRenderPathError::CreateSemanticRayBuffer)?;
+        let requirements = unsafe { device.buffer_memory_requirements(self.semantic_ray_buffer) };
+        let Some(memory_type_index) = device.memory_type_index(
+            requirements.memory_type_bits,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        ) else {
+            unsafe { device.destroy_buffer(self.semantic_ray_buffer) };
+            self.semantic_ray_buffer = vk::Buffer::null();
+            return Err(ComputeRenderPathError::MissingSemanticRayMemory);
+        };
+        let allocation_info = vk::MemoryAllocateInfo::default()
+            .allocation_size(requirements.size)
+            .memory_type_index(memory_type_index);
+        self.semantic_ray_memory = match unsafe { device.allocate_memory(&allocation_info) } {
+            Ok(memory) => memory,
+            Err(error) => {
+                unsafe { device.destroy_buffer(self.semantic_ray_buffer) };
+                self.semantic_ray_buffer = vk::Buffer::null();
+                return Err(ComputeRenderPathError::AllocateSemanticRayMemory(error));
+            }
+        };
+        if let Err(error) =
+            unsafe { device.bind_buffer_memory(self.semantic_ray_buffer, self.semantic_ray_memory) }
+        {
+            unsafe {
+                device.destroy_buffer(self.semantic_ray_buffer);
+                device.free_memory(self.semantic_ray_memory);
+            }
+            self.semantic_ray_buffer = vk::Buffer::null();
+            self.semantic_ray_memory = vk::DeviceMemory::null();
+            return Err(ComputeRenderPathError::BindSemanticRayMemory(error));
+        }
+        let words = [0_u32; SEMANTIC_RAY_BUFFER_WORD_COUNT];
+        unsafe { device.write_memory(self.semantic_ray_memory, u32_bytes(&words)) }
+            .map_err(ComputeRenderPathError::WriteSemanticRayMemory)
+    }
+
+    fn stage_semantic_ray_request(
+        &mut self,
+        device: &RenderPathDeviceContext<'_>,
+    ) -> Result<(), ComputeRenderPathError> {
+        if self.armed_semantic_ray_probes.is_some() || self.recorded_semantic_ray_frame.is_some() {
+            return Ok(());
+        }
+        let Some(controller) = &self.semantic_ray_controller else {
+            return Ok(());
+        };
+        let Some(probes) = controller.take_pending()? else {
+            return Ok(());
+        };
+        if self.semantic_ray_memory == vk::DeviceMemory::null() {
+            return Err(ComputeRenderPathError::SemanticRayResourcesUnavailable);
+        }
+        let words = semantic_ray_input_words(&probes);
+        unsafe { device.write_memory(self.semantic_ray_memory, u32_bytes(&words)) }
+            .map_err(ComputeRenderPathError::WriteSemanticRayMemory)?;
+        self.armed_semantic_ray_probes = Some(probes);
+        Ok(())
+    }
+
+    fn collect_semantic_ray_observations(
+        &mut self,
+        device: &RenderPathDeviceContext<'_>,
+    ) -> Result<(), ComputeRenderPathError> {
+        let Some((frame_sequence, revision)) = self.recorded_semantic_ray_frame.take() else {
+            return Ok(());
+        };
+        let probes = self
+            .armed_semantic_ray_probes
+            .take()
+            .ok_or(ComputeRenderPathError::SemanticRayResourcesUnavailable)?;
+        if self.semantic_ray_memory == vk::DeviceMemory::null() {
+            return Err(ComputeRenderPathError::SemanticRayResourcesUnavailable);
+        }
+        let mut words = [0_u32; SEMANTIC_RAY_BUFFER_WORD_COUNT];
+        unsafe { device.read_memory(self.semantic_ray_memory, u32_bytes_mut(&mut words)) }
+            .map_err(ComputeRenderPathError::ReadSemanticRayMemory)?;
+        let observations = decode_semantic_ray_output(
+            &probes,
+            &words,
+            self.convergence.installed_bundle(),
+            revision,
+            frame_sequence,
+        )?;
+        if let Some(controller) = &self.semantic_ray_controller {
+            controller.retain(observations)?;
+        }
+        Ok(())
+    }
+
     fn create_descriptor_resources(
         &mut self,
         device: &RenderPathDeviceContext<'_>,
@@ -810,6 +1080,11 @@ impl ComputeRayRenderPath {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(4)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE),
         ];
         let layout_info = vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings);
         self.descriptor_set_layout = unsafe { device.create_descriptor_set_layout(&layout_info) }
@@ -824,7 +1099,7 @@ impl ComputeRayRenderPath {
                 .descriptor_count(1),
             vk::DescriptorPoolSize::default()
                 .ty(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(2),
+                .descriptor_count(3),
         ];
         let pool_info = vk::DescriptorPoolCreateInfo::default()
             .max_sets(1)
@@ -858,6 +1133,10 @@ impl ComputeRayRenderPath {
             .buffer(self.camera_buffer)
             .offset(0)
             .range(u64::from(CAMERA_BUFFER_SIZE))];
+        let semantic_ray_buffer = [vk::DescriptorBufferInfo::default()
+            .buffer(self.semantic_ray_buffer)
+            .offset(0)
+            .range(u64::from(SEMANTIC_RAY_BUFFER_SIZE))];
         let writes = [
             vk::WriteDescriptorSet::default()
                 .dst_set(self.descriptor_set)
@@ -879,6 +1158,11 @@ impl ComputeRayRenderPath {
                 .dst_binding(3)
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .buffer_info(&camera_buffer),
+            vk::WriteDescriptorSet::default()
+                .dst_set(self.descriptor_set)
+                .dst_binding(4)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .buffer_info(&semantic_ray_buffer),
         ];
         unsafe { device.update_descriptor_sets(&writes) };
         Ok(())
@@ -1138,8 +1422,32 @@ impl ComputeRayRenderPath {
                 extent: target.extent(),
             });
         let descriptor_sets = [self.descriptor_set];
+        let semantic_ray_host_write = [vk::BufferMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::HOST_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .buffer(self.semantic_ray_buffer)
+            .offset(0)
+            .size(u64::from(SEMANTIC_RAY_BUFFER_SIZE))];
+        let semantic_ray_host_read = [vk::BufferMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::HOST_READ)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .buffer(self.semantic_ray_buffer)
+            .offset(0)
+            .size(u64::from(SEMANTIC_RAY_BUFFER_SIZE))];
+        let semantic_ray_request_is_armed = self.armed_semantic_ray_probes.is_some();
 
         unsafe {
+            if semantic_ray_request_is_armed {
+                frame.buffer_pipeline_barrier(
+                    vk::PipelineStageFlags::HOST,
+                    vk::PipelineStageFlags::COMPUTE_SHADER,
+                    &semantic_ray_host_write,
+                );
+            }
             frame.image_pipeline_barrier(
                 output_barrier.source_stage,
                 vk::PipelineStageFlags::COMPUTE_SHADER,
@@ -1152,6 +1460,13 @@ impl ComputeRayRenderPath {
                 &descriptor_sets,
             );
             frame.dispatch(self.dispatch_group_count);
+            if semantic_ray_request_is_armed {
+                frame.buffer_pipeline_barrier(
+                    vk::PipelineStageFlags::COMPUTE_SHADER,
+                    vk::PipelineStageFlags::HOST,
+                    &semantic_ray_host_read,
+                );
+            }
             frame.image_pipeline_barrier(
                 sampling_barrier.source_stage,
                 sampling_barrier.destination_stage,
@@ -1166,6 +1481,12 @@ impl ComputeRayRenderPath {
             );
             frame.draw(3, 1, 0, 0);
             frame.end_render_pass();
+        }
+        if semantic_ray_request_is_armed && self.recorded_semantic_ray_frame.is_none() {
+            self.recorded_semantic_ray_frame = Some((
+                target.frame_sequence(),
+                self.convergence.installed_bundle().revision(),
+            ));
         }
         self.output_initialized = true;
         Ok(())
@@ -1355,7 +1676,17 @@ impl ComputeRayRenderPath {
                 device.free_memory(self.scene_memory);
                 self.scene_memory = vk::DeviceMemory::null();
             }
+            if self.semantic_ray_buffer != vk::Buffer::null() {
+                device.destroy_buffer(self.semantic_ray_buffer);
+                self.semantic_ray_buffer = vk::Buffer::null();
+            }
+            if self.semantic_ray_memory != vk::DeviceMemory::null() {
+                device.free_memory(self.semantic_ray_memory);
+                self.semantic_ray_memory = vk::DeviceMemory::null();
+            }
         }
+        self.armed_semantic_ray_probes = None;
+        self.recorded_semantic_ray_frame = None;
     }
 }
 
@@ -1391,6 +1722,7 @@ impl RenderPath for ComputeRayRenderPath {
     }
 
     fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+        self.collect_semantic_ray_observations(&device)?;
         let convergence_error = self.convergence.shutdown().err();
         self.release_presentation_resources(&device);
         self.release_scene_resources(&device);
@@ -1405,6 +1737,7 @@ impl RenderPath for ComputeRayRenderPath {
         device: RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
+        self.collect_semantic_ray_observations(&device)?;
         let controlled_outcome = self
             .convergence_control
             .as_ref()
@@ -1422,6 +1755,7 @@ impl RenderPath for ComputeRayRenderPath {
         if let Some(control_result) = control_result {
             control_result?;
         }
+        self.stage_semantic_ray_request(&device)?;
         Ok(())
     }
 
@@ -1585,6 +1919,154 @@ fn u32_bytes(values: &[u32]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 
+fn u32_bytes_mut(values: &mut [u32]) -> &mut [u8] {
+    let byte_length = std::mem::size_of_val(values);
+    // Every u32 bit pattern is valid and the mapped read initializes all requested bytes.
+    unsafe { std::slice::from_raw_parts_mut(values.as_mut_ptr().cast(), byte_length) }
+}
+
+fn semantic_ray_input_words(probes: &[SemanticRayProbe]) -> [u32; SEMANTIC_RAY_BUFFER_WORD_COUNT] {
+    let mut words = [0_u32; SEMANTIC_RAY_BUFFER_WORD_COUNT];
+    words[0] = u32::try_from(probes.len()).unwrap_or(0);
+    for (index, probe) in probes.iter().enumerate() {
+        let offset = SEMANTIC_RAY_INPUT_START + index * SEMANTIC_RAY_INPUT_WORD_COUNT;
+        let ray = probe.ray();
+        let [origin_x, origin_y, origin_z] = ray.origin().map(|value| (value as f32).to_bits());
+        let [direction_x, direction_y, direction_z] =
+            ray.direction().map(|value| (value as f32).to_bits());
+        words[offset..offset + SEMANTIC_RAY_INPUT_WORD_COUNT].copy_from_slice(&[
+            origin_x,
+            origin_y,
+            origin_z,
+            (ray.minimum_distance() as f32).to_bits(),
+            direction_x,
+            direction_y,
+            direction_z,
+            (ray.maximum_distance() as f32).to_bits(),
+        ]);
+    }
+    words
+}
+
+fn decode_semantic_ray_output(
+    probes: &[SemanticRayProbe],
+    words: &[u32; SEMANTIC_RAY_BUFFER_WORD_COUNT],
+    bundle: &ComputeSceneBundle,
+    revision: VoxelSceneRevision,
+    frame_sequence: u64,
+) -> Result<Vec<ComputeSemanticRayProbeObservation>, ComputeRenderPathError> {
+    if bundle.revision() != revision {
+        return Err(ComputeRenderPathError::InvalidSemanticRayOutput {
+            probe_identity: probes
+                .first()
+                .map(|probe| probe.identity().to_owned())
+                .unwrap_or_else(|| "empty-request".to_owned()),
+            reason: "the installed CPU bundle no longer matches the recorded GPU revision",
+        });
+    }
+    probes
+        .iter()
+        .enumerate()
+        .map(|(index, probe)| {
+            let offset = SEMANTIC_RAY_OUTPUT_START + index * SEMANTIC_RAY_OUTPUT_WORD_COUNT;
+            let output = words
+                .get(offset..offset + SEMANTIC_RAY_OUTPUT_WORD_COUNT)
+                .ok_or(ComputeRenderPathError::InvalidSemanticRayOutput {
+                    probe_identity: probe.identity().to_owned(),
+                    reason: "the output record is outside the readback buffer",
+                })?;
+            let result = match output[0] {
+                0 => SemanticRayResult::Miss,
+                1 => {
+                    let volume_index = usize::try_from(output[1]).map_err(|_| {
+                        ComputeRenderPathError::InvalidSemanticRayOutput {
+                            probe_identity: probe.identity().to_owned(),
+                            reason: "the volume index cannot address host memory",
+                        }
+                    })?;
+                    let volume = bundle.volume_headers().get(volume_index).ok_or(
+                        ComputeRenderPathError::InvalidSemanticRayOutput {
+                            probe_identity: probe.identity().to_owned(),
+                            reason: "the volume index is outside the installed bundle",
+                        },
+                    )?;
+                    let material_index = output[5].checked_sub(1).ok_or(
+                        ComputeRenderPathError::InvalidSemanticRayOutput {
+                            probe_identity: probe.identity().to_owned(),
+                            reason: "a contact returned the empty material word",
+                        },
+                    )?;
+                    let material_index = usize::try_from(material_index).map_err(|_| {
+                        ComputeRenderPathError::InvalidSemanticRayOutput {
+                            probe_identity: probe.identity().to_owned(),
+                            reason: "the material index cannot address host memory",
+                        }
+                    })?;
+                    let material = bundle.material_identities().get(material_index).ok_or(
+                        ComputeRenderPathError::InvalidSemanticRayOutput {
+                            probe_identity: probe.identity().to_owned(),
+                            reason: "the material index is outside the installed bundle",
+                        },
+                    )?;
+                    let distance = f32::from_bits(output[6]);
+                    if !distance.is_finite() {
+                        return Err(ComputeRenderPathError::InvalidSemanticRayOutput {
+                            probe_identity: probe.identity().to_owned(),
+                            reason: "the contact distance is not finite",
+                        });
+                    }
+                    let classification = semantic_ray_classification(output[7]).ok_or(
+                        ComputeRenderPathError::InvalidSemanticRayOutput {
+                            probe_identity: probe.identity().to_owned(),
+                            reason: "the contact normal code is invalid",
+                        },
+                    )?;
+                    SemanticRayResult::Contact(SemanticRayContact::new(
+                        volume.identity().clone(),
+                        VoxelCoordinate::new(
+                            i32::from_ne_bytes(output[2].to_ne_bytes()),
+                            i32::from_ne_bytes(output[3].to_ne_bytes()),
+                            i32::from_ne_bytes(output[4].to_ne_bytes()),
+                        ),
+                        material.clone(),
+                        f64::from(distance),
+                        classification,
+                    ))
+                }
+                _ => {
+                    return Err(ComputeRenderPathError::InvalidSemanticRayOutput {
+                        probe_identity: probe.identity().to_owned(),
+                        reason: "the hit flag is invalid",
+                    });
+                }
+            };
+            Ok(ComputeSemanticRayProbeObservation {
+                probe_identity: probe.identity().to_owned(),
+                frame_sequence,
+                observation: SemanticRayObservation::new(
+                    bundle.scene_identity().clone(),
+                    revision,
+                    result,
+                ),
+            })
+        })
+        .collect()
+}
+
+fn semantic_ray_classification(code: u32) -> Option<SemanticRayContactClassification> {
+    let normal = match code {
+        0 => return Some(SemanticRayContactClassification::StartedInside),
+        1 => AxisNormal::NegativeX,
+        2 => AxisNormal::PositiveX,
+        3 => AxisNormal::NegativeY,
+        4 => AxisNormal::PositiveY,
+        5 => AxisNormal::NegativeZ,
+        6 => AxisNormal::PositiveZ,
+        _ => return None,
+    };
+    Some(SemanticRayContactClassification::Entered(normal))
+}
+
 fn camera_storage_words(camera: CameraState, extent: vk::Extent2D) -> [f32; CAMERA_WORD_COUNT] {
     let eye = camera.eye();
     let forward = normalize(subtract(camera.target(), eye));
@@ -1702,6 +2184,64 @@ mod tests {
         assert!(shader.contains("Hit trace_volume"));
         assert!(shader.contains("bvec3 tied"));
         assert!(shader.contains("imageStore(output_image, pixel"));
+        assert!(shader.contains("binding = 4) buffer SemanticRayData"));
+        assert!(shader.contains("Hit nearest = trace_scene"));
+        assert!(shader.contains("observe_semantic_ray(probe_index)"));
+    }
+
+    #[test]
+    fn semantic_ray_readback_decodes_installed_scene_identities_and_gpu_contact_data()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use semantic_ray_oracle::{SemanticRayDistanceTolerance, observe};
+        use voxel_frontend::{
+            DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelExtent, VoxelFrontend,
+            VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelValue, VoxelVolumeId,
+            VoxelVolumeMetadata,
+        };
+
+        let material_identity = VoxelMaterialId::new("stone");
+        let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+            VoxelSceneId::new("gpu-observation"),
+            VoxelSceneRevision::new(9),
+            vec![VoxelMaterial::new(material_identity.clone(), [1.0; 4])],
+            vec![DenseVoxelVolume::new(
+                VoxelVolumeMetadata::new(
+                    VoxelVolumeId::new("volume"),
+                    VoxelExtent::new(1, 1, 1),
+                    [0.0; 3],
+                    1.0,
+                ),
+                vec![DenseVoxelBatch::new(
+                    VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(1, 1, 1)),
+                    vec![VoxelValue::Occupied(material_identity)],
+                )],
+            )],
+        ))?;
+        let bundle = ComputeSceneBundle::from_view(&view)?;
+        let probe = SemanticRayProbe::new(
+            "entered",
+            SemanticRay::new([-1.0, 0.5, 0.5], [1.0, 0.0, 0.0], 0.0, 3.0)?,
+        )?;
+        let mut words = semantic_ray_input_words(std::slice::from_ref(&probe));
+        let output = &mut words
+            [SEMANTIC_RAY_OUTPUT_START..SEMANTIC_RAY_OUTPUT_START + SEMANTIC_RAY_OUTPUT_WORD_COUNT];
+        output.copy_from_slice(&[1, 0, 0, 0, 0, 1, 1.0_f32.to_bits(), 1]);
+
+        let decoded = decode_semantic_ray_output(
+            std::slice::from_ref(&probe),
+            &words,
+            &bundle,
+            view.revision(),
+            37,
+        )?;
+        let observation = decoded.first().ok_or("missing decoded observation")?;
+        let oracle = observe(&view, probe.ray())?;
+        let tolerance = SemanticRayDistanceTolerance::new(1.0e-6)?;
+
+        assert_eq!(observation.probe_identity(), "entered");
+        assert_eq!(observation.frame_sequence(), 37);
+        assert!(observation.observation().agrees_with(&oracle, tolerance));
+        Ok(())
     }
 
     #[test]

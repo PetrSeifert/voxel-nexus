@@ -762,6 +762,7 @@ mod tests {
             device,
             command_buffer: vk::CommandBuffer::null(),
             target: RenderPathFrameTarget {
+                frame_sequence: 1,
                 configuration_id: PresentationConfigurationId(1),
                 attachment: RenderPathAttachment {
                     identity: RenderPathAttachmentIdentity(0),

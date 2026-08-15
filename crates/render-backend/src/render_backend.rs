@@ -509,6 +509,7 @@ impl<'target> RenderPathTarget<'target> {
 }
 
 pub struct RenderPathFrameTarget<'frame> {
+    frame_sequence: u64,
     configuration_id: PresentationConfigurationId,
     attachment: RenderPathAttachment<'frame>,
     format: vk::Format,
@@ -516,6 +517,10 @@ pub struct RenderPathFrameTarget<'frame> {
 }
 
 impl RenderPathFrameTarget<'_> {
+    pub fn frame_sequence(&self) -> u64 {
+        self.frame_sequence
+    }
+
     pub fn configuration_id(&self) -> PresentationConfigurationId {
         self.configuration_id
     }
@@ -612,6 +617,24 @@ impl RenderPathDeviceContext<'_> {
                 .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?
         };
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination.cast(), bytes.len()) };
+        unsafe { self.device.unmap_memory(memory) };
+        Ok(())
+    }
+
+    /// # Safety
+    /// `memory` must be host-visible, coherent, and allocated for at least `bytes.len()` bytes.
+    /// Submitted writes to the range must be available to the host before this call.
+    pub unsafe fn read_memory(
+        &self,
+        memory: vk::DeviceMemory,
+        bytes: &mut [u8],
+    ) -> Result<(), vk::Result> {
+        let size = u64::try_from(bytes.len()).map_err(|_| vk::Result::ERROR_OUT_OF_HOST_MEMORY)?;
+        let source = unsafe {
+            self.device
+                .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?
+        };
+        unsafe { std::ptr::copy_nonoverlapping(source.cast(), bytes.as_mut_ptr(), bytes.len()) };
         unsafe { self.device.unmap_memory(memory) };
         Ok(())
     }
@@ -963,6 +986,27 @@ impl RenderPathFrameContext<'_> {
                 &[],
                 &[],
                 barriers,
+            )
+        };
+    }
+
+    /// # Safety
+    /// Each buffer barrier must describe a live buffer and valid access masks.
+    pub unsafe fn buffer_pipeline_barrier(
+        &self,
+        source_stage: vk::PipelineStageFlags,
+        destination_stage: vk::PipelineStageFlags,
+        barriers: &[vk::BufferMemoryBarrier<'_>],
+    ) {
+        unsafe {
+            self.device.cmd_pipeline_barrier(
+                self.command_buffer,
+                source_stage,
+                destination_stage,
+                vk::DependencyFlags::empty(),
+                &[],
+                barriers,
+                &[],
             )
         };
     }
@@ -1900,7 +1944,7 @@ impl PresentationResources {
                 .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
                 .map_err(BackendError::ResetFrame)?;
         }
-        self.record_commands(path, image_index)?;
+        self.record_commands(path, image_index, submitted_frame_sequence)?;
 
         let wait_semaphores = [self.image_available];
         let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -1945,6 +1989,7 @@ impl PresentationResources {
         &self,
         path: &mut dyn RenderPath,
         image_index: u32,
+        frame_sequence: u64,
     ) -> Result<(), BackendError> {
         let target_index = usize::try_from(image_index)
             .map_err(|_| BackendError::RecordCommands(vk::Result::ERROR_UNKNOWN))?;
@@ -1979,6 +2024,7 @@ impl PresentationResources {
                 device: &self.device,
                 command_buffer: self.command_buffer,
                 target: RenderPathFrameTarget {
+                    frame_sequence,
                     configuration_id: self.configuration_id,
                     attachment: RenderPathAttachment {
                         identity: RenderPathAttachmentIdentity(target_index),

@@ -160,14 +160,14 @@ fn rejects_each_descriptor_binding_limit_that_the_two_stages_use() {
         ),
         (
             ComputeDescriptorRequirement::StorageBufferPerStage,
-            2,
+            3,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_per_stage_descriptor_storage_buffers = 0;
             },
         ),
         (
             ComputeDescriptorRequirement::StorageBufferPerSet,
-            2,
+            3,
             |capabilities: &mut RenderPathDeviceCapabilities| {
                 capabilities.max_descriptor_set_storage_buffers = 0;
             },
@@ -223,9 +223,9 @@ fn rejects_each_descriptor_binding_limit_that_the_two_stages_use() {
 }
 
 #[test]
-fn rejects_a_storage_buffer_binding_range_smaller_than_the_camera_state() {
+fn rejects_a_storage_buffer_binding_range_smaller_than_semantic_ray_readback() {
     let mut queried = capable_device();
-    queried.max_storage_buffer_range = 79;
+    queried.max_storage_buffer_range = 515;
 
     assert_eq!(
         qualify_compute_render_path(
@@ -236,8 +236,8 @@ fn rejects_a_storage_buffer_binding_range_smaller_than_the_camera_state() {
             }
         ),
         Err(ComputeRenderPathRejection::StorageBufferBindingRange {
-            required: 80,
-            available: 79,
+            required: 516,
+            available: 515,
         })
     );
 }

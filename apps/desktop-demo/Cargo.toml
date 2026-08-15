@@ -17,6 +17,7 @@ measurement-evidence = { path = "../../crates/measurement-evidence" }
 raw-window-handle = "0.6.2"
 render-backend = { path = "../../crates/render-backend" }
 raster-render-path = { path = "../../crates/raster-render-path" }
+semantic-ray-oracle = { path = "../../crates/semantic-ray-oracle" }
 voxel-frontend = { path = "../../crates/voxel-frontend" }
 winit = "0.30.12"
 

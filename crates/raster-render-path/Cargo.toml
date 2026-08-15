@@ -9,6 +9,7 @@ path = "src/raster_render_path.rs"
 [dependencies]
 ash = "0.38.0"
 render-backend = { path = "../render-backend" }
+semantic-ray-oracle = { path = "../semantic-ray-oracle" }
 thiserror = "2.0.18"
 voxel-frontend = { path = "../voxel-frontend" }
 

@@ -6,6 +6,10 @@ use render_backend::{
     RenderPathRetirement, RenderPathStamp, RenderPathStrategy, RenderPathTarget,
     SwitchableRenderPath,
 };
+use semantic_ray_oracle::{
+    AxisNormal as SemanticAxisNormal, SemanticRayContactClassification,
+    SemanticRayProbeObservation, SemanticRayResult,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::io::Cursor;
@@ -152,6 +156,199 @@ impl SemanticFace {
 
     pub fn material_identity(&self) -> &VoxelMaterialId {
         &self.material_identity
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RasterSemanticFaceCorrespondence {
+    Matched(SemanticFace),
+    Missing(SemanticFace),
+    NotApplicableMiss,
+    NotApplicableStartedInside,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RasterSemanticFaceObservation {
+    probe_identity: String,
+    scene_identity: VoxelSceneId,
+    revision: VoxelSceneRevision,
+    frame_sequence: u64,
+    correspondence: RasterSemanticFaceCorrespondence,
+}
+
+impl RasterSemanticFaceObservation {
+    pub fn probe_identity(&self) -> &str {
+        &self.probe_identity
+    }
+
+    pub fn scene_identity(&self) -> &VoxelSceneId {
+        &self.scene_identity
+    }
+
+    pub fn revision(&self) -> VoxelSceneRevision {
+        self.revision
+    }
+
+    pub fn frame_sequence(&self) -> u64 {
+        self.frame_sequence
+    }
+
+    pub fn correspondence(&self) -> &RasterSemanticFaceCorrespondence {
+        &self.correspondence
+    }
+
+    pub fn passed(&self) -> bool {
+        matches!(
+            self.correspondence,
+            RasterSemanticFaceCorrespondence::Matched(_)
+                | RasterSemanticFaceCorrespondence::NotApplicableMiss
+                | RasterSemanticFaceCorrespondence::NotApplicableStartedInside
+        )
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RasterSemanticFaceController {
+    state: Arc<Mutex<RasterSemanticFaceControlState>>,
+}
+
+#[derive(Debug, Default)]
+struct RasterSemanticFaceControlState {
+    pending: Option<Vec<SemanticRayProbeObservation>>,
+    retained: Vec<RasterSemanticFaceObservation>,
+}
+
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
+pub enum RasterSemanticFaceControlError {
+    #[error("a raster Semantic Face observation request is already pending")]
+    RequestPending,
+    #[error("raster Semantic Face observation control is unavailable")]
+    Unavailable,
+    #[error(
+        "the installed raster artifact is scene {actual:?} revision {actual_revision}, but probe {probe_identity} expects scene {expected:?} revision {expected_revision}"
+    )]
+    AttributionMismatch {
+        probe_identity: String,
+        expected: VoxelSceneId,
+        expected_revision: VoxelSceneRevision,
+        actual: VoxelSceneId,
+        actual_revision: VoxelSceneRevision,
+    },
+}
+
+impl RasterSemanticFaceController {
+    pub fn request(
+        &self,
+        oracle_observations: Vec<SemanticRayProbeObservation>,
+    ) -> Result<(), RasterSemanticFaceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterSemanticFaceControlError::Unavailable)?;
+        if state.pending.is_some() {
+            return Err(RasterSemanticFaceControlError::RequestPending);
+        }
+        state.pending = Some(oracle_observations);
+        Ok(())
+    }
+
+    pub fn drain(
+        &self,
+    ) -> Result<Vec<RasterSemanticFaceObservation>, RasterSemanticFaceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterSemanticFaceControlError::Unavailable)?;
+        Ok(std::mem::take(&mut state.retained))
+    }
+
+    fn observe_presented_artifact(
+        &self,
+        artifact: &RasterArtifact,
+        frame_sequence: u64,
+    ) -> Result<(), RasterSemanticFaceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| RasterSemanticFaceControlError::Unavailable)?;
+        let Some(pending) = state.pending.as_ref() else {
+            return Ok(());
+        };
+        let observations = qualify_raster_semantic_faces(artifact, pending, frame_sequence)?;
+        state.pending = None;
+        state.retained.extend(observations);
+        Ok(())
+    }
+}
+
+pub fn qualify_raster_semantic_faces(
+    artifact: &RasterArtifact,
+    oracle_observations: &[SemanticRayProbeObservation],
+    frame_sequence: u64,
+) -> Result<Vec<RasterSemanticFaceObservation>, RasterSemanticFaceControlError> {
+    for probe in oracle_observations {
+        let observation = probe.observation();
+        if observation.scene_identity() != artifact.scene_identity()
+            || observation.revision() != artifact.source_revision()
+        {
+            return Err(RasterSemanticFaceControlError::AttributionMismatch {
+                probe_identity: probe.probe_identity().to_owned(),
+                expected: observation.scene_identity().clone(),
+                expected_revision: observation.revision(),
+                actual: artifact.scene_identity().clone(),
+                actual_revision: artifact.source_revision(),
+            });
+        }
+    }
+    Ok(oracle_observations
+        .iter()
+        .map(|probe| raster_semantic_face_observation(artifact, probe, frame_sequence))
+        .collect())
+}
+
+fn raster_semantic_face_observation(
+    artifact: &RasterArtifact,
+    oracle: &SemanticRayProbeObservation,
+    frame_sequence: u64,
+) -> RasterSemanticFaceObservation {
+    let correspondence = match oracle.observation().result() {
+        SemanticRayResult::Miss => RasterSemanticFaceCorrespondence::NotApplicableMiss,
+        SemanticRayResult::Contact(contact) => match contact.classification() {
+            SemanticRayContactClassification::StartedInside => {
+                RasterSemanticFaceCorrespondence::NotApplicableStartedInside
+            }
+            SemanticRayContactClassification::Entered(normal) => {
+                let face = SemanticFace::new(
+                    contact.volume_identity().clone(),
+                    contact.coordinate(),
+                    raster_axis_normal(normal),
+                    contact.material_identity().clone(),
+                );
+                if artifact.semantic_faces().contains(&face) {
+                    RasterSemanticFaceCorrespondence::Matched(face)
+                } else {
+                    RasterSemanticFaceCorrespondence::Missing(face)
+                }
+            }
+        },
+    };
+    RasterSemanticFaceObservation {
+        probe_identity: oracle.probe_identity().to_owned(),
+        scene_identity: artifact.scene_identity().clone(),
+        revision: artifact.source_revision(),
+        frame_sequence,
+        correspondence,
+    }
+}
+
+fn raster_axis_normal(normal: SemanticAxisNormal) -> AxisNormal {
+    match normal {
+        SemanticAxisNormal::NegativeX => AxisNormal::NegativeX,
+        SemanticAxisNormal::PositiveX => AxisNormal::PositiveX,
+        SemanticAxisNormal::NegativeY => AxisNormal::NegativeY,
+        SemanticAxisNormal::PositiveY => AxisNormal::PositiveY,
+        SemanticAxisNormal::NegativeZ => AxisNormal::NegativeZ,
+        SemanticAxisNormal::PositiveZ => AxisNormal::PositiveZ,
     }
 }
 
@@ -1022,6 +1219,7 @@ pub struct RasterRenderPathAdapter {
     render_path: RasterRenderPath,
     scene_identity: VoxelSceneId,
     initial_revision: VoxelSceneRevision,
+    semantic_face_controller: Option<RasterSemanticFaceController>,
 }
 
 impl RasterRenderPathAdapter {
@@ -1043,6 +1241,7 @@ impl RasterRenderPathAdapter {
                 render_path,
                 scene_identity,
                 initial_revision: expected_source_revision,
+                semantic_face_controller: None,
             },
             artifact_installer,
             camera_controller,
@@ -1054,6 +1253,14 @@ impl RasterRenderPathAdapter {
         hold_post_upload: bool,
     ) -> RasterLifecycleController {
         self.render_path.enable_lifecycle_control(hold_post_upload)
+    }
+
+    pub fn enable_semantic_face_observation(&mut self) -> RasterSemanticFaceController {
+        let controller = RasterSemanticFaceController {
+            state: Arc::new(Mutex::new(RasterSemanticFaceControlState::default())),
+        };
+        self.semantic_face_controller = Some(controller.clone());
+        controller
     }
 
     fn required_revision(&self) -> VoxelSceneRevision {
@@ -1108,7 +1315,16 @@ impl RenderPath for RasterRenderPathAdapter {
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
-        self.render_path.record(frame)
+        let frame_sequence = frame.target().frame_sequence();
+        self.render_path.record(frame)?;
+        if let Some(controller) = &self.semantic_face_controller {
+            let artifact = self
+                .render_path
+                .installed_artifact()
+                .ok_or(RasterResourceError::MissingArtifact)?;
+            controller.observe_presented_artifact(artifact, frame_sequence)?;
+        }
+        Ok(())
     }
 }
 

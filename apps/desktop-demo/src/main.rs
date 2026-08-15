@@ -2,21 +2,26 @@
 mod windows_adapter;
 
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
-use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
+use canonical_scene::{
+    CanonicalSceneMetadata, CanonicalSceneScale, canonical_edit_semantic_ray_probes,
+    generate_canonical_scene,
+};
 #[cfg(target_os = "windows")]
 use compute_ray_render_path::{
     ComputeCandidateDisposition, ComputeConvergenceController, ComputeConvergenceEvent,
-    ComputeRayRenderPathAdapter,
+    ComputeRayRenderPathAdapter, ComputeSemanticRayController, ComputeSemanticRayProbeObservation,
 };
 #[cfg(target_os = "windows")]
 use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionIdentity};
-#[cfg(target_os = "windows")]
-use raster_render_path::RasterRenderPathAdapter;
 use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
     RasterConvergenceCharacterization, RasterConvergenceStatus, RasterLifecycleController,
     RasterPreparationBarrier, RasterPreparationBarrierRelease, RasterSafeRetirementDisposition,
+};
+#[cfg(target_os = "windows")]
+use raster_render_path::{
+    RasterRenderPathAdapter, RasterSemanticFaceController, RasterSemanticFaceObservation,
 };
 #[cfg(target_os = "windows")]
 use render_backend::{
@@ -26,6 +31,10 @@ use render_backend::{
 };
 use render_backend::{
     DeviceCandidate, QueueFamilyCapabilities, RenderPathPhase, run_render_path_phase,
+};
+#[cfg(target_os = "windows")]
+use semantic_ray_oracle::{
+    SemanticRayDistanceTolerance, SemanticRayProbeObservation, observe_probe,
 };
 #[cfg(target_os = "windows")]
 use std::collections::VecDeque;
@@ -42,7 +51,8 @@ use std::{error::Error, fmt};
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelEditCommand,
     VoxelEditOutcome, VoxelExtent, VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion,
-    VoxelSceneId, VoxelSceneRevision, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+    VoxelSceneId, VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId,
+    VoxelVolumeMetadata,
 };
 #[cfg(target_os = "windows")]
 use windows_adapter::{WindowsPresentationAdapter, WindowsTextOverlay, set_measurement_extent};
@@ -1035,6 +1045,198 @@ impl MeasurementSession {
 }
 
 #[cfg(target_os = "windows")]
+#[derive(Default)]
+struct SemanticQualificationState {
+    oracle_observations: Vec<SemanticRayProbeObservation>,
+    compute_controllers: Vec<ComputeSemanticRayController>,
+    raster_controllers: Vec<RasterSemanticFaceController>,
+    compute_observations: Vec<ComputeSemanticRayProbeObservation>,
+    raster_observations: Vec<RasterSemanticFaceObservation>,
+    presented_frame_sequences: Vec<u64>,
+    pending_compute_observation_count: usize,
+    pending_raster_observation_count: usize,
+}
+
+#[cfg(target_os = "windows")]
+impl SemanticQualificationState {
+    fn register_compute(
+        &mut self,
+        adapter: &mut ComputeRayRenderPathAdapter,
+        view: &VoxelSceneView,
+    ) -> Result<(), String> {
+        let probes = canonical_edit_semantic_ray_probes().map_err(|error| error.to_string())?;
+        let oracle = probes
+            .iter()
+            .map(|probe| observe_probe(view, probe).map_err(|error| error.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let controller = adapter.enable_semantic_ray_observation();
+        controller
+            .request(probes.to_vec())
+            .map_err(|error| error.to_string())?;
+        self.pending_compute_observation_count = self
+            .pending_compute_observation_count
+            .checked_add(probes.len())
+            .ok_or_else(|| "compute Semantic Ray observation count overflowed".to_owned())?;
+        self.oracle_observations.extend(oracle);
+        self.compute_controllers.push(controller);
+        Ok(())
+    }
+
+    fn register_raster(
+        &mut self,
+        adapter: &mut RasterRenderPathAdapter,
+        view: &VoxelSceneView,
+    ) -> Result<(), String> {
+        let probes = canonical_edit_semantic_ray_probes().map_err(|error| error.to_string())?;
+        let oracle = probes
+            .iter()
+            .map(|probe| observe_probe(view, probe).map_err(|error| error.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        let controller = adapter.enable_semantic_face_observation();
+        controller
+            .request(oracle.clone())
+            .map_err(|error| error.to_string())?;
+        self.pending_raster_observation_count = self
+            .pending_raster_observation_count
+            .checked_add(oracle.len())
+            .ok_or_else(|| "raster Semantic Face observation count overflowed".to_owned())?;
+        self.oracle_observations.extend(oracle);
+        self.raster_controllers.push(controller);
+        Ok(())
+    }
+
+    fn request_active_compute(&mut self, view: &VoxelSceneView) -> Result<(), String> {
+        let probes = canonical_edit_semantic_ray_probes().map_err(|error| error.to_string())?;
+        let oracle = probes
+            .iter()
+            .map(|probe| observe_probe(view, probe).map_err(|error| error.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.compute_controllers
+            .last()
+            .ok_or_else(|| "compute Semantic Ray observation control is unavailable".to_owned())?
+            .request(probes.to_vec())
+            .map_err(|error| error.to_string())?;
+        self.pending_compute_observation_count = self
+            .pending_compute_observation_count
+            .checked_add(probes.len())
+            .ok_or_else(|| "compute Semantic Ray observation count overflowed".to_owned())?;
+        self.oracle_observations.extend(oracle);
+        Ok(())
+    }
+
+    fn collect(&mut self, presented_frame_sequence: u64) -> Result<bool, String> {
+        if !self
+            .presented_frame_sequences
+            .contains(&presented_frame_sequence)
+        {
+            self.presented_frame_sequences
+                .push(presented_frame_sequence);
+        }
+        let tolerance =
+            SemanticRayDistanceTolerance::new(1.0e-4).map_err(|error| error.to_string())?;
+        for controller in &self.compute_controllers {
+            for observation in controller.drain().map_err(|error| error.to_string())? {
+                if !self
+                    .presented_frame_sequences
+                    .contains(&observation.frame_sequence())
+                {
+                    return Err(format!(
+                        "compute Semantic Ray observation {} came from unpresented frame {}",
+                        observation.probe_identity(),
+                        observation.frame_sequence()
+                    ));
+                }
+                let actual = observation.observation();
+                if actual.revision() == VoxelSceneRevision::new(2)
+                    || actual.revision() == VoxelSceneRevision::new(3)
+                {
+                    return Err(format!(
+                        "obsolete compute revision {} produced Semantic Ray observation {}",
+                        actual.revision(),
+                        observation.probe_identity()
+                    ));
+                }
+                let oracle = self
+                    .oracle_observations
+                    .iter()
+                    .find(|oracle| {
+                        oracle.probe_identity() == observation.probe_identity()
+                            && oracle.observation().scene_identity() == actual.scene_identity()
+                            && oracle.observation().revision() == actual.revision()
+                    })
+                    .ok_or_else(|| {
+                        format!(
+                            "compute Semantic Ray observation {} at revision {} has no oracle attribution",
+                            observation.probe_identity(),
+                            actual.revision()
+                        )
+                    })?;
+                if !actual.agrees_with(oracle.observation(), tolerance) {
+                    return Err(format!(
+                        "compute Semantic Ray observation {} at revision {} disagrees with the oracle: compute={actual:?} oracle={:?}",
+                        observation.probe_identity(),
+                        actual.revision(),
+                        oracle.observation()
+                    ));
+                }
+                println!(
+                    "Semantic qualification: path=ComputeRay probe={} revision={} frame={} result=pass",
+                    observation.probe_identity(),
+                    actual.revision(),
+                    observation.frame_sequence()
+                );
+                self.pending_compute_observation_count = self
+                    .pending_compute_observation_count
+                    .checked_sub(1)
+                    .ok_or_else(|| {
+                        "compute Semantic Ray observation arrived without a pending request"
+                            .to_owned()
+                    })?;
+                self.compute_observations.push(observation);
+            }
+        }
+        for controller in &self.raster_controllers {
+            for observation in controller.drain().map_err(|error| error.to_string())? {
+                if !self
+                    .presented_frame_sequences
+                    .contains(&observation.frame_sequence())
+                {
+                    return Err(format!(
+                        "raster Semantic Face observation {} came from unpresented frame {}",
+                        observation.probe_identity(),
+                        observation.frame_sequence()
+                    ));
+                }
+                if !observation.passed() {
+                    return Err(format!(
+                        "raster Semantic Face correspondence failed for probe {} at revision {}: {:?}",
+                        observation.probe_identity(),
+                        observation.revision(),
+                        observation.correspondence()
+                    ));
+                }
+                println!(
+                    "Semantic qualification: path=Raster probe={} revision={} frame={} correspondence={:?} result=pass",
+                    observation.probe_identity(),
+                    observation.revision(),
+                    observation.frame_sequence(),
+                    observation.correspondence()
+                );
+                self.pending_raster_observation_count = self
+                    .pending_raster_observation_count
+                    .checked_sub(1)
+                    .ok_or_else(|| {
+                        "raster Semantic Face observation arrived without a pending request"
+                            .to_owned()
+                    })?;
+                self.raster_observations.push(observation);
+            }
+        }
+        Ok(self.pending_compute_observation_count > 0 || self.pending_raster_observation_count > 0)
+    }
+}
+
+#[cfg(target_os = "windows")]
 struct DesktopApplication {
     backend: Option<RenderBackend>,
     text_overlay: Option<WindowsTextOverlay>,
@@ -1082,6 +1284,7 @@ struct DesktopApplication {
     compute_edit_burst_stage: Option<ComputeEditBurstStage>,
     compute_edit_burst_events: Vec<ComputeConvergenceEvent>,
     compute_edit_burst_presented_revisions: Vec<VoxelSceneRevision>,
+    semantic_qualification: SemanticQualificationState,
 }
 
 #[cfg(target_os = "windows")]
@@ -1193,6 +1396,7 @@ impl DesktopApplication {
             compute_edit_burst_stage: None,
             compute_edit_burst_events: Vec::new(),
             compute_edit_burst_presented_revisions: Vec::new(),
+            semantic_qualification: SemanticQualificationState::default(),
         })
     }
 
@@ -1339,13 +1543,15 @@ impl DesktopApplication {
                     })
                     .transpose()?;
                 let mut replacement_path = ComputeRayRenderPathAdapter::new(
-                    view,
+                    view.clone(),
                     self.camera_state,
                     self.camera_state_revision,
                 )
                 .map_err(|error| {
                     format!("could not cold-build the compute replacement: {error}")
                 })?;
+                self.semantic_qualification
+                    .register_compute(&mut replacement_path, &view)?;
                 if let Some(plan) = burst_plan {
                     let controller = replacement_path.enable_convergence_control(true);
                     compute_burst_setup = Some((controller, plan));
@@ -1365,6 +1571,8 @@ impl DesktopApplication {
                         revision,
                     );
                 let lifecycle_controller = replacement_path.enable_lifecycle_control(false);
+                self.semantic_qualification
+                    .register_raster(&mut replacement_path, &view)?;
                 let event_proxy = self.event_proxy.clone();
                 let mut preparation = RasterArtifactPreparation::start_regions(
                     view,
@@ -1840,6 +2048,16 @@ impl DesktopApplication {
                         "Compute edit burst converged newest-only: Required={} Visible={} installed_revisions={installed_revisions:?} obsolete_presented_frames=0 obsolete_semantic_observations=0 elapsed_ms={elapsed_milliseconds:.6}",
                         plan.expected_final_revision, plan.expected_final_revision
                     );
+                    let view = self
+                        .frontend
+                        .as_ref()
+                        .ok_or_else(|| "the Voxel Frontend is unavailable".to_owned())?
+                        .scene_view()
+                        .map_err(|error| error.to_string())?;
+                    self.semantic_qualification.request_active_compute(&view)?;
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                     self.render_path_control_feedback = "Space-complete-Tab-ready".to_owned();
                     ComputeEditBurstStage::Complete
                 } else {
@@ -1877,9 +2095,14 @@ impl DesktopApplication {
             view.revision(),
             self.camera_state_revision
         );
-        let replacement =
-            ComputeRayRenderPathAdapter::new(view, self.camera_state, self.camera_state_revision)
-                .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
+        let mut replacement = ComputeRayRenderPathAdapter::new(
+            view.clone(),
+            self.camera_state,
+            self.camera_state_revision,
+        )
+        .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
+        self.semantic_qualification
+            .register_compute(&mut replacement, &view)?;
         self.backend
             .as_mut()
             .ok_or_else(|| {
@@ -3096,6 +3319,15 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             event_loop.exit();
             return;
         }
+        if self.render_configuration.compute_switch_demo
+            && let Err(error) = self
+                .semantic_qualification
+                .register_raster(&mut render_path, &view)
+        {
+            self.application_error = Some(error);
+            event_loop.exit();
+            return;
+        }
         if self.render_configuration.inject_raster_upload_failure
             && let Err(error) = artifact_installer.inject_next_upload_failure()
         {
@@ -3611,6 +3843,30 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             } else {
                                 false
                             };
+                        if self.render_configuration.compute_switch_demo {
+                            let Some(presented_frame_sequence) = submitted_frame_sequence else {
+                                self.fail(
+                                    event_loop,
+                                    "a presented frame has no submitted frame sequence",
+                                );
+                                return;
+                            };
+                            match self
+                                .semantic_qualification
+                                .collect(presented_frame_sequence)
+                            {
+                                Ok(true) => {
+                                    if let Some(window) = &self.window {
+                                        window.request_redraw();
+                                    }
+                                }
+                                Ok(false) => {}
+                                Err(error) => {
+                                    self.fail(event_loop, error);
+                                    return;
+                                }
+                            }
+                        }
                         if self.render_configuration.compute_switch_lifecycle_demo {
                             if let Err(error) = self.drive_compute_lifecycle_after_presented() {
                                 self.fail(event_loop, error);
