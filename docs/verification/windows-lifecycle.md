@@ -34,6 +34,15 @@ The edit-burst runner keeps one validation-enabled process alive from its comple
 
 The native in-client overlay is a child of the Vulkan window and remains visibly layered over the scene. It reports the edit-burst stage, Required and Visible Voxel Scene Revisions, affected and unaffected Raster Region counts, and last acknowledged camera without introducing a separate text-rendering path. Whole-window PNG captures retain that overlay with the scene. The versioned JSON manifest records the real Space key input, canonical generator and scene inputs, all three keypress-owned commands with old and requested values, checked revisions, fixed 32³ Raster Region extent, barrier results, lifecycle sequence, capture hashes, validation counts, and process exit. These artifacts are descriptive inputs for later extent qualification and evidence assembly, not a selected extent or performance claim.
 
+To run the compute shutdown qualification separately, use:
+
+```powershell
+pwsh -NoProfile -File scripts/verify-compute-shutdown.ps1 `
+    -EvidenceDirectory artifacts/compute-shutdown
+```
+
+The runner starts four validation-enabled processes. One closes while a recordable compute replacement is held before handoff, so shutdown begins with switching-owned raster and compute paths. The other three wait for raster retirement, then close while compute presents with switching idle, while revision 2 owns one paused CPU preparation worker, and while revision 2 owns a complete uploaded candidate that has not become Visible. Every close must report zero switching ownership, raster resources, compute Vulkan objects, allocations, workers, and retained Voxel Scene Views. The runner also requires exit code 0 and an empty validation log for every case.
+
 To qualify and select among the fixed cubic Raster Region extents on one Windows machine, run:
 
 ```powershell

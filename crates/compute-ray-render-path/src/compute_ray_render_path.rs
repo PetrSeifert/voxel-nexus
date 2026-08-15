@@ -488,8 +488,6 @@ enum ComputeRenderPathError {
     ConvergenceControl(#[from] ComputeConvergenceControlError),
     #[error(transparent)]
     SemanticRayControl(#[from] ComputeSemanticRayControlError),
-    #[error("compute convergence shutdown failed: {0}")]
-    ConvergenceShutdown(String),
     #[error(transparent)]
     Rejected(#[from] ComputeRenderPathRejection),
     #[error("could not create the compute output image: {0}")]
@@ -579,12 +577,86 @@ enum ComputeRenderPathError {
     MissingHiddenCandidate,
     #[error("injected compute convergence {0:?} failure")]
     InjectedConvergenceFailure(ComputeConvergenceFailurePhase),
+    #[error("compute shutdown failed: {0}")]
+    Shutdown(String),
 }
 
 pub struct ComputeRayRenderPathAdapter {
     render_path: ComputeRayRenderPath,
     camera_state_revision: CameraStateRevision,
     published_camera_state_revision: CameraStateRevision,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ComputeOwnedResourceCounts {
+    objects: usize,
+    allocations: usize,
+    workers: usize,
+    views: usize,
+}
+
+impl ComputeOwnedResourceCounts {
+    pub fn objects(self) -> usize {
+        self.objects
+    }
+
+    pub fn allocations(self) -> usize {
+        self.allocations
+    }
+
+    pub fn workers(self) -> usize {
+        self.workers
+    }
+
+    pub fn views(self) -> usize {
+        self.views
+    }
+
+    pub fn is_zero(self) -> bool {
+        self == Self::default()
+    }
+}
+
+#[derive(Default)]
+struct ComputeLifecycleControlState {
+    shutdown_owned_resources: Option<ComputeOwnedResourceCounts>,
+}
+
+#[derive(Clone)]
+pub struct ComputeLifecycleController {
+    state: Arc<Mutex<ComputeLifecycleControlState>>,
+}
+
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+#[error("the compute lifecycle control state is unavailable")]
+pub struct ComputeLifecycleControlError;
+
+impl ComputeLifecycleController {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ComputeLifecycleControlState::default())),
+        }
+    }
+
+    pub fn shutdown_owned_resources(
+        &self,
+    ) -> Result<Option<ComputeOwnedResourceCounts>, ComputeLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|state| state.shutdown_owned_resources)
+            .map_err(|_| ComputeLifecycleControlError)
+    }
+
+    fn record_shutdown(
+        &self,
+        owned_resources: ComputeOwnedResourceCounts,
+    ) -> Result<(), ComputeLifecycleControlError> {
+        self.state
+            .lock()
+            .map_err(|_| ComputeLifecycleControlError)?
+            .shutdown_owned_resources = Some(owned_resources);
+        Ok(())
+    }
 }
 
 impl ComputeRayRenderPathAdapter {
@@ -651,6 +723,12 @@ impl ComputeRayRenderPathAdapter {
             state: Arc::new(Mutex::new(ComputeSemanticRayControlState::default())),
         };
         self.render_path.semantic_ray_controller = Some(controller.clone());
+        controller
+    }
+
+    pub fn enable_lifecycle_control(&mut self) -> ComputeLifecycleController {
+        let controller = ComputeLifecycleController::new();
+        self.render_path.lifecycle_controller = Some(controller.clone());
         controller
     }
 }
@@ -744,6 +822,7 @@ struct ComputeRayRenderPath {
     scene_gpu_revision: VoxelSceneRevision,
     hidden_scene_gpu_resources: Option<ComputeHiddenSceneGpuResources>,
     convergence_control: Option<ComputeConvergenceController>,
+    lifecycle_controller: Option<ComputeLifecycleController>,
     camera_buffer: vk::Buffer,
     camera_memory: vk::DeviceMemory,
     semantic_ray_buffer: vk::Buffer,
@@ -783,6 +862,7 @@ impl ComputeRayRenderPath {
             scene_gpu_revision,
             hidden_scene_gpu_resources: None,
             convergence_control: None,
+            lifecycle_controller: None,
             camera_buffer: vk::Buffer::null(),
             camera_memory: vk::DeviceMemory::null(),
             semantic_ray_buffer: vk::Buffer::null(),
@@ -1729,6 +1809,50 @@ impl ComputeRayRenderPath {
         self.armed_semantic_ray_probes = None;
         self.recorded_semantic_ray_frame = None;
     }
+
+    fn owned_resource_counts(&self) -> ComputeOwnedResourceCounts {
+        let hidden_resources = self
+            .hidden_scene_gpu_resources
+            .as_ref()
+            .map(|candidate| &candidate.resources);
+        let objects = [
+            self.output_image != vk::Image::null(),
+            self.output_view != vk::ImageView::null(),
+            self.sampler != vk::Sampler::null(),
+            self.scene_buffer != vk::Buffer::null(),
+            hidden_resources.is_some_and(|resources| resources.buffer != vk::Buffer::null()),
+            self.camera_buffer != vk::Buffer::null(),
+            self.semantic_ray_buffer != vk::Buffer::null(),
+            self.descriptor_set_layout != vk::DescriptorSetLayout::null(),
+            self.descriptor_pool != vk::DescriptorPool::null(),
+            self.descriptor_set != vk::DescriptorSet::null(),
+            self.compute_pipeline_layout != vk::PipelineLayout::null(),
+            self.compute_pipeline != vk::Pipeline::null(),
+            self.render_pass != vk::RenderPass::null(),
+            self.composite_pipeline_layout != vk::PipelineLayout::null(),
+            self.composite_pipeline != vk::Pipeline::null(),
+        ]
+        .into_iter()
+        .filter(|owned| *owned)
+        .count()
+            + self.framebuffers.len();
+        let allocations = [
+            self.output_memory != vk::DeviceMemory::null(),
+            self.scene_memory != vk::DeviceMemory::null(),
+            hidden_resources.is_some_and(|resources| resources.memory != vk::DeviceMemory::null()),
+            self.camera_memory != vk::DeviceMemory::null(),
+            self.semantic_ray_memory != vk::DeviceMemory::null(),
+        ]
+        .into_iter()
+        .filter(|owned| *owned)
+        .count();
+        ComputeOwnedResourceCounts {
+            objects,
+            allocations,
+            workers: self.convergence.status().worker_count(),
+            views: self.convergence.owned_view_count(),
+        }
+    }
 }
 
 impl RenderPath for ComputeRayRenderPath {
@@ -1763,13 +1887,38 @@ impl RenderPath for ComputeRayRenderPath {
     }
 
     fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
-        self.collect_semantic_ray_observations(&device)?;
-        let convergence_error = self.convergence.shutdown().err();
+        let mut failures = Vec::new();
+        if let Err(error) = self.collect_semantic_ray_observations(&device) {
+            failures.push(format!("Semantic Ray observation collection: {error}"));
+        }
+        if let Err(error) = self.convergence.shutdown() {
+            failures.push(format!("convergence: {error}"));
+        }
+        if let Err(error) = self.release_hidden_scene_gpu_resources_with(|resources| {
+            release_scene_gpu_resources(&device, resources);
+        }) {
+            failures.push(format!("hidden candidate control: {error}"));
+        }
         self.release_presentation_resources(&device);
         self.release_scene_resources(&device);
-        match convergence_error {
-            Some(error) => Err(Box::new(ComputeRenderPathError::ConvergenceShutdown(error))),
-            None => Ok(()),
+        if let Some(controller) = self.convergence_control.clone()
+            && let Err(error) =
+                controller.synchronize(self.convergence.status(), self.convergence.drain_events())
+        {
+            failures.push(format!("convergence control: {error}"));
+        }
+        let owned_resources = self.owned_resource_counts();
+        if let Some(controller) = &self.lifecycle_controller
+            && let Err(error) = controller.record_shutdown(owned_resources)
+        {
+            failures.push(format!("lifecycle control: {error}"));
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(Box::new(ComputeRenderPathError::Shutdown(
+                failures.join("; "),
+            )))
         }
     }
 

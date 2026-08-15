@@ -740,6 +740,18 @@ impl ComputeConvergence {
         }
     }
 
+    pub(crate) fn owned_view_count(&self) -> usize {
+        usize::from(self.active.is_some())
+            + usize::from(
+                self.active
+                    .as_ref()
+                    .is_some_and(|active| active.worker.is_some()),
+            )
+            + usize::from(self.pending.is_some())
+            + usize::from(self.paused.is_some())
+            + usize::from(self.hidden.is_some())
+    }
+
     pub(crate) fn accept(
         &mut self,
         outcome: VoxelEditOutcome,
@@ -1818,6 +1830,55 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(installed, vec![newer]);
         assert!(!installed.contains(&failed));
+        Ok(())
+    }
+
+    #[test]
+    fn shutdown_releases_an_active_preparation_worker_and_every_retained_view()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("active-shutdown", 130, VoxelExtent::new(64, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        let controller = convergence.enable_control(false);
+        controller.hold_next_preparation_after_blocks(1)?;
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut barrier_reached = false;
+        while Instant::now() < deadline {
+            if controller
+                .preparation_barrier_observation()?
+                .is_some_and(|observation| observation.completed_block_count() == 1)
+            {
+                barrier_reached = true;
+                break;
+            }
+            thread::yield_now();
+        }
+        assert!(barrier_reached);
+        assert_eq!(convergence.status().worker_count(), 1);
+        assert!(convergence.owned_view_count() > 0);
+
+        convergence.shutdown()?;
+
+        assert_eq!(convergence.status().worker_count(), 0);
+        assert_eq!(convergence.owned_view_count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn shutdown_releases_a_hidden_candidate_view() -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("hidden-shutdown", 140, VoxelExtent::new(1, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(141))?;
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        assert_eq!(convergence.status().worker_count(), 0);
+        assert_eq!(convergence.owned_view_count(), 1);
+
+        convergence.shutdown()?;
+
+        assert_eq!(convergence.status().hidden(), None);
+        assert_eq!(convergence.owned_view_count(), 0);
         Ok(())
     }
 

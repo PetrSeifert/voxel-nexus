@@ -9,7 +9,8 @@ use canonical_scene::{
 #[cfg(target_os = "windows")]
 use compute_ray_render_path::{
     ComputeCandidateDisposition, ComputeConvergenceController, ComputeConvergenceEvent,
-    ComputeRayRenderPathAdapter, ComputeSemanticRayController, ComputeSemanticRayProbeObservation,
+    ComputeLifecycleController, ComputeRayRenderPathAdapter, ComputeSemanticRayController,
+    ComputeSemanticRayProbeObservation,
 };
 #[cfg(target_os = "windows")]
 use measurement_evidence::{MeasurementEvent, ResourceCounts, VoxelSceneRevisionIdentity};
@@ -118,7 +119,16 @@ struct DesktopRenderConfiguration {
     edit_burst_demo: bool,
     compute_switch_demo: bool,
     compute_switch_lifecycle_demo: bool,
+    compute_shutdown_qualification: Option<ComputeShutdownQualification>,
     measurement: Option<MeasurementConfiguration>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ComputeShutdownQualification {
+    ActivePreparation,
+    HiddenCandidate,
+    Presenting,
+    Replacement,
 }
 
 impl DesktopRenderConfiguration {
@@ -170,6 +180,7 @@ fn parse_render_configuration(
     let mut edit_burst_demo = false;
     let mut compute_switch_demo = false;
     let mut compute_switch_lifecycle_demo = false;
+    let mut compute_shutdown_qualification = None;
     let mut raster_region_extent = 32;
     let mut measurement_mode = None;
     let mut measurement_output = None;
@@ -184,6 +195,21 @@ fn parse_render_configuration(
             "--compute-switch-lifecycle-demo" => {
                 compute_switch_demo = true;
                 compute_switch_lifecycle_demo = true;
+            }
+            "--compute-shutdown-qualification" => {
+                compute_switch_demo = true;
+                compute_shutdown_qualification = Some(match arguments.next().as_deref() {
+                    Some("active-preparation") => ComputeShutdownQualification::ActivePreparation,
+                    Some("hidden-candidate") => ComputeShutdownQualification::HiddenCandidate,
+                    Some("presenting") => ComputeShutdownQualification::Presenting,
+                    Some("replacement") => ComputeShutdownQualification::Replacement,
+                    Some(value) => {
+                        return Err(format!(
+                            "unknown compute shutdown qualification {value:?}; expected active-preparation, hidden-candidate, presenting, or replacement"
+                        ));
+                    }
+                    None => return Err("missing compute shutdown qualification".to_owned()),
+                });
             }
             "--raster-region-extent" => {
                 raster_region_extent = match arguments.next().as_deref() {
@@ -329,6 +355,12 @@ fn parse_render_configuration(
                 .to_owned(),
         );
     }
+    if compute_switch_lifecycle_demo && compute_shutdown_qualification.is_some() {
+        return Err(
+            "the automatic compute switch lifecycle demo cannot run a compute shutdown qualification"
+                .to_owned(),
+        );
+    }
     Ok((
         DesktopRenderConfiguration {
             scene,
@@ -340,6 +372,7 @@ fn parse_render_configuration(
             edit_burst_demo,
             compute_switch_demo,
             compute_switch_lifecycle_demo,
+            compute_shutdown_qualification,
             measurement,
         },
         report_only,
@@ -564,6 +597,9 @@ enum ComputeEditBurstStage {
     WaitingForRevisionFourRequirement(EditBurstPlan),
     WaitingForRevisionThreeRejection(EditBurstPlan),
     WaitingForFinalVisibility(EditBurstPlan),
+    ShutdownActivePreparationHeld(EditBurstPlan),
+    WaitingForShutdownHiddenCandidate(EditBurstPlan),
+    ShutdownHiddenCandidateHeld(EditBurstPlan),
     Complete,
 }
 
@@ -580,6 +616,9 @@ impl ComputeEditBurstStage {
             Self::WaitingForRevisionFourRequirement(_) => "revision-4-requirement",
             Self::WaitingForRevisionThreeRejection(_) => "revision-3-rejection",
             Self::WaitingForFinalVisibility(_) => "revision-4-visibility",
+            Self::ShutdownActivePreparationHeld(_) => "shutdown-active-preparation-held",
+            Self::WaitingForShutdownHiddenCandidate(_) => "shutdown-hidden-candidate-upload",
+            Self::ShutdownHiddenCandidateHeld(_) => "shutdown-hidden-candidate-held",
             Self::Complete => "complete",
         }
     }
@@ -1281,6 +1320,7 @@ struct DesktopApplication {
     completed_interactive_switches: usize,
     render_path_control_feedback: String,
     compute_convergence_controller: Option<ComputeConvergenceController>,
+    compute_lifecycle_controller: Option<ComputeLifecycleController>,
     compute_edit_burst_stage: Option<ComputeEditBurstStage>,
     compute_edit_burst_events: Vec<ComputeConvergenceEvent>,
     compute_edit_burst_presented_revisions: Vec<VoxelSceneRevision>,
@@ -1393,6 +1433,7 @@ impl DesktopApplication {
             completed_interactive_switches: 0,
             render_path_control_feedback: "Tab-waiting-for-convergence".to_owned(),
             compute_convergence_controller: None,
+            compute_lifecycle_controller: None,
             compute_edit_burst_stage: None,
             compute_edit_burst_events: Vec::new(),
             compute_edit_burst_presented_revisions: Vec::new(),
@@ -1550,6 +1591,8 @@ impl DesktopApplication {
                 .map_err(|error| {
                     format!("could not cold-build the compute replacement: {error}")
                 })?;
+                self.compute_lifecycle_controller =
+                    Some(replacement_path.enable_lifecycle_control());
                 self.semantic_qualification
                     .register_compute(&mut replacement_path, &view)?;
                 if let Some(plan) = burst_plan {
@@ -1930,8 +1973,30 @@ impl DesktopApplication {
                     println!(
                         "Compute revision 2 held after one bounded 32-cubed preparation block"
                     );
-                    self.submit_compute_edit_burst_command(&mut plan, VoxelSceneRevision::new(3))?;
-                    ComputeEditBurstStage::WaitingForRevisionThreeRequirement(plan)
+                    match self.render_configuration.compute_shutdown_qualification {
+                        Some(ComputeShutdownQualification::ActivePreparation) => {
+                            self.render_path_control_feedback =
+                                "shutdown-active-preparation-ready".to_owned();
+                            ComputeEditBurstStage::ShutdownActivePreparationHeld(plan)
+                        }
+                        Some(ComputeShutdownQualification::HiddenCandidate) => {
+                            controller
+                                .release_preparation_barrier()
+                                .map_err(|error| error.to_string())?;
+                            ComputeEditBurstStage::WaitingForShutdownHiddenCandidate(plan)
+                        }
+                        Some(
+                            ComputeShutdownQualification::Presenting
+                            | ComputeShutdownQualification::Replacement,
+                        )
+                        | None => {
+                            self.submit_compute_edit_burst_command(
+                                &mut plan,
+                                VoxelSceneRevision::new(3),
+                            )?;
+                            ComputeEditBurstStage::WaitingForRevisionThreeRequirement(plan)
+                        }
+                    }
                 } else {
                     ComputeEditBurstStage::WaitingForPreparationBarrier(plan)
                 }
@@ -2064,11 +2129,35 @@ impl DesktopApplication {
                     ComputeEditBurstStage::WaitingForFinalVisibility(plan)
                 }
             }
+            ComputeEditBurstStage::ShutdownActivePreparationHeld(plan) => {
+                ComputeEditBurstStage::ShutdownActivePreparationHeld(plan)
+            }
+            ComputeEditBurstStage::WaitingForShutdownHiddenCandidate(plan) => {
+                if controller
+                    .post_upload_revision()
+                    .map_err(|error| error.to_string())?
+                    == Some(VoxelSceneRevision::new(2))
+                    && uploaded(VoxelSceneRevision::new(2))
+                {
+                    println!("Compute revision 2 uploaded and retained for shutdown");
+                    self.render_path_control_feedback =
+                        "shutdown-hidden-candidate-ready".to_owned();
+                    ComputeEditBurstStage::ShutdownHiddenCandidateHeld(plan)
+                } else {
+                    ComputeEditBurstStage::WaitingForShutdownHiddenCandidate(plan)
+                }
+            }
+            ComputeEditBurstStage::ShutdownHiddenCandidateHeld(plan) => {
+                ComputeEditBurstStage::ShutdownHiddenCandidateHeld(plan)
+            }
             ComputeEditBurstStage::Complete => ComputeEditBurstStage::Complete,
         };
         let in_progress = !matches!(
             next_stage,
-            ComputeEditBurstStage::AwaitingSpace(_) | ComputeEditBurstStage::Complete
+            ComputeEditBurstStage::AwaitingSpace(_)
+                | ComputeEditBurstStage::ShutdownActivePreparationHeld(_)
+                | ComputeEditBurstStage::ShutdownHiddenCandidateHeld(_)
+                | ComputeEditBurstStage::Complete
         );
         self.compute_edit_burst_stage = Some(next_stage);
         Ok(in_progress)
@@ -2101,6 +2190,7 @@ impl DesktopApplication {
             self.camera_state_revision,
         )
         .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
+        self.compute_lifecycle_controller = Some(replacement.enable_lifecycle_control());
         self.semantic_qualification
             .register_compute(&mut replacement, &view)?;
         self.backend
@@ -2764,6 +2854,124 @@ impl DesktopApplication {
         }
     }
 
+    fn compute_shutdown_qualification_report(&self) -> Result<String, String> {
+        let qualification = self
+            .render_configuration
+            .compute_shutdown_qualification
+            .ok_or_else(|| "the compute shutdown qualification is inactive".to_owned())?;
+        let diagnostics = self
+            .backend
+            .as_ref()
+            .and_then(RenderBackend::render_path_switch_diagnostics)
+            .ok_or_else(|| {
+                "Render Path switching diagnostics are unavailable during compute shutdown"
+                    .to_owned()
+            })?;
+        if qualification == ComputeShutdownQualification::Replacement {
+            let replacement = diagnostics.roles().replacement();
+            let replacement_stamp = diagnostics.replacement();
+            if diagnostics.roles().presenting() != RenderPathStrategy::Raster
+                || replacement != Some(RenderPathStrategy::ComputeRay)
+                || diagnostics.roles().retiring().is_some()
+                || self.completed_interactive_switches != 0
+                || replacement_stamp
+                    .is_none_or(|stamp| stamp.readiness() != RenderPathReadiness::Recordable)
+                || !self
+                    .render_path_handoff_control
+                    .as_ref()
+                    .is_some_and(RenderPathHandoffControl::is_held)
+            {
+                return Err(format!(
+                    "compute replacement shutdown requires a recordable replacement held before handoff: Presenting={:?} Replacement={replacement:?} Retiring={:?} completed_switches={} replacement_readiness={:?}",
+                    diagnostics.roles().presenting(),
+                    diagnostics.roles().retiring(),
+                    self.completed_interactive_switches,
+                    replacement_stamp.map(|stamp| stamp.readiness())
+                ));
+            }
+            return Ok("Closing with compute replacement owned before handoff".to_owned());
+        }
+        if diagnostics.roles().presenting() != RenderPathStrategy::ComputeRay
+            || diagnostics.roles().replacement().is_some()
+            || diagnostics.roles().retiring().is_some()
+            || self.completed_interactive_switches < 1
+        {
+            return Err(format!(
+                "compute shutdown requires an idle ComputeRay presenter after retirement: Presenting={:?} Replacement={:?} Retiring={:?} completed_switches={}",
+                diagnostics.roles().presenting(),
+                diagnostics.roles().replacement(),
+                diagnostics.roles().retiring(),
+                self.completed_interactive_switches
+            ));
+        }
+        let controller = self
+            .compute_convergence_controller
+            .as_ref()
+            .ok_or_else(|| "the compute convergence controller is unavailable".to_owned())?;
+        let status = controller.status().map_err(|error| error.to_string())?;
+        match qualification {
+            ComputeShutdownQualification::Presenting => {
+                if !matches!(
+                    self.compute_edit_burst_stage,
+                    Some(ComputeEditBurstStage::AwaitingSpace(_))
+                ) || status.worker_count() != 0
+                {
+                    return Err(
+                        "the presenting shutdown qualification started transient compute work"
+                            .to_owned(),
+                    );
+                }
+                Ok("Closing while compute presents with switching idle".to_owned())
+            }
+            ComputeShutdownQualification::ActivePreparation => {
+                let observation = controller
+                    .preparation_barrier_observation()
+                    .map_err(|error| error.to_string())?;
+                if !matches!(
+                    self.compute_edit_burst_stage,
+                    Some(ComputeEditBurstStage::ShutdownActivePreparationHeld(_))
+                ) || status.worker_count() != 1
+                    || status.preparing().map(|stamp| stamp.revision())
+                        != Some(VoxelSceneRevision::new(2))
+                    || !observation.is_some_and(|observation| {
+                        observation.reached_revision() == Some(VoxelSceneRevision::new(2))
+                            && observation.completed_block_count() == 1
+                            && !observation.finished()
+                    })
+                {
+                    return Err(
+                        "the active-preparation shutdown qualification is not held at revision 2"
+                            .to_owned(),
+                    );
+                }
+                Ok("Closing with active compute preparation: revision=2 workers=1".to_owned())
+            }
+            ComputeShutdownQualification::HiddenCandidate => {
+                if !matches!(
+                    self.compute_edit_burst_stage,
+                    Some(ComputeEditBurstStage::ShutdownHiddenCandidateHeld(_))
+                ) || status.worker_count() != 0
+                    || status.hidden().map(|stamp| stamp.revision())
+                        != Some(VoxelSceneRevision::new(2))
+                    || controller
+                        .post_upload_revision()
+                        .map_err(|error| error.to_string())?
+                        != Some(VoxelSceneRevision::new(2))
+                {
+                    return Err(
+                        "the hidden-candidate shutdown qualification is not held at revision 2"
+                            .to_owned(),
+                    );
+                }
+                Ok("Closing with hidden uploaded compute candidate: revision=2".to_owned())
+            }
+            ComputeShutdownQualification::Replacement => Err(
+                "the compute replacement shutdown qualification was not handled before convergence checks"
+                    .to_owned(),
+            ),
+        }
+    }
+
     fn set_drawable_extent(&mut self, drawable_extent: ash::vk::Extent2D) -> Result<(), String> {
         self.drawable_extent = drawable_extent;
         if let Some(backend) = &mut self.backend {
@@ -3352,7 +3560,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         };
         let render_path = RenderPathSwitchOwner::new(Box::new(render_path));
         let render_path_handoff_control = render_path.handoff_control();
-        if self.render_configuration.compute_switch_lifecycle_demo {
+        if self.render_configuration.compute_switch_lifecycle_demo
+            || self.render_configuration.compute_shutdown_qualification
+                == Some(ComputeShutdownQualification::Replacement)
+        {
             render_path_handoff_control.hold();
         }
         let backend = match RenderBackend::initialize_with_options(
@@ -3483,41 +3694,52 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 if self.render_configuration.compute_switch_demo
                     && !self.render_configuration.compute_switch_lifecycle_demo
                 {
-                    match self
-                        .backend
-                        .as_ref()
-                        .and_then(RenderBackend::render_path_switch_diagnostics)
+                    if self
+                        .render_configuration
+                        .compute_shutdown_qualification
+                        .is_some()
                     {
-                        Some(diagnostics)
-                            if diagnostics.roles().presenting()
-                                == RenderPathStrategy::ComputeRay
-                                && diagnostics.roles().replacement().is_none()
-                                && diagnostics.roles().retiring().is_none()
-                                && self.completed_interactive_switches >= 3
-                                && matches!(
-                                    self.compute_edit_burst_stage,
-                                    Some(ComputeEditBurstStage::Complete)
-                                ) =>
-                        {
-                            println!(
-                                "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches={} closing_presenter=ComputeRay",
-                                self.completed_interactive_switches
-                            );
+                        match self.compute_shutdown_qualification_report() {
+                            Ok(report) => println!("{report}"),
+                            Err(error) => self.record_close_error(error),
                         }
-                        Some(diagnostics) => self.record_close_error(format!(
-                            "the Render Path round trip must close idle with compute presenting after the newest-only edit burst and at least three switches: Presenting={:?} Replacement={:?} Retiring={:?} completed_switches={} burst={}",
-                            diagnostics.roles().presenting(),
-                            diagnostics.roles().replacement(),
-                            diagnostics.roles().retiring(),
-                            self.completed_interactive_switches,
-                            self.compute_edit_burst_stage
-                                .as_ref()
-                                .map(ComputeEditBurstStage::overlay_label)
-                                .unwrap_or("inactive")
-                        )),
-                        None => self.record_close_error(
-                            "Render Path switching diagnostics are unavailable during close",
-                        ),
+                    } else {
+                        match self
+                            .backend
+                            .as_ref()
+                            .and_then(RenderBackend::render_path_switch_diagnostics)
+                        {
+                            Some(diagnostics)
+                                if diagnostics.roles().presenting()
+                                    == RenderPathStrategy::ComputeRay
+                                    && diagnostics.roles().replacement().is_none()
+                                    && diagnostics.roles().retiring().is_none()
+                                    && self.completed_interactive_switches >= 3
+                                    && matches!(
+                                        self.compute_edit_burst_stage,
+                                        Some(ComputeEditBurstStage::Complete)
+                                    ) =>
+                            {
+                                println!(
+                                    "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches={} closing_presenter=ComputeRay",
+                                    self.completed_interactive_switches
+                                );
+                            }
+                            Some(diagnostics) => self.record_close_error(format!(
+                                "the Render Path round trip must close idle with compute presenting after the newest-only edit burst and at least three switches: Presenting={:?} Replacement={:?} Retiring={:?} completed_switches={} burst={}",
+                                diagnostics.roles().presenting(),
+                                diagnostics.roles().replacement(),
+                                diagnostics.roles().retiring(),
+                                self.completed_interactive_switches,
+                                self.compute_edit_burst_stage
+                                    .as_ref()
+                                    .map(ComputeEditBurstStage::overlay_label)
+                                    .unwrap_or("inactive")
+                            )),
+                            None => self.record_close_error(
+                                "Render Path switching diagnostics are unavailable during close",
+                            ),
+                        }
                     }
                 }
                 if let Some(release) = self.preparation_release.take()
@@ -3553,6 +3775,13 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 {
                     self.record_close_error(error);
                 }
+                if self
+                    .backend
+                    .as_ref()
+                    .is_some_and(|backend| backend.validation_error_count() != 0)
+                {
+                    self.record_close_error("Vulkan validation reported errors during shutdown");
+                }
                 if let Some(controller) = &self.lifecycle_controller {
                     match controller.shutdown_owned_resource_count() {
                         Ok(Some(0)) => {
@@ -3565,6 +3794,49 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             "Render Path shutdown did not report owned raster resource disposal",
                         ),
                         Err(error) => self.record_close_error(error),
+                    }
+                }
+                if self.render_configuration.compute_switch_demo {
+                    let compute_resources = self
+                        .compute_lifecycle_controller
+                        .as_ref()
+                        .map(ComputeLifecycleController::shutdown_owned_resources)
+                        .transpose();
+                    match compute_resources {
+                        Ok(Some(Some(resources))) if resources.is_zero() => println!(
+                            "Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0"
+                        ),
+                        Ok(Some(Some(resources))) => self.record_close_error(format!(
+                            "compute shutdown retained objects={} allocations={} workers={} views={}",
+                            resources.objects(),
+                            resources.allocations(),
+                            resources.workers(),
+                            resources.views()
+                        )),
+                        Ok(Some(None)) => self.record_close_error(
+                            "compute shutdown did not report owned resource disposal",
+                        ),
+                        Ok(None) => self.record_close_error(
+                            "compute lifecycle diagnostics are unavailable during close",
+                        ),
+                        Err(error) => self.record_close_error(error),
+                    }
+                    if let Some(diagnostics) = self
+                        .backend
+                        .as_ref()
+                        .and_then(RenderBackend::render_path_switch_diagnostics)
+                    {
+                        if diagnostics.roles().replacement().is_none()
+                            && diagnostics.roles().retiring().is_none()
+                        {
+                            println!(
+                                "Render Path switching resources after shutdown: replacement=0 retiring=0"
+                            );
+                        } else {
+                            self.record_close_error(
+                                "Render Path switching retained replacement or retiring ownership after shutdown",
+                            );
+                        }
                     }
                 }
                 event_loop.exit();
@@ -3685,6 +3957,26 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 }
             }
             WindowEvent::RedrawRequested => {
+                if self
+                    .render_configuration
+                    .compute_shutdown_qualification
+                    .is_some()
+                    && !self.first_matching_frame_presented
+                {
+                    let initial_artifact_revision = match &self.artifact_installer {
+                        Some(installer) => match installer.installed_source_revision() {
+                            Ok(revision) => revision,
+                            Err(error) => {
+                                self.fail(event_loop, error);
+                                return;
+                            }
+                        },
+                        None => None,
+                    };
+                    if initial_artifact_revision.is_none() {
+                        return;
+                    }
+                }
                 let frame_started_at = Instant::now();
                 let (outcome, gpu_observation, submitted_frame_sequence, presentation_extent) =
                     match &mut self.backend {
@@ -4364,11 +4656,12 @@ fn main() -> ExitCode {
 #[cfg(all(test, target_os = "windows"))]
 mod measurement_tests {
     use super::{
-        CanonicalCameraPose, CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection,
-        compute_edit_burst_admission, fixed_edit_burst, format_convergence_characterization,
-        format_convergence_overlay, format_render_path_overlay, parse_render_configuration,
-        render_path_switch_admission, should_request_compute_edit_burst,
-        should_request_render_path_switch, should_start_edit_burst,
+        CanonicalCameraPose, ComputeShutdownQualification, CpuFrameMeasurement, MeasurementEvent,
+        SteadyFrameCollection, compute_edit_burst_admission, fixed_edit_burst,
+        format_convergence_characterization, format_convergence_overlay,
+        format_render_path_overlay, parse_render_configuration, render_path_switch_admission,
+        should_request_compute_edit_burst, should_request_render_path_switch,
+        should_start_edit_burst,
     };
 
     #[test]
@@ -4405,6 +4698,27 @@ mod measurement_tests {
         )?;
         assert!(lifecycle_configuration.compute_switch_demo);
         assert!(lifecycle_configuration.compute_switch_lifecycle_demo);
+
+        for (argument, expected) in [
+            (
+                "active-preparation",
+                ComputeShutdownQualification::ActivePreparation,
+            ),
+            (
+                "hidden-candidate",
+                ComputeShutdownQualification::HiddenCandidate,
+            ),
+            ("presenting", ComputeShutdownQualification::Presenting),
+            ("replacement", ComputeShutdownQualification::Replacement),
+        ] {
+            let (qualification, _) = parse_render_configuration(
+                ["--compute-shutdown-qualification", argument]
+                    .into_iter()
+                    .map(str::to_owned),
+            )?;
+            assert!(qualification.compute_switch_demo);
+            assert_eq!(qualification.compute_shutdown_qualification, Some(expected));
+        }
 
         let incompatible = parse_render_configuration(
             ["--compute-switch-demo", "--edit-burst-demo"]

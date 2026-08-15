@@ -4,6 +4,7 @@ use crate::{
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::{error::Error as StdError, fmt};
 use thiserror::Error;
 use voxel_frontend::{VoxelSceneId, VoxelSceneRevision};
 
@@ -291,6 +292,105 @@ struct RenderPathReplacementCleanupError {
     cleanup: Box<dyn std::error::Error + Send + Sync>,
 }
 
+#[derive(Clone, Copy)]
+enum RenderPathOwnedRole {
+    Presenting,
+    Replacement,
+    Retiring,
+}
+
+impl fmt::Display for RenderPathOwnedRole {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Presenting => "Presenting",
+            Self::Replacement => "Replacement",
+            Self::Retiring => "Retiring",
+        })
+    }
+}
+
+struct RenderPathLifecycleFailure {
+    role: RenderPathOwnedRole,
+    strategy: RenderPathStrategy,
+    source: Box<dyn StdError + Send + Sync>,
+}
+
+struct RenderPathLifecycleError {
+    operation: RenderPathLifecycleOperation,
+    failures: Vec<RenderPathLifecycleFailure>,
+}
+
+#[derive(Clone, Copy)]
+enum RenderPathLifecycleOperation {
+    Release,
+    Configure,
+    Shutdown,
+}
+
+impl fmt::Display for RenderPathLifecycleOperation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Release => "release",
+            Self::Configure => "configure",
+            Self::Shutdown => "shutdown",
+        })
+    }
+}
+
+impl fmt::Debug for RenderPathLifecycleError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, formatter)
+    }
+}
+
+impl fmt::Display for RenderPathLifecycleError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "owned Render Path {} failures: ", self.operation)?;
+        for (index, failure) in self.failures.iter().enumerate() {
+            if index != 0 {
+                formatter.write_str("; ")?;
+            }
+            write!(
+                formatter,
+                "{} {:?}: {}",
+                failure.role, failure.strategy, failure.source
+            )?;
+        }
+        Ok(())
+    }
+}
+
+impl StdError for RenderPathLifecycleError {}
+
+fn finish_owned_lifecycle_operation(
+    operation: RenderPathLifecycleOperation,
+    failures: Vec<RenderPathLifecycleFailure>,
+) -> RenderPathResult<()> {
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(Box::new(RenderPathLifecycleError {
+            operation,
+            failures,
+        }))
+    }
+}
+
+fn retain_lifecycle_result(
+    failures: &mut Vec<RenderPathLifecycleFailure>,
+    role: RenderPathOwnedRole,
+    strategy: RenderPathStrategy,
+    result: RenderPathResult<()>,
+) {
+    if let Err(source) = result {
+        failures.push(RenderPathLifecycleFailure {
+            role,
+            strategy,
+            source,
+        });
+    }
+}
+
 impl RenderPathSwitchOwner {
     pub fn new(presenting: Box<dyn SwitchableRenderPath>) -> Self {
         Self {
@@ -530,19 +630,53 @@ impl RenderPath for RenderPathSwitchOwner {
     }
 
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
-        self.presenting.release(device)?;
+        let mut failures = Vec::new();
+        let presenting_strategy = self.presenting.stamp().strategy();
+        retain_lifecycle_result(
+            &mut failures,
+            RenderPathOwnedRole::Presenting,
+            presenting_strategy,
+            self.presenting.release(device),
+        );
         if self.replacement_cleanup_pending {
-            self.clean_pending_replacement(device)?;
-        } else if let Some(replacement) = self.replacement.as_mut() {
-            if let Err(error) = replacement.release(device) {
-                return Err(self.fail_and_clean_replacement(device, error));
+            let replacement_strategy = self
+                .replacement
+                .as_ref()
+                .map(|replacement| replacement.stamp().strategy());
+            if let Some(strategy) = replacement_strategy {
+                retain_lifecycle_result(
+                    &mut failures,
+                    RenderPathOwnedRole::Replacement,
+                    strategy,
+                    self.clean_pending_replacement(device),
+                );
+            } else {
+                self.replacement_cleanup_pending = false;
             }
-            self.replacement_needs_configuration = true;
+        } else if let Some(replacement) = self.replacement.as_mut() {
+            let replacement_strategy = replacement.stamp().strategy();
+            if let Err(error) = replacement.release(device) {
+                let source = self.fail_and_clean_replacement(device, error);
+                retain_lifecycle_result(
+                    &mut failures,
+                    RenderPathOwnedRole::Replacement,
+                    replacement_strategy,
+                    Err(source),
+                );
+            } else {
+                self.replacement_needs_configuration = true;
+            }
         }
         if let Some(retiring) = self.retiring.as_mut() {
-            retiring.release(device)?;
+            let retiring_strategy = retiring.stamp().strategy();
+            retain_lifecycle_result(
+                &mut failures,
+                RenderPathOwnedRole::Retiring,
+                retiring_strategy,
+                retiring.release(device),
+            );
         }
-        Ok(())
+        finish_owned_lifecycle_operation(RenderPathLifecycleOperation::Release, failures)
     }
 
     fn configure(
@@ -550,16 +684,52 @@ impl RenderPath for RenderPathSwitchOwner {
         device: RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
-        self.presenting.configure(device, target)?;
+        let mut failures = Vec::new();
+        let presenting_strategy = self.presenting.stamp().strategy();
+        retain_lifecycle_result(
+            &mut failures,
+            RenderPathOwnedRole::Presenting,
+            presenting_strategy,
+            self.presenting.configure(device, target),
+        );
         if self.replacement_cleanup_pending {
-            self.clean_pending_replacement(device)?;
-        } else {
-            self.configure_replacement(device, target)?;
+            let replacement_strategy = self
+                .replacement
+                .as_ref()
+                .map(|replacement| replacement.stamp().strategy());
+            if let Some(strategy) = replacement_strategy {
+                retain_lifecycle_result(
+                    &mut failures,
+                    RenderPathOwnedRole::Replacement,
+                    strategy,
+                    self.clean_pending_replacement(device),
+                );
+            } else {
+                self.replacement_cleanup_pending = false;
+            }
+        } else if let Some(replacement_strategy) = self
+            .replacement
+            .as_ref()
+            .map(|replacement| replacement.stamp().strategy())
+            && let Err(source) = self.configure_replacement(device, target)
+        {
+            retain_lifecycle_result(
+                &mut failures,
+                RenderPathOwnedRole::Replacement,
+                replacement_strategy,
+                Err(source),
+            );
         }
         if let Some(retiring) = self.retiring.as_mut() {
-            retiring.configure(device, target)?;
+            let retiring_strategy = retiring.stamp().strategy();
+            retain_lifecycle_result(
+                &mut failures,
+                RenderPathOwnedRole::Retiring,
+                retiring_strategy,
+                retiring.configure(device, target),
+            );
         }
-        Ok(())
+        finish_owned_lifecycle_operation(RenderPathLifecycleOperation::Configure, failures)
     }
 
     fn advance_frame_boundary(
@@ -607,14 +777,35 @@ impl RenderPath for RenderPathSwitchOwner {
     }
 
     fn shutdown(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
-        self.presenting.shutdown(device)?;
-        if let Some(replacement) = self.replacement.as_mut() {
-            replacement.shutdown(device)?;
+        let mut failures = Vec::new();
+        let presenting_strategy = self.presenting.stamp().strategy();
+        retain_lifecycle_result(
+            &mut failures,
+            RenderPathOwnedRole::Presenting,
+            presenting_strategy,
+            self.presenting.shutdown(device),
+        );
+        if let Some(mut replacement) = self.replacement.take() {
+            let replacement_strategy = replacement.stamp().strategy();
+            retain_lifecycle_result(
+                &mut failures,
+                RenderPathOwnedRole::Replacement,
+                replacement_strategy,
+                replacement.shutdown(device),
+            );
         }
-        if let Some(retiring) = self.retiring.as_mut() {
-            retiring.shutdown(device)?;
+        self.replacement_needs_configuration = false;
+        self.replacement_cleanup_pending = false;
+        if let Some(mut retiring) = self.retiring.take() {
+            let retiring_strategy = retiring.stamp().strategy();
+            retain_lifecycle_result(
+                &mut failures,
+                RenderPathOwnedRole::Retiring,
+                retiring_strategy,
+                retiring.shutdown(device),
+            );
         }
-        Ok(())
+        finish_owned_lifecycle_operation(RenderPathLifecycleOperation::Shutdown, failures)
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
@@ -747,6 +938,105 @@ mod tests {
             } else {
                 Ok(RenderPathRetirement::Complete)
             }
+        }
+    }
+
+    #[derive(Clone, Copy, Eq, PartialEq)]
+    enum LifecycleFailurePoint {
+        Release,
+        Configure,
+        Shutdown,
+    }
+
+    struct FailingLifecycleRenderPath {
+        stamp: RenderPathStamp,
+        message: &'static str,
+        failure_point: LifecycleFailurePoint,
+        failure_count: Arc<AtomicUsize>,
+        failure_enabled: Arc<AtomicBool>,
+    }
+
+    impl FailingLifecycleRenderPath {
+        fn fail_at(&self, point: LifecycleFailurePoint) -> RenderPathResult<()> {
+            if self.failure_point != point {
+                return Ok(());
+            }
+            self.failure_count.fetch_add(1, Ordering::SeqCst);
+            if self.failure_enabled.load(Ordering::SeqCst) {
+                Err(std::io::Error::other(self.message).into())
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl RenderPath for FailingLifecycleRenderPath {
+        fn release(&mut self, _device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+            self.fail_at(LifecycleFailurePoint::Release)
+        }
+
+        fn configure(
+            &mut self,
+            _device: RenderPathDeviceContext<'_>,
+            _target: RenderPathTarget<'_>,
+        ) -> RenderPathResult<()> {
+            self.fail_at(LifecycleFailurePoint::Configure)
+        }
+
+        fn shutdown(&mut self, _device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
+            self.fail_at(LifecycleFailurePoint::Shutdown)
+        }
+
+        fn record(&mut self, _frame: RenderPathFrameContext<'_>) -> RenderPathResult<()> {
+            Ok(())
+        }
+    }
+
+    impl SwitchableRenderPath for FailingLifecycleRenderPath {
+        fn stamp(&self) -> RenderPathStamp {
+            self.stamp.clone()
+        }
+
+        fn retire_at_frame_boundary(
+            &mut self,
+            _device: RenderPathDeviceContext<'_>,
+        ) -> RenderPathResult<RenderPathRetirement> {
+            Ok(RenderPathRetirement::Complete)
+        }
+    }
+
+    fn lifecycle_failing_path(
+        stamp: RenderPathStamp,
+        message: &'static str,
+        failure_point: LifecycleFailurePoint,
+        failure_enabled: bool,
+    ) -> (
+        Box<dyn SwitchableRenderPath>,
+        Arc<AtomicUsize>,
+        Arc<AtomicBool>,
+    ) {
+        let failure_count = Arc::new(AtomicUsize::new(0));
+        let failure_enabled = Arc::new(AtomicBool::new(failure_enabled));
+        (
+            Box::new(FailingLifecycleRenderPath {
+                stamp,
+                message,
+                failure_point,
+                failure_count: Arc::clone(&failure_count),
+                failure_enabled: Arc::clone(&failure_enabled),
+            }),
+            failure_count,
+            failure_enabled,
+        )
+    }
+
+    fn require_operation_error<OperationError>(
+        result: Result<(), OperationError>,
+        unexpected_success: &'static str,
+    ) -> RenderPathResult<OperationError> {
+        match result {
+            Err(error) => Ok(error),
+            Ok(()) => Err(std::io::Error::other(unexpected_success).into()),
         }
     }
 
@@ -1286,7 +1576,18 @@ mod tests {
             let Err(error) = failure else {
                 return Err("the injected replacement failure did not reach the caller".into());
             };
-            assert_eq!(error.to_string(), "proof replacement failure");
+            let expected_error = match failure_point {
+                ProofFailurePoint::Release => {
+                    "owned Render Path release failures: Replacement ComputeRay: proof replacement failure"
+                }
+                ProofFailurePoint::Configure => {
+                    "owned Render Path configure failures: Replacement ComputeRay: proof replacement failure"
+                }
+                ProofFailurePoint::Publication | ProofFailurePoint::AdvanceFrameBoundary => {
+                    "proof replacement failure"
+                }
+            };
+            assert_eq!(error.to_string(), expected_error);
             if matches!(failure_point, ProofFailurePoint::Publication) {
                 assert_eq!(shutdown_count.load(Ordering::SeqCst), 0);
                 assert_eq!(
@@ -1321,6 +1622,181 @@ mod tests {
                 RenderPathStrategy::ComputeRay
             );
         }
+        Ok(())
+    }
+
+    #[test]
+    fn release_aggregates_presenting_and_replacement_failures() -> RenderPathResult<()> {
+        let device = proof_device();
+        let (presenting, presenting_release_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::Raster, 1, 1),
+            "presenting release failure",
+            LifecycleFailurePoint::Release,
+            true,
+        );
+        let (replacement, replacement_release_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            "replacement release failure",
+            LifecycleFailurePoint::Release,
+            true,
+        );
+        let mut owner = RenderPathSwitchOwner::new(presenting);
+        owner.request_switch(replacement)?;
+
+        let error = require_operation_error(
+            crate::run_render_path_phase(crate::RenderPathPhase::Release, || {
+                owner.release(proof_device_context(&device))
+            }),
+            "both owned Render Paths unexpectedly completed release",
+        )?;
+
+        assert_eq!(presenting_release_count.load(Ordering::SeqCst), 1);
+        assert_eq!(replacement_release_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            error.to_string(),
+            "Render Path release failed: owned Render Path release failures: Presenting Raster: presenting release failure; Replacement ComputeRay: replacement release failure"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn configure_aggregates_presenting_and_replacement_failures() -> RenderPathResult<()> {
+        let device = proof_device();
+        let (presenting, presenting_configure_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::Raster, 1, 1),
+            "presenting configure failure",
+            LifecycleFailurePoint::Configure,
+            true,
+        );
+        let (replacement, replacement_configure_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            "replacement configure failure",
+            LifecycleFailurePoint::Configure,
+            true,
+        );
+        let mut owner = RenderPathSwitchOwner::new(presenting);
+        owner.request_switch(replacement)?;
+
+        let error = require_operation_error(
+            crate::run_render_path_phase(crate::RenderPathPhase::Configure, || {
+                owner.configure(proof_device_context(&device), proof_target(1, 800, 600))
+            }),
+            "both owned Render Paths unexpectedly completed configuration",
+        )?;
+
+        assert_eq!(presenting_configure_count.load(Ordering::SeqCst), 1);
+        assert_eq!(replacement_configure_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            error.to_string(),
+            "Render Path configure failed: owned Render Path configure failures: Presenting Raster: presenting configure failure; Replacement ComputeRay: replacement configure failure"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn release_aggregates_presenting_and_retiring_failures() -> RenderPathResult<()> {
+        let device = proof_device();
+        let (retiring, retiring_release_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::Raster, 1, 1),
+            "retiring release failure",
+            LifecycleFailurePoint::Release,
+            true,
+        );
+        let (presenting, presenting_release_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            "presenting release failure",
+            LifecycleFailurePoint::Release,
+            true,
+        );
+        let mut owner = RenderPathSwitchOwner::new(retiring);
+        owner.request_switch(presenting)?;
+        advance_owner(&mut owner, &device)?;
+
+        let error = require_operation_error(
+            crate::run_render_path_phase(crate::RenderPathPhase::Release, || {
+                owner.release(proof_device_context(&device))
+            }),
+            "both owned Render Paths unexpectedly completed release",
+        )?;
+
+        assert_eq!(presenting_release_count.load(Ordering::SeqCst), 1);
+        assert_eq!(retiring_release_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            error.to_string(),
+            "Render Path release failed: owned Render Path release failures: Presenting ComputeRay: presenting release failure; Retiring Raster: retiring release failure"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn configure_aggregates_presenting_and_retiring_failures() -> RenderPathResult<()> {
+        let device = proof_device();
+        let (retiring, retiring_configure_count, retiring_failure_enabled) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::Raster, 1, 1),
+            "retiring configure failure",
+            LifecycleFailurePoint::Configure,
+            false,
+        );
+        let (presenting, presenting_configure_count, presenting_failure_enabled) =
+            lifecycle_failing_path(
+                stamp(RenderPathStrategy::ComputeRay, 1, 1),
+                "presenting configure failure",
+                LifecycleFailurePoint::Configure,
+                false,
+            );
+        let mut owner = RenderPathSwitchOwner::new(retiring);
+        owner.request_switch(presenting)?;
+        advance_owner(&mut owner, &device)?;
+        retiring_failure_enabled.store(true, Ordering::SeqCst);
+        presenting_failure_enabled.store(true, Ordering::SeqCst);
+
+        let error = require_operation_error(
+            crate::run_render_path_phase(crate::RenderPathPhase::Configure, || {
+                owner.configure(proof_device_context(&device), proof_target(2, 650, 900))
+            }),
+            "both owned Render Paths unexpectedly completed configuration",
+        )?;
+
+        assert_eq!(presenting_configure_count.load(Ordering::SeqCst), 2);
+        assert_eq!(retiring_configure_count.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            error.to_string(),
+            "Render Path configure failed: owned Render Path configure failures: Presenting ComputeRay: presenting configure failure; Retiring Raster: retiring configure failure"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn shutdown_aggregates_presenting_and_replacement_failures() -> RenderPathResult<()> {
+        let device = proof_device();
+        let (presenting, presenting_shutdown_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::Raster, 1, 1),
+            "presenting shutdown failure",
+            LifecycleFailurePoint::Shutdown,
+            true,
+        );
+        let (replacement, replacement_shutdown_count, _) = lifecycle_failing_path(
+            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            "replacement shutdown failure",
+            LifecycleFailurePoint::Shutdown,
+            true,
+        );
+        let mut owner = RenderPathSwitchOwner::new(presenting);
+        owner.request_switch(replacement)?;
+
+        let error = require_operation_error(
+            owner.shutdown(proof_device_context(&device)),
+            "both owned Render Paths unexpectedly completed shutdown",
+        )?;
+
+        assert_eq!(presenting_shutdown_count.load(Ordering::SeqCst), 1);
+        assert_eq!(replacement_shutdown_count.load(Ordering::SeqCst), 1);
+        assert_eq!(owner.role_status().replacement(), None);
+        assert_eq!(owner.role_status().retiring(), None);
+        assert_eq!(
+            error.to_string(),
+            "owned Render Path shutdown failures: Presenting Raster: presenting shutdown failure; Replacement ComputeRay: replacement shutdown failure"
+        );
         Ok(())
     }
 
