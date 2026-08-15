@@ -55,6 +55,12 @@ fn required_artifacts() -> Vec<ArtifactRecord> {
             });
         }
     }
+    artifacts.push(ArtifactRecord {
+        category: ArtifactCategory::SupportingEvidence,
+        path: "correctness/desktop-demo.stderr.log".to_owned(),
+        sha256: EMPTY_SHA256.to_owned(),
+        bytes: 0,
+    });
     artifacts
 }
 
@@ -77,8 +83,8 @@ fn valid_manifest() -> BundleManifest {
             vulkan_api_version: "1.3".to_owned(),
             correctness_validation_enabled: true,
             timing_validation_enabled: false,
-            timing_conditions_identity: "development-machine-vulkan".to_owned(),
-            resource_conditions_identity: "development-machine-vulkan".to_owned(),
+            timing_conditions_identity: "development-machine|recorded-device|recorded-driver|vulkan-1.3|scene-64|overview-to-cavity|immediate".to_owned(),
+            resource_conditions_identity: "development-machine|recorded-device|recorded-driver|vulkan-1.3|scene-64|overview-to-cavity|immediate".to_owned(),
             superiority_claimed: false,
             cross_machine_claimed: false,
         },
@@ -116,7 +122,7 @@ fn valid_manifest() -> BundleManifest {
 fn artifact_contents(category: ArtifactCategory) -> &'static str {
     match category {
         ArtifactCategory::Provenance => {
-            r#"{"repository_remote":"https://github.com/PetrSeifert/voxel-nexus.git","repository_revision":"0123456789abcdef0123456789abcdef01234567","executable_path":"bin/desktop-demo.exe","executable_sha256":"placeholder"}"#
+            r#"{"repository_remote":"https://github.com/PetrSeifert/voxel-nexus.git","repository_revision":"0123456789abcdef0123456789abcdef01234567","executable_path":"bin/desktop-demo.exe","executable_sha256":"placeholder","machine_identity":"development-machine","operating_system":"Windows"}"#
         }
         ArtifactCategory::CapabilityFacts => {
             r#"{"device":"recorded-device","driver":"recorded-driver","vulkan_api_version":"1.3","correctness_validation":"enabled","timing_validation":"disabled","timing_present_mode":"IMMEDIATE","selected_traversal":"dense_dda","occupancy_attempted":false}"#
@@ -132,16 +138,18 @@ fn artifact_contents(category: ArtifactCategory) -> &'static str {
         ArtifactCategory::SemanticObservations => concat!(
             "{\"kind\":\"observation\",\"render_path\":\"compute_ray\",\"probe_identity\":\"probe-a\",\"revision\":\"1\",\"frame_sequence\":1,\"actual\":{\"result\":\"miss\"},\"oracle\":{\"result\":\"miss\"},\"distance_tolerance\":0.0001,\"passed\":true}\n",
             "{\"kind\":\"observation\",\"render_path\":\"raster\",\"probe_identity\":\"probe-a\",\"revision\":\"1\",\"frame_sequence\":2,\"oracle\":{\"result\":\"miss\"},\"correspondence\":\"NotApplicableMiss\",\"passed\":true}\n",
-            "{\"kind\":\"observation\",\"render_path\":\"compute_ray\",\"probe_identity\":\"probe-a\",\"revision\":\"4\",\"frame_sequence\":3,\"actual\":{\"result\":\"miss\"},\"oracle\":{\"result\":\"miss\"},\"distance_tolerance\":0.0001,\"passed\":true}\n",
-            "{\"kind\":\"observation\",\"render_path\":\"raster\",\"probe_identity\":\"probe-a\",\"revision\":\"4\",\"frame_sequence\":4,\"oracle\":{\"result\":\"miss\"},\"correspondence\":\"NotApplicableMiss\",\"passed\":true}\n",
+            "{\"kind\":\"observation\",\"render_path\":\"compute_ray\",\"probe_identity\":\"probe-a\",\"revision\":\"4\",\"frame_sequence\":3,\"actual\":{\"result\":\"contact\",\"volume_identity\":\"volume-a\",\"coordinate\":[1,2,3],\"material_identity\":\"material-a\",\"distance\":0.5,\"classification\":\"entered\",\"outward_normal\":\"PositiveX\"},\"oracle\":{\"result\":\"contact\",\"volume_identity\":\"volume-a\",\"coordinate\":[1,2,3],\"material_identity\":\"material-a\",\"distance\":0.5,\"classification\":\"entered\",\"outward_normal\":\"PositiveX\"},\"distance_tolerance\":0.0001,\"passed\":true}\n",
+            "{\"kind\":\"observation\",\"render_path\":\"raster\",\"probe_identity\":\"probe-a\",\"revision\":\"4\",\"frame_sequence\":4,\"oracle\":{\"result\":\"contact\",\"volume_identity\":\"volume-a\",\"coordinate\":[1,2,3],\"material_identity\":\"material-a\",\"distance\":0.5,\"classification\":\"entered\",\"outward_normal\":\"PositiveX\"},\"correspondence\":\"Matched(SemanticFace { volume_identity: volume-a, occupied_coordinate: VoxelCoordinate { x: 1, y: 2, z: 3 }, outward_normal: PositiveX, material_identity: material-a })\",\"passed\":true}\n",
         ),
         ArtifactCategory::SemanticSummary => {
-            r#"{"oracle_self_tests_passed":true,"compute_observations_passed":true,"raster_correspondence_passed":true,"observation_count":4,"mismatches":0,"started_inside_normals":0,"table":[{"render_path":"compute_ray","probe_identity":"probe-a","revision":"1","frame_sequence":1,"result":"miss","correspondence":null,"passed":true},{"render_path":"raster","probe_identity":"probe-a","revision":"1","frame_sequence":2,"result":"miss","correspondence":"NotApplicableMiss","passed":true},{"render_path":"compute_ray","probe_identity":"probe-a","revision":"4","frame_sequence":3,"result":"miss","correspondence":null,"passed":true},{"render_path":"raster","probe_identity":"probe-a","revision":"4","frame_sequence":4,"result":"miss","correspondence":"NotApplicableMiss","passed":true}]}"#
+            r#"{"oracle_self_tests_passed":true,"compute_observations_passed":true,"raster_correspondence_passed":true,"observation_count":4,"mismatches":0,"started_inside_normals":0,"table":[{"render_path":"compute_ray","probe_identity":"probe-a","revision":"1","frame_sequence":1,"result":"miss","correspondence":null,"passed":true},{"render_path":"raster","probe_identity":"probe-a","revision":"1","frame_sequence":2,"result":"miss","correspondence":"NotApplicableMiss","passed":true},{"render_path":"compute_ray","probe_identity":"probe-a","revision":"4","frame_sequence":3,"result":"contact","correspondence":null,"passed":true},{"render_path":"raster","probe_identity":"probe-a","revision":"4","frame_sequence":4,"result":"contact","correspondence":"Matched(SemanticFace { volume_identity: volume-a, occupied_coordinate: VoxelCoordinate { x: 1, y: 2, z: 3 }, outward_normal: PositiveX, material_identity: material-a })","passed":true}]}"#
         }
         ArtifactCategory::EventTimeline => {
             r#"[{"event":"raster_revision_1","elapsed_seconds":0.0,"window_title":"Required=1 Visible=1"},{"event":"compute_revision_1","elapsed_seconds":1.0,"window_title":"Required=1 Visible=1"},{"event":"edit_burst_requested","elapsed_seconds":2.0,"window_title":"Required=1 Visible=1"},{"event":"compute_required_4_visible_1","elapsed_seconds":3.0,"window_title":"Required=4 Visible=1"},{"event":"compute_revision_4","elapsed_seconds":4.0,"window_title":"Required=4 Visible=4"},{"event":"raster_revision_4","elapsed_seconds":5.0,"window_title":"Required=4 Visible=4"},{"event":"compute_revision_4_final","elapsed_seconds":6.0,"window_title":"Required=4 Visible=4"},{"event":"clean_close","elapsed_seconds":7.0,"window_title":"closed"}]"#
         }
         ArtifactCategory::LifecycleLog => concat!(
+            "Compute revision 2 cancelled after exactly one preparation block\n",
+            "Compute revision 3 rejected after upload with Required=4\n",
             "Compute edit burst converged newest-only: Required=4 Visible=4 installed_revisions=[VoxelSceneRevision(4)] obsolete_presented_frames=0 obsolete_semantic_observations=0\n",
             "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches=3 closing_presenter=ComputeRay\n",
             "Render Path-owned raster resources after shutdown: 0\n",
@@ -149,7 +157,7 @@ fn artifact_contents(category: ArtifactCategory) -> &'static str {
             "Render Path switching resources after shutdown: replacement=0 retiring=0\n",
         ),
         ArtifactCategory::ResourceLedger => concat!(
-            "Compute resource observation: phase=Installed objects=1 allocations=1 workers=0 views=1\n",
+            "Compute resource observation: sequence=1 point=Shutdown bytes=0 objects=0 allocations=0 workers=0 views=0\n",
             "Render Path-owned raster resources after shutdown: 0\n",
             "Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0\n",
             "Render Path switching resources after shutdown: replacement=0 retiring=0\n",
@@ -183,7 +191,11 @@ fn materialize_bundle(
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let contents = artifact_contents(artifact.category).as_bytes();
+        let contents = if artifact.path == "correctness/desktop-demo.stderr.log" {
+            &[][..]
+        } else {
+            artifact_contents(artifact.category).as_bytes()
+        };
         fs::write(&path, contents)?;
         artifact.bytes = u64::try_from(contents.len())?;
         artifact.sha256 = format!("{:x}", Sha256::digest(contents));
@@ -205,6 +217,30 @@ fn materialize_bundle(
     fs::write(root.join(&provenance.path), &contents)?;
     provenance.bytes = u64::try_from(contents.len())?;
     provenance.sha256 = format!("{:x}", Sha256::digest(contents.as_bytes()));
+    Ok(())
+}
+
+fn replace_artifact_text(
+    root: &Path,
+    manifest: &mut BundleManifest,
+    category: ArtifactCategory,
+    from: &str,
+    to: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let artifact = manifest
+        .artifacts
+        .iter_mut()
+        .find(|artifact| artifact.category == category)
+        .ok_or("fixture artifact is missing")?;
+    let path = root.join(&artifact.path);
+    let original = fs::read_to_string(&path)?;
+    let changed = original.replacen(from, to, 1);
+    if changed == original {
+        return Err("fixture mutation did not match".into());
+    }
+    fs::write(&path, &changed)?;
+    artifact.bytes = u64::try_from(changed.len())?;
+    artifact.sha256 = format!("{:x}", Sha256::digest(changed.as_bytes()));
     Ok(())
 }
 
@@ -397,6 +433,116 @@ fn bundle_rejects_semantic_mismatch_recorded_in_hashed_stream()
     };
 
     assert!(error.to_string().contains("semantic"));
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn bundle_rejects_coordinated_machine_attribution_substitution()
+-> Result<(), Box<dyn std::error::Error>> {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "voxel-nexus-attribution-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root)?;
+    let mut manifest = valid_manifest();
+    materialize_bundle(&root, &mut manifest)?;
+    manifest.conditions.machine_identity = "substitute-machine".to_owned();
+    manifest.conditions.operating_system = "substitute-os".to_owned();
+    manifest.conditions.timing_conditions_identity = "substitute".to_owned();
+    manifest.conditions.resource_conditions_identity = "substitute".to_owned();
+
+    if verify_bundle(&root, &manifest).is_ok() {
+        return Err("coordinated attribution substitution was accepted".into());
+    }
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn bundle_rejects_wrong_raster_face_inside_matched_correspondence()
+-> Result<(), Box<dyn std::error::Error>> {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "voxel-nexus-raster-mismatch-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root)?;
+    let mut manifest = valid_manifest();
+    materialize_bundle(&root, &mut manifest)?;
+    replace_artifact_text(
+        &root,
+        &mut manifest,
+        ArtifactCategory::SemanticObservations,
+        "material_identity: material-a })",
+        "material_identity: wrong-material })",
+    )?;
+    replace_artifact_text(
+        &root,
+        &mut manifest,
+        ArtifactCategory::SemanticSummary,
+        "material_identity: material-a })",
+        "material_identity: wrong-material })",
+    )?;
+
+    if verify_bundle(&root, &manifest).is_ok() {
+        return Err("wrong raster face inside Matched was accepted".into());
+    }
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn bundle_rejects_ownership_claim_appended_after_zero_ledger()
+-> Result<(), Box<dyn std::error::Error>> {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "voxel-nexus-ledger-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root)?;
+    let mut manifest = valid_manifest();
+    materialize_bundle(&root, &mut manifest)?;
+    replace_artifact_text(
+        &root,
+        &mut manifest,
+        ArtifactCategory::ResourceLedger,
+        "Render Path switching resources after shutdown: replacement=0 retiring=0\n",
+        "Render Path switching resources after shutdown: replacement=0 retiring=0\nCompute resource observation: sequence=99 point=Shutdown objects=1 allocations=1 workers=1 views=1\n",
+    )?;
+
+    if verify_bundle(&root, &manifest).is_ok() {
+        return Err("ownership contradiction after zero ledger was accepted".into());
+    }
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn bundle_rejects_validation_finding_in_retained_stderr() -> Result<(), Box<dyn std::error::Error>>
+{
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "voxel-nexus-validation-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root)?;
+    let mut manifest = valid_manifest();
+    materialize_bundle(&root, &mut manifest)?;
+    let artifact = manifest
+        .artifacts
+        .iter_mut()
+        .find(|artifact| artifact.path == "correctness/desktop-demo.stderr.log")
+        .ok_or("fixture validation stderr is missing")?;
+    let finding = b"Vulkan validation ERROR: simulated\n";
+    fs::write(root.join(&artifact.path), finding)?;
+    artifact.bytes = u64::try_from(finding.len())?;
+    artifact.sha256 = format!("{:x}", Sha256::digest(finding));
+
+    if verify_bundle(&root, &manifest).is_ok() {
+        return Err("retained validation finding was accepted".into());
+    }
     fs::remove_dir_all(root)?;
     Ok(())
 }

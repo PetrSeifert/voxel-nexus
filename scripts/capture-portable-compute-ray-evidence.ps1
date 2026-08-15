@@ -78,28 +78,48 @@ function Invoke-CapturedProcess {
     }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $startInfo
-    if (-not $process.Start()) {
-        throw "Could not start $FilePath."
+    $started = $false
+    try {
+        $started = $process.Start()
+        if (-not $started) {
+            throw "Could not start $FilePath."
+        }
+        $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
+        $standardErrorTask = $process.StandardError.ReadToEndAsync()
+        if ($TimeoutMilliseconds -gt 0 -and -not $process.WaitForExit($TimeoutMilliseconds)) {
+            $process.Kill($true)
+            $process.WaitForExit()
+            throw "$FilePath exceeded the $TimeoutMilliseconds ms timeout."
+        }
+        if ($TimeoutMilliseconds -eq 0) {
+            $process.WaitForExit()
+        }
+        $standardOutput = $standardOutputTask.GetAwaiter().GetResult()
+        $standardError = $standardErrorTask.GetAwaiter().GetResult()
+        Write-TextFile -Path $StandardOutputPath -Contents $standardOutput
+        Write-TextFile -Path $StandardErrorPath -Contents $standardError
+        [PSCustomObject]@{
+            ExitCode = $process.ExitCode
+            StandardOutput = $standardOutput
+            StandardError = $standardError
+        }
     }
-    $standardOutputTask = $process.StandardOutput.ReadToEndAsync()
-    $standardErrorTask = $process.StandardError.ReadToEndAsync()
-    if ($TimeoutMilliseconds -gt 0 -and -not $process.WaitForExit($TimeoutMilliseconds)) {
-        $process.Kill($true)
-        $process.WaitForExit()
-        throw "$FilePath exceeded the $TimeoutMilliseconds ms timeout."
+    finally {
+        if ($started -and -not $process.HasExited) {
+            $process.Kill($true)
+            $process.WaitForExit()
+        }
+        $process.Dispose()
     }
-    if ($TimeoutMilliseconds -eq 0) {
-        $process.WaitForExit()
+}
+
+function Get-CanonicalRepositoryRemote {
+    param([string]$Remote)
+    $candidate = $Remote.Trim().TrimEnd("/")
+    if ($candidate -match '^(https://github\.com/PetrSeifert/voxel-nexus(?:\.git)?|git@github\.com:PetrSeifert/voxel-nexus(?:\.git)?|ssh://git@github\.com/PetrSeifert/voxel-nexus(?:\.git)?)$') {
+        return "https://github.com/PetrSeifert/voxel-nexus.git"
     }
-    $standardOutput = $standardOutputTask.GetAwaiter().GetResult()
-    $standardError = $standardErrorTask.GetAwaiter().GetResult()
-    Write-TextFile -Path $StandardOutputPath -Contents $standardOutput
-    Write-TextFile -Path $StandardErrorPath -Contents $standardError
-    [PSCustomObject]@{
-        ExitCode = $process.ExitCode
-        StandardOutput = $standardOutput
-        StandardError = $standardError
-    }
+    throw "The origin remote does not identify PetrSeifert/voxel-nexus: $Remote"
 }
 
 function Invoke-RequiredCommand {
@@ -170,10 +190,11 @@ $revision = (& git rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
     throw "Could not resolve the clean checkout revision."
 }
-$remote = (& git remote get-url origin).Trim()
+$remoteValue = (& git remote get-url origin).Trim()
 if ($LASTEXITCODE -ne 0) {
     throw "Could not resolve the repository remote."
 }
+$remote = Get-CanonicalRepositoryRemote -Remote $remoteValue
 
 [System.IO.Directory]::CreateDirectory($evidencePath) | Out-Null
 Invoke-RequiredCommand -Name "workspace-build" -FilePath "cargo" -Arguments @("build", "--locked", "--workspace", "--all-targets") | Out-Null

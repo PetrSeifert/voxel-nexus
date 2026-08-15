@@ -206,20 +206,28 @@ function Start-VideoCapture {
 
 function Stop-VideoCapture {
     param([PSCustomObject]$Capture)
-    $Capture.Process.StandardInput.WriteLine("q")
-    if (-not $Capture.Process.WaitForExit(15000)) {
-        $Capture.Process.Kill($true)
-        $Capture.Process.WaitForExit()
-        throw "ffmpeg did not finish the milestone video."
+    try {
+        $Capture.Process.StandardInput.WriteLine("q")
+        if (-not $Capture.Process.WaitForExit(15000)) {
+            $Capture.Process.Kill($true)
+            $Capture.Process.WaitForExit()
+            throw "ffmpeg did not finish the milestone video."
+        }
+        $standardOutput = $Capture.StandardOutput.GetAwaiter().GetResult()
+        $standardError = $Capture.StandardError.GetAwaiter().GetResult()
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "video.stdout.log"), $standardOutput)
+        [System.IO.File]::WriteAllText((Join-Path $evidencePath "video.stderr.log"), $standardError)
+        if ($Capture.Process.ExitCode -ne 0) {
+            throw "ffmpeg exited with code $($Capture.Process.ExitCode)."
+        }
     }
-    $standardOutput = $Capture.StandardOutput.GetAwaiter().GetResult()
-    $standardError = $Capture.StandardError.GetAwaiter().GetResult()
-    [System.IO.File]::WriteAllText((Join-Path $evidencePath "video.stdout.log"), $standardOutput)
-    [System.IO.File]::WriteAllText((Join-Path $evidencePath "video.stderr.log"), $standardError)
-    if ($Capture.Process.ExitCode -ne 0) {
-        throw "ffmpeg exited with code $($Capture.Process.ExitCode)."
+    finally {
+        if (-not $Capture.Process.HasExited) {
+            $Capture.Process.Kill($true)
+            $Capture.Process.WaitForExit()
+        }
+        $Capture.Process.Dispose()
     }
-    $Capture.Process.Dispose()
 }
 
 function Add-TimelineEvent {
@@ -321,15 +329,19 @@ try {
         Add-TimelineEvent -Name "clean_close" -Title "closed"
     }
     finally {
-        if ($null -ne $videoCapture) {
-            Stop-VideoCapture -Capture $videoCapture
+        try {
+            if ($null -ne $videoCapture) {
+                Stop-VideoCapture -Capture $videoCapture
+            }
         }
-        if (-not $process.HasExited) {
-            $process.Kill($true)
-            $process.WaitForExit()
+        finally {
+            if (-not $process.HasExited) {
+                $process.Kill($true)
+                $process.WaitForExit()
+            }
+            $processExitCode = $process.ExitCode
+            $process.Dispose()
         }
-        $processExitCode = $process.ExitCode
-        $process.Dispose()
     }
 
     $standardOutput = [System.IO.File]::ReadAllText($standardOutputPath)

@@ -289,6 +289,8 @@ struct ProvenanceEvidence {
     repository_revision: String,
     executable_path: String,
     executable_sha256: String,
+    machine_identity: String,
+    operating_system: String,
 }
 
 #[derive(Deserialize)]
@@ -404,6 +406,18 @@ pub fn verify_manifest_contract(
     {
         return Err(EvidenceError::InvalidConditions {
             reason: "timing and resource evidence must share one attributed machine-local condition and make no superiority claim",
+        });
+    }
+    let expected_conditions_identity = format!(
+        "{}|{}|{}|vulkan-{}|scene-64|overview-to-cavity|immediate",
+        manifest.conditions.machine_identity,
+        manifest.conditions.device,
+        manifest.conditions.driver,
+        manifest.conditions.vulkan_api_version
+    );
+    if manifest.conditions.timing_conditions_identity != expected_conditions_identity {
+        return Err(EvidenceError::InvalidConditions {
+            reason: "the measurement identity does not match the attributed machine and run conditions",
         });
     }
     if !manifest.conditions.correctness_validation_enabled
@@ -594,6 +608,8 @@ fn verify_provenance_evidence(
         || evidence.repository_revision != manifest.provenance.revision
         || evidence.executable_path != manifest.provenance.executable_path
         || evidence.executable_sha256 != manifest.provenance.executable_sha256
+        || evidence.machine_identity != manifest.conditions.machine_identity
+        || evidence.operating_system != manifest.conditions.operating_system
     {
         return retained_error(path, "provenance differs from the manifest");
     }
@@ -829,7 +845,21 @@ fn raster_correspondence_agrees(
     ) {
         ("miss", None, Some("NotApplicableMiss")) => true,
         ("contact", Some("started_inside"), Some("NotApplicableStartedInside")) => true,
-        ("contact", Some("entered"), Some(value)) => value.starts_with("Matched("),
+        ("contact", Some("entered"), Some(value)) => {
+            let (Some(volume), Some(coordinate), Some(material), Some(normal)) = (
+                oracle.volume_identity.as_deref(),
+                oracle.coordinate,
+                oracle.material_identity.as_deref(),
+                oracle.outward_normal.as_deref(),
+            ) else {
+                return false;
+            };
+            value
+                == format!(
+                    "Matched(SemanticFace {{ volume_identity: {volume}, occupied_coordinate: VoxelCoordinate {{ x: {}, y: {}, z: {} }}, outward_normal: {normal}, material_identity: {material} }})",
+                    coordinate[0], coordinate[1], coordinate[2]
+                )
+        }
         _ => false,
     }
 }
@@ -936,6 +966,8 @@ fn verify_lifecycle_and_resource_evidence(
     let lifecycle = read_artifact_text(bundle_root, manifest, ArtifactCategory::LifecycleLog)?;
     let resource = read_artifact_text(bundle_root, manifest, ArtifactCategory::ResourceLedger)?;
     for required in [
+        "Compute revision 2 cancelled after exactly one preparation block",
+        "Compute revision 3 rejected after upload with Required=4",
         "Compute edit burst converged newest-only: Required=4 Visible=4",
         "obsolete_presented_frames=0 obsolete_semantic_observations=0",
         "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches=3 closing_presenter=ComputeRay",
@@ -962,6 +994,38 @@ fn verify_lifecycle_and_resource_evidence(
                 "resource evidence does not finish at zero ownership",
             );
         }
+    }
+    let final_ownership = [
+        "Render Path-owned raster resources after shutdown: 0",
+        "Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0",
+        "Render Path switching resources after shutdown: replacement=0 retiring=0",
+    ];
+    let lifecycle_lines = lifecycle
+        .lines()
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let resource_lines = resource
+        .lines()
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if !lifecycle_lines.ends_with(&final_ownership) || !resource_lines.ends_with(&final_ownership) {
+        return retained_error(
+            artifact_path(manifest, ArtifactCategory::ResourceLedger)?,
+            "zero ownership records are not the final retained state",
+        );
+    }
+    let shutdown_observation = resource_lines
+        .iter()
+        .rev()
+        .find(|line| line.starts_with("Compute resource observation:"));
+    if shutdown_observation.is_none_or(|line| {
+        !line.contains("point=Shutdown")
+            || !line.contains("bytes=0 objects=0 allocations=0 workers=0 views=0")
+    }) {
+        return retained_error(
+            artifact_path(manifest, ArtifactCategory::ResourceLedger)?,
+            "the final compute resource observation is not a zero-owner shutdown",
+        );
     }
     Ok(())
 }
@@ -1036,6 +1100,14 @@ fn verify_validation_evidence(
     if !validation.enabled || validation.warnings != 0 || validation.errors != 0 {
         return retained_error(path, "validation was disabled or contains findings");
     }
+    let stderr_path = "correctness/desktop-demo.stderr.log";
+    let stderr = read_artifact_at_path(bundle_root, manifest, stderr_path)?;
+    if stderr.contains("Vulkan validation WARNING") || stderr.contains("Vulkan validation ERROR") {
+        return retained_error(
+            stderr_path,
+            "retained Vulkan stderr contains validation findings",
+        );
+    }
     Ok(())
 }
 
@@ -1081,6 +1153,24 @@ fn read_artifact_text(
     category: ArtifactCategory,
 ) -> Result<String, EvidenceError> {
     let path = artifact_path(manifest, category)?;
+    fs::read_to_string(bundle_root.join(path)).map_err(|source| EvidenceError::ArtifactRead {
+        path: path.to_owned(),
+        source,
+    })
+}
+
+fn read_artifact_at_path(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+    path: &str,
+) -> Result<String, EvidenceError> {
+    if !manifest
+        .artifacts
+        .iter()
+        .any(|artifact| artifact.path == path)
+    {
+        return retained_error(path, "required retained artifact is not inventoried");
+    }
     fs::read_to_string(bundle_root.join(path)).map_err(|source| EvidenceError::ArtifactRead {
         path: path.to_owned(),
         source,
