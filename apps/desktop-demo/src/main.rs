@@ -119,6 +119,8 @@ struct DesktopRenderConfiguration {
     edit_burst_demo: bool,
     compute_switch_demo: bool,
     compute_switch_lifecycle_demo: bool,
+    portable_milestone_demo: bool,
+    portable_milestone_timing: bool,
     compute_shutdown_qualification: Option<ComputeShutdownQualification>,
     measurement: Option<MeasurementConfiguration>,
 }
@@ -180,6 +182,8 @@ fn parse_render_configuration(
     let mut edit_burst_demo = false;
     let mut compute_switch_demo = false;
     let mut compute_switch_lifecycle_demo = false;
+    let mut portable_milestone_demo = false;
+    let mut portable_milestone_timing = false;
     let mut compute_shutdown_qualification = None;
     let mut raster_region_extent = 32;
     let mut measurement_mode = None;
@@ -195,6 +199,17 @@ fn parse_render_configuration(
             "--compute-switch-lifecycle-demo" => {
                 compute_switch_demo = true;
                 compute_switch_lifecycle_demo = true;
+            }
+            "--portable-compute-ray-milestone-demo" => {
+                compute_switch_demo = true;
+                compute_switch_lifecycle_demo = true;
+                portable_milestone_demo = true;
+            }
+            "--portable-compute-ray-milestone-timing" => {
+                compute_switch_demo = true;
+                compute_switch_lifecycle_demo = true;
+                portable_milestone_demo = true;
+                portable_milestone_timing = true;
             }
             "--compute-shutdown-qualification" => {
                 compute_switch_demo = true;
@@ -372,6 +387,8 @@ fn parse_render_configuration(
             edit_burst_demo,
             compute_switch_demo,
             compute_switch_lifecycle_demo,
+            portable_milestone_demo,
+            portable_milestone_timing,
             compute_shutdown_qualification,
             measurement,
         },
@@ -1314,6 +1331,7 @@ struct DesktopApplication {
     render_path_handoff_control: Option<RenderPathHandoffControl>,
     last_held_replacement_stamp: Option<(CameraStateRevision, Option<PresentationConfigurationId>)>,
     compute_switch_lifecycle_stage: Option<ComputeSwitchLifecycleStage>,
+    portable_milestone_lifecycle_complete: bool,
     raster_preparation_target: Option<RasterPreparationTarget>,
     raster_replacement_installer: Option<RasterArtifactInstaller>,
     raster_replacement_lifecycle_controller: Option<RasterLifecycleController>,
@@ -1430,6 +1448,7 @@ impl DesktopApplication {
             render_path_handoff_control: None,
             last_held_replacement_stamp: None,
             compute_switch_lifecycle_stage,
+            portable_milestone_lifecycle_complete: false,
             raster_preparation_target: None,
             raster_replacement_installer: None,
             raster_replacement_lifecycle_controller: None,
@@ -2201,6 +2220,18 @@ impl DesktopApplication {
             view.revision(),
             self.camera_state_revision
         );
+        let milestone_burst_plan = self
+            .render_configuration
+            .portable_milestone_demo
+            .then(|| {
+                let plan = fixed_edit_burst(&view, self.render_configuration.raster_region_extent)?;
+                println!(
+                    "Compute edit burst qualification: preparation_block_edge=32 hold_after_completed_blocks=1 post_upload_revision=3 expected_final_revision={}",
+                    plan.expected_final_revision
+                );
+                Ok::<_, String>(plan)
+            })
+            .transpose()?;
         let switch_requested_at = Instant::now();
         self.report_compute_timing_events()?;
         let (mut replacement, measurement_controller) =
@@ -2212,6 +2243,8 @@ impl DesktopApplication {
             .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
         self.compute_measurement_controller = Some(measurement_controller);
         self.compute_lifecycle_controller = Some(replacement.enable_lifecycle_control());
+        let milestone_burst =
+            milestone_burst_plan.map(|plan| (replacement.enable_convergence_control(true), plan));
         self.semantic_qualification
             .register_compute(&mut replacement, &view)?;
         self.backend
@@ -2223,6 +2256,12 @@ impl DesktopApplication {
             .map_err(|error| error.to_string())?;
         self.compute_switch_requested_at = Some(switch_requested_at);
         self.compute_switch_requested = true;
+        if let Some((controller, plan)) = milestone_burst {
+            self.compute_convergence_controller = Some(controller);
+            self.compute_edit_burst_stage = Some(ComputeEditBurstStage::AwaitingSpace(plan));
+            self.compute_edit_burst_events.clear();
+            self.compute_edit_burst_presented_revisions.clear();
+        }
         println!("Compute replacement requested while raster remains Presenting");
         if self.render_configuration.compute_switch_lifecycle_demo {
             self.set_status("compute-replacement-requested");
@@ -3625,7 +3664,13 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             event_loop.exit();
             return;
         }
-        let options = if matches!(
+        let options = if self.render_configuration.portable_milestone_timing {
+            RenderBackendOptions {
+                validation_enabled: false,
+                presentation_throttling_enabled: false,
+                gpu_timestamps_enabled: false,
+            }
+        } else if matches!(
             self.render_configuration
                 .measurement
                 .as_ref()
@@ -3774,7 +3819,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         match event {
             WindowEvent::CloseRequested => {
                 if self.render_configuration.compute_switch_demo
-                    && !self.render_configuration.compute_switch_lifecycle_demo
+                    && (!self.render_configuration.compute_switch_lifecycle_demo
+                        || self.portable_milestone_lifecycle_complete)
                 {
                     if self
                         .render_configuration
@@ -4027,7 +4073,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 }
                 if should_request_render_path_switch(
                     self.render_configuration.compute_switch_demo
-                        && !self.render_configuration.compute_switch_lifecycle_demo,
+                        && (!self.render_configuration.compute_switch_lifecycle_demo
+                            || self.portable_milestone_lifecycle_complete),
                     event.state,
                     event.repeat,
                     &event.logical_key,
@@ -4036,7 +4083,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                 }
                 if should_request_compute_edit_burst(
                     self.render_configuration.compute_switch_demo
-                        && !self.render_configuration.compute_switch_lifecycle_demo,
+                        && (!self.render_configuration.compute_switch_lifecycle_demo
+                            || self.portable_milestone_lifecycle_complete),
                     event.state,
                     event.repeat,
                     &event.logical_key,
@@ -4049,7 +4097,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     .render_configuration
                     .compute_shutdown_qualification
                     .is_some()
-                    && !self.first_matching_frame_presented
+                    || self.render_configuration.portable_milestone_demo
+                        && !self.first_matching_frame_presented
                 {
                     let initial_artifact_revision = match &self.artifact_installer {
                         Some(installer) => match installer.installed_source_revision() {
@@ -4210,7 +4259,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             }
                         }
                         let compute_switch_in_progress =
-                            if self.render_configuration.compute_switch_lifecycle_demo {
+                            if self.render_configuration.compute_switch_lifecycle_demo
+                                && !self.portable_milestone_lifecycle_complete
+                            {
                                 match self.update_compute_switch_demo() {
                                     Ok(in_progress) => in_progress,
                                     Err(error) => {
@@ -4231,7 +4282,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             };
                         let compute_edit_burst_in_progress =
                             if self.render_configuration.compute_switch_demo
-                                && !self.render_configuration.compute_switch_lifecycle_demo
+                                && (!self.render_configuration.compute_switch_lifecycle_demo
+                                    || self.portable_milestone_lifecycle_complete)
                             {
                                 match self.update_compute_edit_burst() {
                                     Ok(in_progress) => in_progress,
@@ -4267,7 +4319,9 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                 }
                             }
                         }
-                        if self.render_configuration.compute_switch_lifecycle_demo {
+                        if self.render_configuration.compute_switch_lifecycle_demo
+                            && !self.portable_milestone_lifecycle_complete
+                        {
                             if let Err(error) = self.drive_compute_lifecycle_after_presented() {
                                 self.fail(event_loop, error);
                                 return;
@@ -4276,17 +4330,34 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                 && self.compute_switch_lifecycle_stage
                                     == Some(ComputeSwitchLifecycleStage::Handoff)
                             {
-                                if let Some(backend) = &mut self.backend
-                                    && let Err(error) = backend.shutdown()
-                                {
-                                    self.fail(event_loop, error);
+                                if self.render_configuration.portable_milestone_demo {
+                                    self.portable_milestone_lifecycle_complete = true;
+                                    self.compute_switch_lifecycle_stage = None;
+                                    self.completed_interactive_switches = 1;
+                                    self.render_path_control_feedback = "Space-ready".to_owned();
+                                    println!(
+                                        "Portable compute-ray milestone lifecycle complete: completed_switches=1 validation_errors=0"
+                                    );
+                                    if let Err(error) = self.set_render_path_overlay() {
+                                        self.fail(event_loop, error);
+                                        return;
+                                    }
+                                    if let Some(window) = &self.window {
+                                        window.request_redraw();
+                                    }
+                                } else {
+                                    if let Some(backend) = &mut self.backend
+                                        && let Err(error) = backend.shutdown()
+                                    {
+                                        self.fail(event_loop, error);
+                                        return;
+                                    }
+                                    println!(
+                                        "Compute replacement lifecycle qualification complete: validation_errors=0"
+                                    );
+                                    event_loop.exit();
                                     return;
                                 }
-                                println!(
-                                    "Compute replacement lifecycle qualification complete: validation_errors=0"
-                                );
-                                event_loop.exit();
-                                return;
                             }
                         }
                         if (compute_switch_in_progress || compute_edit_burst_in_progress)
@@ -4295,7 +4366,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                             window.request_redraw();
                         }
                         if self.render_configuration.compute_switch_demo
-                            && !self.render_configuration.compute_switch_lifecycle_demo
+                            && (!self.render_configuration.compute_switch_lifecycle_demo
+                                || self.portable_milestone_lifecycle_complete)
                             && let Err(error) = self.set_render_path_overlay()
                         {
                             self.fail(event_loop, error);
@@ -4806,6 +4878,23 @@ mod measurement_tests {
         )?;
         assert!(lifecycle_configuration.compute_switch_demo);
         assert!(lifecycle_configuration.compute_switch_lifecycle_demo);
+
+        let (milestone_configuration, _) = parse_render_configuration(
+            ["--portable-compute-ray-milestone-demo"]
+                .into_iter()
+                .map(str::to_owned),
+        )?;
+        assert!(milestone_configuration.compute_switch_demo);
+        assert!(milestone_configuration.compute_switch_lifecycle_demo);
+        assert!(milestone_configuration.portable_milestone_demo);
+
+        let (timing_configuration, _) = parse_render_configuration(
+            ["--portable-compute-ray-milestone-timing"]
+                .into_iter()
+                .map(str::to_owned),
+        )?;
+        assert!(timing_configuration.portable_milestone_demo);
+        assert!(timing_configuration.portable_milestone_timing);
 
         for (argument, expected) in [
             (
