@@ -221,9 +221,9 @@ if ($shutdownRun.ExitCode -ne 0) {
     throw "The shutdown qualification failed: $($shutdownRun.StandardError)"
 }
 
-$correctnessOutput = Get-Content -Raw -LiteralPath (Join-Path $evidencePath "correctness/desktop-demo.stdout.log")
-$correctnessError = Get-Content -Raw -LiteralPath (Join-Path $evidencePath "correctness/desktop-demo.stderr.log")
-$timingOutput = Get-Content -Raw -LiteralPath (Join-Path $evidencePath "timing/desktop-demo.stdout.log")
+$correctnessOutput = [System.IO.File]::ReadAllText((Join-Path $evidencePath "correctness/desktop-demo.stdout.log"))
+$correctnessError = [System.IO.File]::ReadAllText((Join-Path $evidencePath "correctness/desktop-demo.stderr.log"))
+$timingOutput = [System.IO.File]::ReadAllText((Join-Path $evidencePath "timing/desktop-demo.stdout.log"))
 $correctnessSummary = Get-Content -Raw -LiteralPath (Join-Path $evidencePath "correctness/runtime-summary.json") | ConvertFrom-Json
 $timingSummary = Get-Content -Raw -LiteralPath (Join-Path $evidencePath "timing/runtime-summary.json") | ConvertFrom-Json
 
