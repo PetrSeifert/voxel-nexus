@@ -1,0 +1,33 @@
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 18 tests
+test clipped_start_on_an_internal_half_open_boundary_uses_the_containing_value ... ok
+test edge_only_cell_contact_is_not_a_hit ... ok
+test adjacent_occupied_values_report_only_the_exposed_entry_contact ... ok
+test declared_probe_identity_is_retained_with_its_observation ... ok
+test clipped_start_inside_an_occupied_value_has_no_outward_normal ... ok
+test empty_scene_and_parallel_outside_ray_miss ... ok
+test entered_contact_identifies_the_pinned_scene_and_occupied_value ... ok
+test invalid_semantic_rays_are_rejected_before_scene_evaluation ... ok
+test nearest_volume_wins_independently_of_publication_order ... ok
+test equal_distance_contacts_use_stable_volume_identity_order ... ok
+test half_open_bounds_and_clip_interval_exclude_non_contacts ... ok
+test finite_direction_magnitude_does_not_change_scene_space_distance ... ok
+test nonzero_volume_origin_and_non_unit_voxel_size_preserve_material_identity ... ok
+test ray_starting_in_an_empty_value_reaches_the_next_occupied_value ... ok
+test two_axis_crossing_uses_x_before_y_for_the_entered_normal ... ok
+test simultaneous_axis_crossings_advance_all_axes_with_fixed_normal_priority ... ok
+test observation_comparison_tolerates_only_contact_distance ... ok
+test occupied_voxel_is_entered_through_each_exposed_face ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

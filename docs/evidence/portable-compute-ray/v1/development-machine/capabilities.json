@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "device": "NVIDIA GeForce RTX 4070",
+  "driver": "2497200128 (0x94d84000)",
+  "vulkan_api_version": "1.4.329",
+  "correctness_validation": "enabled",
+  "correctness_present_mode": "FIFO",
+  "timing_validation": "disabled",
+  "timing_present_mode": "IMMEDIATE",
+  "selected_traversal": "dense_dda",
+  "occupancy_attempted": false
+}

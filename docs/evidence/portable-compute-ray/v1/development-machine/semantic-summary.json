@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "oracle_self_tests_passed": true,
+  "compute_observations_passed": true,
+  "raster_correspondence_passed": true,
+  "observation_count": 15,
+  "mismatches": 0,
+  "started_inside_normals": 0,
+  "table": [
+    {
+      "render_path": "raster",
+      "probe_identity": "edit-0-0-0",
+      "revision": "1",
+      "frame_sequence": 1,
+      "result": "miss",
+      "correspondence": "NotApplicableMiss",
+      "passed": true
+    },
+    {
+      "render_path": "raster",
+      "probe_identity": "edit-40-0-0",
+      "revision": "1",
+      "frame_sequence": 1,
+      "result": "miss",
+      "correspondence": "NotApplicableMiss",
+      "passed": true
+    },
+    {
+      "render_path": "raster",
+      "probe_identity": "edit-80-0-0",
+      "revision": "1",
+      "frame_sequence": 1,
+      "result": "miss",
+      "correspondence": "NotApplicableMiss",
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-0-0-0",
+      "revision": "1",
+      "frame_sequence": 8,
+      "result": "miss",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-40-0-0",
+      "revision": "1",
+      "frame_sequence": 8,
+      "result": "miss",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-80-0-0",
+      "revision": "1",
+      "frame_sequence": 8,
+      "result": "miss",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-0-0-0",
+      "revision": "4",
+      "frame_sequence": 44,
+      "result": "contact",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-40-0-0",
+      "revision": "4",
+      "frame_sequence": 44,
+      "result": "miss",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-80-0-0",
+      "revision": "4",
+      "frame_sequence": 44,
+      "result": "miss",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "raster",
+      "probe_identity": "edit-0-0-0",
+      "revision": "4",
+      "frame_sequence": 106,
+      "result": "contact",
+      "correspondence": "Matched(SemanticFace { volume_identity: VoxelVolumeId(\"canonical-volume\"), occupied_coordinate: VoxelCoordinate { x: 0, y: 0, z: 0 }, outward_normal: NegativeZ, material_identity: VoxelMaterialId(\"canonical-warm\") })",
+      "passed": true
+    },
+    {
+      "render_path": "raster",
+      "probe_identity": "edit-40-0-0",
+      "revision": "4",
+      "frame_sequence": 106,
+      "result": "miss",
+      "correspondence": "NotApplicableMiss",
+      "passed": true
+    },
+    {
+      "render_path": "raster",
+      "probe_identity": "edit-80-0-0",
+      "revision": "4",
+      "frame_sequence": 106,
+      "result": "miss",
+      "correspondence": "NotApplicableMiss",
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-0-0-0",
+      "revision": "4",
+      "frame_sequence": 117,
+      "result": "contact",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-40-0-0",
+      "revision": "4",
+      "frame_sequence": 117,
+      "result": "miss",
+      "correspondence": null,
+      "passed": true
+    },
+    {
+      "render_path": "compute_ray",
+      "probe_identity": "edit-80-0-0",
+      "revision": "4",
+      "frame_sequence": 117,
+      "result": "miss",
+      "correspondence": null,
+      "passed": true
+    }
+  ]
+}

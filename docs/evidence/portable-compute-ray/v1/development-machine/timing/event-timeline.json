@@ -1,0 +1,42 @@
+[
+  {
+    "event": "raster_revision_1",
+    "elapsed_seconds": 0.008,
+    "window_title": "Voxel Nexus Vulkan Demo | Presenter=Raster Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=inactive Camera=overview Control=Tab-waiting-for-convergence"
+  },
+  {
+    "event": "compute_revision_1",
+    "elapsed_seconds": 0.584,
+    "window_title": "Voxel Nexus Vulkan Demo | Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=awaiting-space Camera=overview Control=Space-ready"
+  },
+  {
+    "event": "edit_burst_requested",
+    "elapsed_seconds": 0.591,
+    "window_title": "Voxel Nexus Vulkan Demo | Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=awaiting-space Camera=overview Control=Space-ready"
+  },
+  {
+    "event": "compute_required_4_visible_1",
+    "elapsed_seconds": 0.692,
+    "window_title": "Voxel Nexus Vulkan Demo | Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=4 Visible=1 Burst=revision-4-visibility Camera=overview Control=Space-accepted"
+  },
+  {
+    "event": "compute_revision_4",
+    "elapsed_seconds": 0.785,
+    "window_title": "Voxel Nexus Vulkan Demo | Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Space-complete-Tab-ready"
+  },
+  {
+    "event": "raster_revision_4",
+    "elapsed_seconds": 1.094,
+    "window_title": "Voxel Nexus Vulkan Demo | Presenter=Raster Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Tab-ready-completed-2"
+  },
+  {
+    "event": "compute_revision_4_final",
+    "elapsed_seconds": 1.219,
+    "window_title": "Voxel Nexus Vulkan Demo | Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Tab-ready-completed-3"
+  },
+  {
+    "event": "clean_close",
+    "elapsed_seconds": 1.361,
+    "window_title": "closed"
+  }
+]

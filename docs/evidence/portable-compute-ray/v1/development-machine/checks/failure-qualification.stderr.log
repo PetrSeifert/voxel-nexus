@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src\compute_ray_render_path.rs (target\debug\deps\compute_ray_render_path-95e269df39ac7824.exe)
+     Running tests\capability_qualification.rs (target\debug\deps\capability_qualification-6e57c74a7ce9ba07.exe)
+     Running tests\dense_scene.rs (target\debug\deps\dense_scene-63c60cb81a05a3e8.exe)
+     Running tests\switching_adapter.rs (target\debug\deps\switching_adapter-01df732ca18a45f4.exe)
+     Running unittests src\render_backend.rs (target\debug\deps\render_backend-27bd8b614b52fc95.exe)
+     Running tests\device_qualification.rs (target\debug\deps\device_qualification-748ee03bb50ca998.exe)
+     Running tests\frame_observation.rs (target\debug\deps\frame_observation-04fd514262e2fa15.exe)
+     Running tests\render_path_protocol.rs (target\debug\deps\render_path_protocol-04fb64c24ad4827d.exe)
+     Running tests\runtime_diagnostics.rs (target\debug\deps\runtime_diagnostics-a17731d240511661.exe)
+     Running tests\swapchain_configuration.rs (target\debug\deps\swapchain_configuration-532560a77cf07c0e.exe)
+   Doc-tests compute_ray_render_path
+   Doc-tests render_backend

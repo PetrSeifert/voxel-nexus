@@ -1,0 +1,1 @@
+Canonical scene: generator=voxel-nexus-canonical-dense version=1 seed=6219286665078134867 dimensions=64x32x64 origin=-8,-4,-8 voxel_size=0.25 materials=canonical-warm,canonical-green,canonical-blue material_colors=0.95,0.22,0.1,1;0.12,0.75,0.28,1;0.1,0.32,0.95,1 occupied=52608 exposed_faces=13616 exposed_face_limit=14000

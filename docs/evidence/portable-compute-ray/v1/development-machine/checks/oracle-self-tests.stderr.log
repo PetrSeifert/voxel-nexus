@@ -1,0 +1,4 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src\semantic_ray_oracle.rs (target\debug\deps\semantic_ray_oracle-9af71768e0cd8474.exe)
+     Running tests\oracle.rs (target\debug\deps\oracle-d5bf0fe0c864fa81.exe)
+   Doc-tests semantic_ray_oracle

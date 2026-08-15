@@ -1,0 +1,62 @@
+In-client convergence overlay created
+Canonical scene: generator=voxel-nexus-canonical-dense version=1 seed=6219286665078134867 dimensions=64x32x64 origin=-8,-4,-8 voxel_size=0.25 materials=canonical-warm,canonical-green,canonical-blue material_colors=0.95,0.22,0.1,1;0.12,0.75,0.28,1;0.1,0.32,0.95,1 occupied=52608 exposed_faces=13616 exposed_face_limit=14000
+Canonical camera: camera=overview eye=20,14,22 target=0,0,0 up=0,1,0 fov_degrees=50 near=0.1 far=100
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-7.96875,-3.96875,-8.0625],"probe_identity":"edit-0-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-5.46875,-3.96875,-8.0625],"probe_identity":"edit-40-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-2.96875,-3.96875,-8.0625],"probe_identity":"edit-80-0-0"}
+Presenting Render Path: Raster; Required=1 Visible=1 CameraStateRevision=CameraStateRevision(1) Readiness=Preparing
+Vulkan drawable extent: 800x600
+Vulkan device: NVIDIA GeForce RTX 4070
+Driver version: 2497200128 (0x94d84000)
+Vulkan API version: 1.4.329
+Vulkan validation: enabled
+Vulkan present mode: FIFO
+GPU timestamp valid bits: 64
+GPU timestamp period nanoseconds: 1
+Render Path overlay: Presenter=Raster Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=inactive Camera=overview Control=Tab-waiting-for-convergence
+Raster artifact installed: revision=1 count=1
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=50.081300
+First matching raster frame presented: revision=1
+Semantic qualification: path=Raster probe=edit-0-0-0 revision=1 frame=1 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":1,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-0-0-0","render_path":"raster","revision":"1"}
+Semantic qualification: path=Raster probe=edit-40-0-0 revision=1 frame=1 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":1,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-40-0-0","render_path":"raster","revision":"1"}
+Semantic qualification: path=Raster probe=edit-80-0-0 revision=1 frame=1 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":1,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-80-0-0","render_path":"raster","revision":"1"}
+Render Path overlay: Presenter=Raster Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=inactive Camera=overview Control=Tab-ready
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.211200
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.161300
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.143000
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.164300
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.166600
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=15.442000
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=4.554200
+Edit burst command: order=1 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 0, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst command: order=2 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 21, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst command: order=3 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 42, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst inputs: scene=VoxelSceneId("canonical-dense-scene") generator=voxel-nexus-canonical-dense generator_version=1 initial_revision=1 raster_region_extent=32x32x32 camera=overview installed_revision=1 installed_complete=true expected_final_revision=4
+Compute edit burst qualification: preparation_block_edge=32 hold_after_completed_blocks=1 post_upload_revision=3 expected_final_revision=4
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-7.96875,-3.96875,-8.0625],"probe_identity":"edit-0-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-5.46875,-3.96875,-8.0625],"probe_identity":"edit-40-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-2.96875,-3.96875,-8.0625],"probe_identity":"edit-80-0-0"}
+Tab switch accepted: Presenting=Raster Replacement=ComputeRay revision=1
+Render Path overlay: Presenter=Raster Switch=preparing ReplacementRevision=1 Required=1 Visible=1 Burst=awaiting-space Camera=overview Control=Tab-accepted-ComputeRay
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=3.531500
+Compute timing event: phase=Preparation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=40.987100
+Compute timing event: phase=Upload scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.249500
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=3.161800
+Compute resource observation: sequence=0 point=Configured role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=2572992 objects=17 allocations=4 workers=0 views=0
+Render Path overlay: Presenter=Raster Switch=handoff-ready ReplacementRevision=1 Required=1 Visible=1 Burst=awaiting-space Camera=overview Control=Tab-accepted-ComputeRay
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.214500
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.177800
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.162500
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.185400
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.205800
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=4.317800
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=15.289200
+Closing with compute replacement owned before handoff
+Compute resource observation: sequence=1 point=Released role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=524912 objects=2 allocations=2 workers=0 views=0
+Compute resource observation: sequence=2 point=Shutdown role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=0 objects=0 allocations=0 workers=0 views=0
+Render Path-owned raster resources after shutdown: 0
+Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0
+Render Path switching resources after shutdown: replacement=0 retiring=0

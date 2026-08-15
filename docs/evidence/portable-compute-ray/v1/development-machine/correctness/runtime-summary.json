@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "scope": "Validation-enabled uninterrupted milestone run.",
+  "repository_revision": "443584c067763242468b53519b63098a18478048",
+  "validation_enabled": true,
+  "validation_warnings": 0,
+  "validation_errors": 0,
+  "semantic_passes": 15,
+  "completed_switches": 3,
+  "final_presenter": "compute_ray",
+  "required_revisions": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "visible_revisions": [
+    1,
+    4
+  ],
+  "installed_compute_revisions": [
+    1,
+    4
+  ],
+  "obsolete_presented_frames": 0,
+  "obsolete_semantic_observations": 0,
+  "ownership_balanced": true,
+  "shutdown": {
+    "switching": {
+      "objects": 0,
+      "allocations": 0,
+      "workers": 0,
+      "views": 0
+    },
+    "raster": {
+      "objects": 0,
+      "allocations": 0,
+      "workers": 0,
+      "views": 0
+    },
+    "compute": {
+      "objects": 0,
+      "allocations": 0,
+      "workers": 0,
+      "views": 0
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "enabled": true,
+  "warnings": 0,
+  "errors": 0,
+  "source": "correctness/desktop-demo.stderr.log"
+}

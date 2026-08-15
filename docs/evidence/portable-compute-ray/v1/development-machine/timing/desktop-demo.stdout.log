@@ -1,0 +1,1240 @@
+In-client convergence overlay created
+Canonical scene: generator=voxel-nexus-canonical-dense version=1 seed=6219286665078134867 dimensions=64x32x64 origin=-8,-4,-8 voxel_size=0.25 materials=canonical-warm,canonical-green,canonical-blue material_colors=0.95,0.22,0.1,1;0.12,0.75,0.28,1;0.1,0.32,0.95,1 occupied=52608 exposed_faces=13616 exposed_face_limit=14000
+Canonical camera: camera=overview eye=20,14,22 target=0,0,0 up=0,1,0 fov_degrees=50 near=0.1 far=100
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-7.96875,-3.96875,-8.0625],"probe_identity":"edit-0-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-5.46875,-3.96875,-8.0625],"probe_identity":"edit-40-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-2.96875,-3.96875,-8.0625],"probe_identity":"edit-80-0-0"}
+Presenting Render Path: Raster; Required=1 Visible=1 CameraStateRevision=CameraStateRevision(1) Readiness=Preparing
+Vulkan drawable extent: 800x600
+Vulkan device: NVIDIA GeForce RTX 4070
+Driver version: 2497200128 (0x94d84000)
+Vulkan API version: 1.4.329
+Vulkan validation: disabled
+Vulkan present mode: IMMEDIATE
+GPU timestamp valid bits: 64
+GPU timestamp period nanoseconds: 1
+Render Path overlay: Presenter=Raster Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=inactive Camera=overview Control=Tab-waiting-for-convergence
+Raster artifact installed: revision=1 count=1
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=50.212800
+First matching raster frame presented: revision=1
+Compute replacement cold build started: revision=1 CameraStateRevision=CameraStateRevision(1)
+Edit burst command: order=1 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 0, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst command: order=2 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 21, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst command: order=3 volume=VoxelVolumeId("canonical-volume") coordinate=VoxelCoordinate { x: 42, y: 0, z: 0 } old=empty requested=occupied:VoxelMaterialId("canonical-warm")
+Edit burst inputs: scene=VoxelSceneId("canonical-dense-scene") generator=voxel-nexus-canonical-dense generator_version=1 initial_revision=1 raster_region_extent=32x32x32 camera=overview installed_revision=1 installed_complete=true expected_final_revision=4
+Compute edit burst qualification: preparation_block_edge=32 hold_after_completed_blocks=1 post_upload_revision=3 expected_final_revision=4
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-7.96875,-3.96875,-8.0625],"probe_identity":"edit-0-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-5.46875,-3.96875,-8.0625],"probe_identity":"edit-40-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-2.96875,-3.96875,-8.0625],"probe_identity":"edit-80-0-0"}
+Compute replacement requested while raster remains Presenting
+Compute replacement held: CameraStateRevision=CameraStateRevision(1) PresentationConfiguration=None Readiness=Preparing
+Semantic qualification: path=Raster probe=edit-0-0-0 revision=1 frame=1 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":1,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-0-0-0","render_path":"raster","revision":"1"}
+Semantic qualification: path=Raster probe=edit-40-0-0 revision=1 frame=1 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":1,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-40-0-0","render_path":"raster","revision":"1"}
+Semantic qualification: path=Raster probe=edit-80-0-0 revision=1 frame=1 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":1,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-80-0-0","render_path":"raster","revision":"1"}
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=2.324200
+Compute timing event: phase=Preparation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=41.789000
+Compute timing event: phase=Upload scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.185800
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=2.118600
+Compute resource observation: sequence=0 point=Configured role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=2572992 objects=17 allocations=4 workers=0 views=0
+Compute replacement held: CameraStateRevision=CameraStateRevision(1) PresentationConfiguration=Some(PresentationConfigurationId(1)) Readiness=Recordable
+Compute lifecycle qualification published the deterministic Camera State change
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=0.122100
+Compute replacement held: CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(1)) Readiness=Recordable
+Compute replacement held during presentation resize: 1100x700
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=50.101000
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.755500
+Compute resource observation: sequence=1 point=Released role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=524912 objects=2 allocations=2 workers=0 views=0
+Compute resource observation: sequence=2 point=Configured role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3916480 objects=17 allocations=4 workers=0 views=0
+Compute replacement held: CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(2)) Readiness=Recordable
+Compute replacement held during presentation resize: 650x900
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=46.598500
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.570600
+Compute resource observation: sequence=3 point=Released role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=524912 objects=2 allocations=2 workers=0 views=0
+Compute resource observation: sequence=4 point=Configured role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3211968 objects=17 allocations=4 workers=0 views=0
+Compute replacement held: CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(3)) Readiness=Recordable
+Compute replacement held during zero-size presentation suspension
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=14.489400
+Compute resource observation: sequence=5 point=Released role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=524912 objects=2 allocations=2 workers=0 views=0
+Compute replacement held during presentation resize: 650x900
+Compute lifecycle qualification restored presentation: 650x900
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=34.847400
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.497500
+Compute resource observation: sequence=6 point=Configured role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3211968 objects=17 allocations=4 workers=0 views=0
+Compute replacement held: CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(4)) Readiness=Recordable
+Compute replacement held during presentation resize: 1000x700
+Render Path timing event: phase=Presentation render_path=Raster revision=1 elapsed_ms=46.258700
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.587200
+Compute resource observation: sequence=7 point=Released role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=524912 objects=2 allocations=2 workers=0 views=0
+Compute resource observation: sequence=8 point=Configured role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=0 views=0
+Compute replacement held: CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(5)) Readiness=Recordable
+Compute replacement handoff released: CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(5))
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.193000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.053900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007600
+Compute resource observation: sequence=9 point=Presentation role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=0 views=0
+Render Path timing event: phase=Switching source=Raster replacement=ComputeRay revision=1 elapsed_ms=326.097400
+First compute frame presented after atomic handoff: revision=1 CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(5))
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=1.495000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.009900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008300
+Raster retirement complete: owned_resources=0 workers=0
+Semantic qualification: path=ComputeRay probe=edit-0-0-0 revision=1 frame=8 result=pass
+Semantic evidence: {"actual":{"result":"miss"},"distance_tolerance":0.0001,"frame_sequence":8,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-0-0-0","render_path":"compute_ray","revision":"1"}
+Semantic qualification: path=ComputeRay probe=edit-40-0-0 revision=1 frame=8 result=pass
+Semantic evidence: {"actual":{"result":"miss"},"distance_tolerance":0.0001,"frame_sequence":8,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-40-0-0","render_path":"compute_ray","revision":"1"}
+Semantic qualification: path=ComputeRay probe=edit-80-0-0 revision=1 frame=8 result=pass
+Semantic evidence: {"actual":{"result":"miss"},"distance_tolerance":0.0001,"frame_sequence":8,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-80-0-0","render_path":"compute_ray","revision":"1"}
+Portable compute-ray milestone lifecycle complete: completed_switches=1 validation_errors=0
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=awaiting-space Camera=overview Control=Space-ready
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.118100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.010600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.011600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.084400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.077600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.072200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.089400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.087500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.081800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.077500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.072700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.093200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007800
+Compute edit requirement submitted: Required=2
+Space edit burst accepted while compute presents and switching is idle
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=1 Visible=1 Burst=revision-2-requirement Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.170400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.011900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.013300
+Compute resource observation: sequence=10 point=Convergence role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=Some(ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(2), generation: ComputeConvergenceGeneration(1) }) pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=1 views=2
+Compute convergence event: PreparationStarted { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(2), generation: ComputeConvergenceGeneration(1) } }
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=2 Visible=1 Burst=revision-2-one-block Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.106000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.009500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.106000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.077400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.091800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.122900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.071700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.083300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute revision 2 held after one bounded 32-cubed preparation block
+Compute edit requirement submitted: Required=3
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=2 Visible=1 Burst=revision-3-requirement Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.121900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.010400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.012100
+Compute resource observation: sequence=11 point=Convergence role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=Some(ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(2), generation: ComputeConvergenceGeneration(1) }) pending=Some(ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(3), generation: ComputeConvergenceGeneration(2) }) paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=1 views=3
+Compute revision 2 preparation barrier released after Required=3
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=3 Visible=1 Burst=revision-2-cancellation Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.520200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Compute resource observation: sequence=12 point=Convergence role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=Some(ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(3), generation: ComputeConvergenceGeneration(2) }) pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=1 views=2
+Compute convergence event: CandidateDiscarded { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(2), generation: ComputeConvergenceGeneration(1) }, disposition: SupersededBeforeUpload }
+Compute convergence event: PreparationStarted { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(3), generation: ComputeConvergenceGeneration(2) } }
+Compute revision 2 cancelled after exactly one preparation block
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=3 Visible=1 Burst=revision-3-upload Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.104500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.092900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.075400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.089300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.087500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.177300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.085300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.082800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.096500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.084800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.087000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.083800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.085800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.070100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.106200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.009300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.175100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.010500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.081300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.082300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.084000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.086000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.072600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.092200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.095700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.087900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.088300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.096200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.084300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.080100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.082800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.244500
+Compute timing event: phase=Upload scene=VoxelSceneId("canonical-dense-scene") revision=3 generation=2 elapsed_ms=0.162800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute resource observation: sequence=13 point=Convergence role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=None pending=None paused=None hidden=Some(ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(3), generation: ComputeConvergenceGeneration(2) }) cleanup_debt=None bytes=4145952 objects=18 allocations=5 workers=0 views=1
+Compute convergence event: PreparationReady { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(3), generation: ComputeConvergenceGeneration(2) } }
+Compute convergence event: CandidateUploaded { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(3), generation: ComputeConvergenceGeneration(2) } }
+Compute revision 3 uploaded and retained hidden
+Compute edit requirement submitted: Required=4
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=3 Visible=1 Burst=revision-4-requirement Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.860900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.088800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.015900
+Compute resource observation: sequence=14 point=Convergence role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=1 installed_generation=0 preparing=Some(ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(4), generation: ComputeConvergenceGeneration(3) }) pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=1 views=2
+Compute convergence event: PreparationStarted { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(4), generation: ComputeConvergenceGeneration(3) } }
+Compute convergence event: CandidateDiscarded { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(3), generation: ComputeConvergenceGeneration(2) }, disposition: SupersededAfterUpload }
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=4 Visible=1 Burst=revision-3-rejection Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.099300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008300
+Compute revision 3 rejected after upload with Required=4
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=4 Visible=1 Burst=revision-4-visibility Camera=overview Control=Space-accepted
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.104700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.009600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.085400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.081900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.077200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.095300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.010500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.083400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.075800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.081800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.078100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.010100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.009500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.085400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.083900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.128200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.078100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.078800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.196000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.111700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.071300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.079700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.087800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.074700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.082900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.075400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.083200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.086700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.080400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.077400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.113200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.037000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.080600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.073700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.091600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.008400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.088800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.007500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.076500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=1 elapsed_ms=0.072400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=1 generation=0 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.395200
+Compute timing event: phase=Upload scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.139700
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.142900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute resource observation: sequence=15 point=Convergence role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=3 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=0 views=0
+Compute convergence event: PreparationReady { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(4), generation: ComputeConvergenceGeneration(3) } }
+Compute convergence event: CandidateUploaded { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(4), generation: ComputeConvergenceGeneration(3) } }
+Compute convergence event: CandidateInstalled { stamp: ComputeConvergenceWorkStamp { revision: VoxelSceneRevision(4), generation: ComputeConvergenceGeneration(3) } }
+Compute edit burst converged newest-only: Required=4 Visible=4 installed_revisions=[VoxelSceneRevision(4)] obsolete_presented_frames=0 obsolete_semantic_observations=0 elapsed_ms=114.626900
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-7.96875,-3.96875,-8.0625],"probe_identity":"edit-0-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-5.46875,-3.96875,-8.0625],"probe_identity":"edit-40-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-2.96875,-3.96875,-8.0625],"probe_identity":"edit-80-0-0"}
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Space-complete-Tab-ready
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.179600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.016600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.017100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.123700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008900
+Semantic qualification: path=ComputeRay probe=edit-0-0-0 revision=4 frame=131 result=pass
+Semantic evidence: {"actual":{"classification":"entered","coordinate":[0,0,0],"distance":0.0625,"material_identity":"VoxelMaterialId(\"canonical-warm\")","outward_normal":"NegativeZ","result":"contact","volume_identity":"VoxelVolumeId(\"canonical-volume\")"},"distance_tolerance":0.0001,"frame_sequence":131,"kind":"observation","oracle":{"classification":"entered","coordinate":[0,0,0],"distance":0.0625,"material_identity":"VoxelMaterialId(\"canonical-warm\")","outward_normal":"NegativeZ","result":"contact","volume_identity":"VoxelVolumeId(\"canonical-volume\")"},"passed":true,"probe_identity":"edit-0-0-0","render_path":"compute_ray","revision":"4"}
+Semantic qualification: path=ComputeRay probe=edit-40-0-0 revision=4 frame=131 result=pass
+Semantic evidence: {"actual":{"result":"miss"},"distance_tolerance":0.0001,"frame_sequence":131,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-40-0-0","render_path":"compute_ray","revision":"4"}
+Semantic qualification: path=ComputeRay probe=edit-80-0-0 revision=4 frame=131 result=pass
+Semantic evidence: {"actual":{"result":"miss"},"distance_tolerance":0.0001,"frame_sequence":131,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-80-0-0","render_path":"compute_ray","revision":"4"}
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.121900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.100100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.075900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.072400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.071800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.070400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.138300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.009500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.010600
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-7.96875,-3.96875,-8.0625],"probe_identity":"edit-0-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-5.46875,-3.96875,-8.0625],"probe_identity":"edit-40-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-2.96875,-3.96875,-8.0625],"probe_identity":"edit-80-0-0"}
+Tab switch accepted: Presenting=ComputeRay Replacement=Raster revision=4
+Render Path overlay: Presenter=ComputeRay Switch=preparing ReplacementRevision=4 Required=4 Visible=4 Burst=complete Camera=overview Control=Tab-accepted-Raster
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=1.077900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.019000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.015400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.100400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.106500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.091900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.098900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.095000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.095700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.170500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.009000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.009700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.104200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.010800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.095400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.107000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.085300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.094100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.114100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.088300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.190300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.120900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.010400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.010300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.096800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.087600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.085300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.114700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.144900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.011100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.010000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.096300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.123800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.010400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.010800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.099200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.107100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.105100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.088600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.090800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.085200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.155700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.076600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.160400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.094900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.085600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.090300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.108100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.086600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.090500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.118900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.104300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.103800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.019600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.095400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.094500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.119200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.085500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.086600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.106100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.009200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.086000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.107500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.097100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.106900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.107700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.094900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.105700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.153700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.100500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.146700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008200
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.093000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.102500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.097400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.183300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.187800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.009700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.088800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.076000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.076400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.104700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.009300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.091700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.086300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.094100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.182400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.097700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.091700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.017200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.091500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.103200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.128200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.017000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.104300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.104900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.106100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.099900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.099200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.151800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.112100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.092700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.082500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.083900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.100500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.090000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.084500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.081900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.090800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.086600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.087000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.079600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.163200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.098700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006700
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.090800
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006100
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.089000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.077700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.078300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005500
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.093200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007100
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.116900
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.009900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.088100
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005900
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.080400
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.005800
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.143000
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007700
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007400
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.097500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.008400
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.007500
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.095300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.006600
+Raster artifact installed: revision=4 count=1
+Render Path overlay: Presenter=ComputeRay Switch=handoff-ready ReplacementRevision=4 Required=4 Visible=4 Burst=complete Camera=overview Control=Raster-replacement-ready-4
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.192700
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=3 elapsed_ms=0.514500
+Compute resource observation: sequence=16 point=Released role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=3 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=524912 objects=2 allocations=2 workers=0 views=0
+Compute resource observation: sequence=17 point=Configured role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=3 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=0 views=0
+Render Path timing event: phase=Switching source=ComputeRay replacement=Raster revision=4 elapsed_ms=288.096700
+First replacement frame presented: Presenting=Raster Retiring=ComputeRay revision=4 CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(5))
+Semantic qualification: path=Raster probe=edit-0-0-0 revision=4 frame=348 correspondence=Matched(SemanticFace { volume_identity: VoxelVolumeId("canonical-volume"), occupied_coordinate: VoxelCoordinate { x: 0, y: 0, z: 0 }, outward_normal: NegativeZ, material_identity: VoxelMaterialId("canonical-warm") }) result=pass
+Semantic evidence: {"correspondence":"Matched(SemanticFace { volume_identity: VoxelVolumeId(\"canonical-volume\"), occupied_coordinate: VoxelCoordinate { x: 0, y: 0, z: 0 }, outward_normal: NegativeZ, material_identity: VoxelMaterialId(\"canonical-warm\") })","frame_sequence":348,"kind":"observation","oracle":{"classification":"entered","coordinate":[0,0,0],"distance":0.0625,"material_identity":"VoxelMaterialId(\"canonical-warm\")","outward_normal":"NegativeZ","result":"contact","volume_identity":"VoxelVolumeId(\"canonical-volume\")"},"passed":true,"probe_identity":"edit-0-0-0","render_path":"raster","revision":"4"}
+Semantic qualification: path=Raster probe=edit-40-0-0 revision=4 frame=348 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":348,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-40-0-0","render_path":"raster","revision":"4"}
+Semantic qualification: path=Raster probe=edit-80-0-0 revision=4 frame=348 correspondence=NotApplicableMiss result=pass
+Semantic evidence: {"correspondence":"NotApplicableMiss","frame_sequence":348,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-80-0-0","render_path":"raster","revision":"4"}
+Render Path overlay: Presenter=Raster Switch=retiring ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Raster-replacement-ready-4
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.674700
+Compute resource observation: sequence=18 point=Shutdown role=Retiring scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=3 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=0 objects=0 allocations=0 workers=0 views=0
+Render Path retirement complete: Retired=ComputeRay owned_resources=0 workers=0 completed_switches=2
+Render Path overlay: Presenter=Raster Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Tab-ready-completed-2
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.075400
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.078400
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.071600
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.072200
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.092700
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.074900
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.070800
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.071300
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.077800
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.071000
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.075400
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.069100
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.067400
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.066800
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.070300
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.068600
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.086800
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.071900
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.077100
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.067100
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.068700
+Render Path timing event: phase=Presentation render_path=Raster revision=4 elapsed_ms=0.159200
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-7.96875,-3.96875,-8.0625],"probe_identity":"edit-0-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-5.46875,-3.96875,-8.0625],"probe_identity":"edit-40-0-0"}
+Semantic evidence: {"direction":[0.0,0.0,1.0],"kind":"probe_definition","maximum_distance":0.125,"minimum_distance":0.0,"origin":[-2.96875,-3.96875,-8.0625],"probe_identity":"edit-80-0-0"}
+Tab switch accepted: Presenting=Raster Replacement=ComputeRay revision=4
+Render Path overlay: Presenter=Raster Switch=preparing ReplacementRevision=4 Required=4 Visible=4 Burst=complete Camera=overview Control=Tab-accepted-ComputeRay
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=1.244900
+Compute timing event: phase=Preparation scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=42.137800
+Compute timing event: phase=Upload scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.192900
+Compute timing event: phase=Installation scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.933500
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.018000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.013800
+Compute resource observation: sequence=0 point=Configured role=Replacement scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=0 views=0
+Compute resource observation: sequence=1 point=Presentation role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=3621568 objects=17 allocations=4 workers=0 views=0
+Render Path timing event: phase=Switching source=Raster replacement=ComputeRay revision=4 elapsed_ms=119.723300
+First replacement frame presented: Presenting=ComputeRay Retiring=Raster revision=4 CameraStateRevision=CameraStateRevision(2) PresentationConfiguration=Some(PresentationConfigurationId(5))
+Render Path overlay: Presenter=ComputeRay Switch=retiring ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Tab-accepted-ComputeRay
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=1.515200
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.009000
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.008400
+Render Path retirement complete: Retired=Raster owned_resources=0 workers=0 completed_switches=3
+Semantic qualification: path=ComputeRay probe=edit-0-0-0 revision=4 frame=372 result=pass
+Semantic evidence: {"actual":{"classification":"entered","coordinate":[0,0,0],"distance":0.0625,"material_identity":"VoxelMaterialId(\"canonical-warm\")","outward_normal":"NegativeZ","result":"contact","volume_identity":"VoxelVolumeId(\"canonical-volume\")"},"distance_tolerance":0.0001,"frame_sequence":372,"kind":"observation","oracle":{"classification":"entered","coordinate":[0,0,0],"distance":0.0625,"material_identity":"VoxelMaterialId(\"canonical-warm\")","outward_normal":"NegativeZ","result":"contact","volume_identity":"VoxelVolumeId(\"canonical-volume\")"},"passed":true,"probe_identity":"edit-0-0-0","render_path":"compute_ray","revision":"4"}
+Semantic qualification: path=ComputeRay probe=edit-40-0-0 revision=4 frame=372 result=pass
+Semantic evidence: {"actual":{"result":"miss"},"distance_tolerance":0.0001,"frame_sequence":372,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-40-0-0","render_path":"compute_ray","revision":"4"}
+Semantic qualification: path=ComputeRay probe=edit-80-0-0 revision=4 frame=372 result=pass
+Semantic evidence: {"actual":{"result":"miss"},"distance_tolerance":0.0001,"frame_sequence":372,"kind":"observation","oracle":{"result":"miss"},"passed":true,"probe_identity":"edit-80-0-0","render_path":"compute_ray","revision":"4"}
+Render Path overlay: Presenter=ComputeRay Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=complete Camera=overview Control=Tab-ready-completed-3
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.135600
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.012200
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.014000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.089300
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.007300
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.008000
+Render Path timing event: phase=Presentation render_path=ComputeRay revision=4 elapsed_ms=0.089700
+Compute timing event: phase=Dispatch scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.006800
+Compute timing event: phase=Composite scene=VoxelSceneId("canonical-dense-scene") revision=4 generation=0 elapsed_ms=0.007400
+Render Path round trip complete: raster-to-compute-to-raster-to-compute switches=3 closing_presenter=ComputeRay
+Compute resource observation: sequence=2 point=Released role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=524912 objects=2 allocations=2 workers=0 views=0
+Compute resource observation: sequence=3 point=Shutdown role=Presenting scene=VoxelSceneId("canonical-dense-scene") installed_revision=4 installed_generation=0 preparing=None pending=None paused=None hidden=None cleanup_debt=None bytes=0 objects=0 allocations=0 workers=0 views=0
+Render Path-owned raster resources after shutdown: 0
+Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0
+Render Path switching resources after shutdown: replacement=0 retiring=0

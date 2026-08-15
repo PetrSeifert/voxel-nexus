@@ -1,0 +1,44 @@
+{
+  "SchemaVersion": 1,
+  "Scope": "Validation-enabled compute shutdown qualification on this Windows machine.",
+  "RecordedAtUtc": "2026-08-15T12:19:18.9665739Z",
+  "RepositoryRevision": "443584c067763242468b53519b63098a18478048",
+  "Cases": [
+    {
+      "Name": "compute-presenting-close",
+      "Qualification": "presenting",
+      "ExitCode": 0,
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "StandardOutput": "compute-presenting-close.stdout.log",
+      "StandardError": "compute-presenting-close.stderr.log"
+    },
+    {
+      "Name": "compute-replacement-close",
+      "Qualification": "replacement",
+      "ExitCode": 0,
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "StandardOutput": "compute-replacement-close.stdout.log",
+      "StandardError": "compute-replacement-close.stderr.log"
+    },
+    {
+      "Name": "compute-active-preparation-close",
+      "Qualification": "active-preparation",
+      "ExitCode": 0,
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "StandardOutput": "compute-active-preparation-close.stdout.log",
+      "StandardError": "compute-active-preparation-close.stderr.log"
+    },
+    {
+      "Name": "compute-hidden-candidate-close",
+      "Qualification": "hidden-candidate",
+      "ExitCode": 0,
+      "ValidationWarnings": 0,
+      "ValidationErrors": 0,
+      "StandardOutput": "compute-hidden-candidate-close.stdout.log",
+      "StandardError": "compute-hidden-candidate-close.stderr.log"
+    }
+  ]
+}

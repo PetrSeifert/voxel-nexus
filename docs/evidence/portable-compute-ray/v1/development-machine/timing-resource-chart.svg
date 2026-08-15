@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360">
+  <rect width="960" height="360" fill="#111827"/>
+  <text x="48" y="60" fill="#f9fafb" font-family="sans-serif" font-size="28">Portable compute-ray retained evidence</text>
+  <text x="48" y="112" fill="#93c5fd" font-family="monospace" font-size="20">Raw phase samples: 1084</text>
+  <text x="48" y="152" fill="#93c5fd" font-family="monospace" font-size="20">Largest observed phase: 326.097 ms</text>
+  <text x="48" y="212" fill="#86efac" font-family="monospace" font-size="20">Resource observations: 26</text>
+  <text x="48" y="252" fill="#86efac" font-family="monospace" font-size="20">Largest observed owned bytes: 4145952</text>
+  <text x="48" y="316" fill="#d1d5db" font-family="sans-serif" font-size="16">One attributed machine. Descriptive values only.</text>
+</svg>

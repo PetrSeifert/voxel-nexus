@@ -1,0 +1,131 @@
+
+running 20 tests
+test compute_convergence::tests::invalid_and_non_newer_outcomes_do_not_mutate_convergence_state ... ok
+test compute_convergence::tests::scene_preparation_checks_cancellation_between_bounded_region_reads ... ok
+test compute_convergence::tests::retained_events_are_bounded_and_count_compacted_history ... ok
+test compute_convergence::tests::shutdown_releases_a_hidden_candidate_view ... ok
+test tests::composite_samples_the_compute_output_over_a_full_screen_triangle ... ok
+test compute_convergence::tests::preparation_failure_preserves_visible_state_and_retries_the_same_revision ... ok
+test compute_convergence::tests::discontinuous_newer_outcomes_use_the_same_complete_rebuild_path ... ok
+test tests::compute_writes_become_visible_to_fragment_sampling ... ok
+test tests::first_dispatch_discards_undefined_contents_before_compute_writes ... ok
+test compute_convergence::tests::newer_work_supersedes_a_paused_failure ... ok
+test tests::compute_shader_guards_only_out_of_range_invocations_and_writes_every_valid_pixel ... ok
+test tests::hidden_gpu_candidate_release_clears_control_and_owned_resources ... ok
+test compute_convergence::tests::a_newer_requirement_replaces_a_ready_bundle_without_starting_a_second_worker ... ok
+test compute_convergence::tests::explicit_retry_reuses_the_required_view_with_a_new_generation ... ok
+test compute_convergence::tests::pre_swap_installation_failure_preserves_visible_state_and_retries_the_same_revision ... ok
+test compute_convergence::tests::shutdown_releases_an_active_preparation_worker_and_every_retained_view ... ok
+test compute_convergence::tests::rapid_requirements_install_only_the_newest_authoritative_bundle ... ok
+test tests::later_dispatch_waits_for_the_previous_composite_read ... ok
+test tests::semantic_ray_readback_decodes_installed_scene_identities_and_gpu_contact_data ... ok
+test compute_convergence::tests::deterministic_burst_bounds_revision_two_and_installs_only_revision_four ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test records_queried_facts_and_a_dispatch_that_covers_the_output ... ok
+test rejects_a_command_queue_without_compute_support ... ok
+test rejects_each_descriptor_binding_limit_that_the_two_stages_use ... ok
+test rejects_zero_or_oversized_output_dimensions ... ok
+test rejects_an_output_format_without_both_storage_and_sampling_support ... ok
+test rejects_a_storage_buffer_binding_range_smaller_than_semantic_ray_readback ... ok
+test rejects_the_fixed_workgroup_or_required_dispatch_when_limits_are_too_small ... ok
+test rejects_an_old_api_or_a_command_queue_without_graphics_support ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test shared_camera_state_generates_pixel_center_rays_and_view_space_clipping ... ok
+test bounded_region_reads_build_flattened_words_and_a_local_material_table ... ok
+test equal_distance_contacts_use_stable_volume_identity_order ... ok
+test dense_dda_matches_clipping_half_open_and_simultaneous_axis_rules ... ok
+test canonical_declared_probes_match_the_oracle_at_revisions_one_and_four ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.85s
+
+
+running 4 tests
+test published_camera_state_waits_for_frame_boundary_acknowledgement ... ok
+test an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state ... ok
+test cold_compute_construction_records_revision_attributed_preparation_time ... ok
+test accepted_edits_advance_required_without_changing_the_visible_installation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 19 tests
+test render_path_switching::tests::held_replacement_tracks_camera_and_presentation_recreation_before_handoff ... ok
+test render_path_switching::tests::post_handoff_retirement_failure_retains_the_new_presenting_path_without_rollback ... ok
+test render_path_switching::tests::failed_replacement_is_cleaned_before_a_fresh_cold_switch ... ok
+test render_path_switching::tests::configure_aggregates_presenting_and_replacement_failures ... ok
+test render_path_switching::tests::rejected_switch_is_not_queued_while_another_switch_is_in_progress ... ok
+test render_path_switching::tests::handoff_defers_for_each_mismatched_path_neutral_stamp ... ok
+test render_path_switching::tests::configure_aggregates_presenting_and_retiring_failures ... ok
+test render_path_switching::tests::rejected_switch_is_not_queued_when_the_presenting_path_is_not_recordable ... ok
+test render_path_switching::tests::exactly_one_presenting_path_records_and_retirement_completion_returns_switching_to_idle ... ok
+test render_path_switching::tests::release_aggregates_presenting_and_replacement_failures ... ok
+test render_path_switching::tests::rejected_switch_is_not_queued_when_the_presenting_path_is_not_converged ... ok
+test render_path_switching::tests::release_aggregates_presenting_and_retiring_failures ... ok
+test render_path_switching::tests::replacement_prepares_without_presenting_then_hands_off_matching_stamps_atomically ... ok
+test render_path_switching::tests::revision_four_paths_complete_the_raster_compute_raster_compute_round_trip ... ok
+test render_path_switching::tests::shutdown_aggregates_presenting_and_replacement_failures ... ok
+test tests::backend_frame_sequences_remain_monotonic_across_presentation_generations ... ok
+test tests::frame_boundary_failure_prevents_image_acquisition ... ok
+test tests::frame_boundary_waits_then_advances_the_current_complete_target_before_acquisition ... ok
+test tests::graphics_queue_selection_prefers_a_compute_capable_graphics_family ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test accepts_separate_graphics_and_presentation_queues ... ok
+test rejects_devices_without_a_presentation_queue ... ok
+test rejects_devices_below_vulkan_1_3 ... ok
+test rejects_devices_without_swapchain_support ... ok
+test rejects_devices_without_surface_formats ... ok
+test rejects_devices_without_present_modes ... ok
+test reports_every_missing_presentation_requirement ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test frame_observation_buffer_keeps_only_the_latest_completed_frame ... ok
+test frame_observation_uses_valid_bits_for_wrapped_timestamps ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test render_path_protocol_accepts_an_independent_image_strategy ... ok
+test every_render_path_phase_preserves_phase_and_source_context ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test runtime_context_reports_device_driver_and_api_versions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test swapchain_respects_a_surface_fixed_extent ... ok
+test swapchain_uses_the_initial_drawable_extent_and_stable_presentation ... ok
+test zero_sized_drawable_suspends_swapchain_configuration ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

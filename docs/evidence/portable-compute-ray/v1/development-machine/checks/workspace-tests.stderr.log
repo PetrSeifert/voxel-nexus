@@ -1,0 +1,63 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running unittests src\canonical_inspection.rs (target\debug\deps\canonical_inspection-ec29e7a24c2954b8.exe)
+     Running tests\camera.rs (target\debug\deps\camera-667d3d2b8c7117fe.exe)
+     Running unittests src\canonical_scene.rs (target\debug\deps\canonical_scene-6fcaf6ee75fb6c55.exe)
+     Running tests\generation.rs (target\debug\deps\generation-bfe7101141cc5afc.exe)
+     Running tests\semantic_rays.rs (target\debug\deps\semantic_rays-abec573a197a3652.exe)
+     Running unittests src\completion_evidence.rs (target\debug\deps\completion_evidence-e2ef49379134c871.exe)
+     Running unittests src\verify_completion_evidence.rs (target\debug\deps\verify_completion_evidence-703695a3640d611e.exe)
+     Running tests\public_contract.rs (target\debug\deps\public_contract-1b2c671cf90f6477.exe)
+     Running unittests src\compute_ray_render_path.rs (target\debug\deps\compute_ray_render_path-95e269df39ac7824.exe)
+     Running tests\capability_qualification.rs (target\debug\deps\capability_qualification-6e57c74a7ce9ba07.exe)
+     Running tests\dense_scene.rs (target\debug\deps\dense_scene-63c60cb81a05a3e8.exe)
+     Running tests\switching_adapter.rs (target\debug\deps\switching_adapter-01df732ca18a45f4.exe)
+     Running unittests src\main.rs (target\debug\deps\desktop_demo-d75c2990a48a61b3.exe)
+     Running tests\canonical_configuration.rs (target\debug\deps\canonical_configuration-3b5ae7e342afe9a4.exe)
+     Running tests\render_path_failures.rs (target\debug\deps\render_path_failures-52ca1d2e74ef314e.exe)
+     Running tests\unsupported_prerequisites.rs (target\debug\deps\unsupported_prerequisites-ec98f43f8c56ea65.exe)
+     Running unittests src\localized_raster_evidence.rs (target\debug\deps\localized_raster_evidence-4607451865be8d5e.exe)
+     Running unittests src\verify_localized_raster_evidence.rs (target\debug\deps\verify_localized_raster_evidence-0056efb8f37582c8.exe)
+     Running tests\public_contract.rs (target\debug\deps\public_contract-1e5d3fe6b6cbf3d4.exe)
+     Running tests\retained_bundle.rs (target\debug\deps\retained_bundle-380dbd4a191d1f5a.exe)
+     Running unittests src\measurement_evidence.rs (target\debug\deps\measurement_evidence-1e1c6e79cc4a191e.exe)
+     Running unittests src\measurement_evidence_report.rs (target\debug\deps\measurement_evidence_report-c63de296a76edf4f.exe)
+     Running unittests src\raster_region_extent_report.rs (target\debug\deps\raster_region_extent_report-e1d2f8cba5d1783e.exe)
+     Running unittests src\render_path_evidence_report.rs (target\debug\deps\render_path_evidence_report-ea6ae30cd9d0490c.exe)
+     Running tests\public_contract.rs (target\debug\deps\public_contract-c2b52d8e44305124.exe)
+     Running unittests src\portable_compute_ray_evidence.rs (target\debug\deps\portable_compute_ray_evidence-7b5bd7afe817e053.exe)
+     Running unittests src\verify_portable_compute_ray_evidence.rs (target\debug\deps\verify_portable_compute_ray_evidence-0dfeff0451a10aaf.exe)
+     Running tests\public_contract.rs (target\debug\deps\public_contract-42df156b52126db5.exe)
+     Running unittests src\raster_render_path.rs (target\debug\deps\raster_render_path-70b0d27445b6cb9b.exe)
+     Running tests\artifact_gate.rs (target\debug\deps\artifact_gate-c9a71c9605971ee9.exe)
+     Running tests\convergence.rs (target\debug\deps\convergence-6c85bc4778b3a84e.exe)
+     Running tests\derivation.rs (target\debug\deps\derivation-74f31468bf5ec55a.exe)
+     Running tests\failures.rs (target\debug\deps\failures-54ffd0c40460d25e.exe)
+     Running tests\front_face.rs (target\debug\deps\front_face-91cad677a683bb36.exe)
+     Running tests\localized_replacement.rs (target\debug\deps\localized_replacement-354344cdff1d1e64.exe)
+     Running tests\preparation.rs (target\debug\deps\preparation-000e2a57b6d6829c.exe)
+     Running tests\regions.rs (target\debug\deps\regions-cce40e18efc7e6ce.exe)
+     Running tests\semantic_qualification.rs (target\debug\deps\semantic_qualification-5d168fee26db0d43.exe)
+     Running tests\switching_adapter.rs (target\debug\deps\switching_adapter-6cf3a286fa9bc818.exe)
+     Running unittests src\render_backend.rs (target\debug\deps\render_backend-27bd8b614b52fc95.exe)
+     Running tests\device_qualification.rs (target\debug\deps\device_qualification-748ee03bb50ca998.exe)
+     Running tests\frame_observation.rs (target\debug\deps\frame_observation-04fd514262e2fa15.exe)
+     Running tests\render_path_protocol.rs (target\debug\deps\render_path_protocol-04fb64c24ad4827d.exe)
+     Running tests\runtime_diagnostics.rs (target\debug\deps\runtime_diagnostics-a17731d240511661.exe)
+     Running tests\swapchain_configuration.rs (target\debug\deps\swapchain_configuration-532560a77cf07c0e.exe)
+     Running unittests src\semantic_ray_oracle.rs (target\debug\deps\semantic_ray_oracle-9af71768e0cd8474.exe)
+     Running tests\oracle.rs (target\debug\deps\oracle-d5bf0fe0c864fa81.exe)
+     Running unittests src\voxel_frontend.rs (target\debug\deps\voxel_frontend-00fdc6d8183c790d.exe)
+     Running tests\editing.rs (target\debug\deps\editing-eb93c72d7e1ad5f4.exe)
+     Running tests\publication.rs (target\debug\deps\publication-f44aa622079099e2.exe)
+     Running tests\validation.rs (target\debug\deps\validation-72797cd2df9b3ff9.exe)
+   Doc-tests canonical_inspection
+   Doc-tests canonical_scene
+   Doc-tests completion_evidence
+   Doc-tests compute_ray_render_path
+   Doc-tests localized_raster_evidence
+   Doc-tests measurement_evidence
+   Doc-tests portable_compute_ray_evidence
+   Doc-tests raster_render_path
+   Doc-tests render_backend
+   Doc-tests semantic_ray_oracle
+   Doc-tests voxel_frontend

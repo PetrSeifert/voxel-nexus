@@ -1,0 +1,555 @@
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test canonical_camera_poses_fix_every_scene_coordinate_parameter ... ok
+test raster_render_path_retains_the_selected_logical_camera_pose ... ok
+test overview_to_cavity_move_has_fixed_step_outputs ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test canonical_scene_exposes_material_regions_cavity_overhang_and_boundary_through_public_reads ... ok
+test canonical_scales_report_fixed_identity_geometry_and_complexity ... ok
+test every_canonical_scale_derives_the_recorded_bounded_surface ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.61s
+
+
+running 1 test
+test canonical_edit_probes_miss_revision_one_and_identify_revision_four_edits ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.25s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 6 tests
+test completion_contract_rejects_portable_runtime_claims ... ok
+test completion_contract_rejects_missing_raw_streams ... ok
+test completion_contract_accepts_all_required_categories_and_windows_scope ... ok
+test completion_contract_rejects_duplicate_video_events ... ok
+test completion_contract_rejects_unknown_video_events ... ok
+test hash_inventory_rejects_changed_artifacts ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 20 tests
+test compute_convergence::tests::invalid_and_non_newer_outcomes_do_not_mutate_convergence_state ... ok
+test compute_convergence::tests::retained_events_are_bounded_and_count_compacted_history ... ok
+test compute_convergence::tests::scene_preparation_checks_cancellation_between_bounded_region_reads ... ok
+test compute_convergence::tests::explicit_retry_reuses_the_required_view_with_a_new_generation ... ok
+test compute_convergence::tests::shutdown_releases_a_hidden_candidate_view ... ok
+test tests::composite_samples_the_compute_output_over_a_full_screen_triangle ... ok
+test compute_convergence::tests::a_newer_requirement_replaces_a_ready_bundle_without_starting_a_second_worker ... ok
+test tests::compute_shader_guards_only_out_of_range_invocations_and_writes_every_valid_pixel ... ok
+test compute_convergence::tests::shutdown_releases_an_active_preparation_worker_and_every_retained_view ... ok
+test tests::compute_writes_become_visible_to_fragment_sampling ... ok
+test tests::first_dispatch_discards_undefined_contents_before_compute_writes ... ok
+test compute_convergence::tests::newer_work_supersedes_a_paused_failure ... ok
+test compute_convergence::tests::discontinuous_newer_outcomes_use_the_same_complete_rebuild_path ... ok
+test compute_convergence::tests::preparation_failure_preserves_visible_state_and_retries_the_same_revision ... ok
+test tests::hidden_gpu_candidate_release_clears_control_and_owned_resources ... ok
+test compute_convergence::tests::pre_swap_installation_failure_preserves_visible_state_and_retries_the_same_revision ... ok
+test tests::later_dispatch_waits_for_the_previous_composite_read ... ok
+test compute_convergence::tests::rapid_requirements_install_only_the_newest_authoritative_bundle ... ok
+test tests::semantic_ray_readback_decodes_installed_scene_identities_and_gpu_contact_data ... ok
+test compute_convergence::tests::deterministic_burst_bounds_revision_two_and_installs_only_revision_four ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 8 tests
+test records_queried_facts_and_a_dispatch_that_covers_the_output ... ok
+test rejects_a_storage_buffer_binding_range_smaller_than_semantic_ray_readback ... ok
+test rejects_a_command_queue_without_compute_support ... ok
+test rejects_an_output_format_without_both_storage_and_sampling_support ... ok
+test rejects_an_old_api_or_a_command_queue_without_graphics_support ... ok
+test rejects_each_descriptor_binding_limit_that_the_two_stages_use ... ok
+test rejects_the_fixed_workgroup_or_required_dispatch_when_limits_are_too_small ... ok
+test rejects_zero_or_oversized_output_dimensions ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test shared_camera_state_generates_pixel_center_rays_and_view_space_clipping ... ok
+test bounded_region_reads_build_flattened_words_and_a_local_material_table ... ok
+test equal_distance_contacts_use_stable_volume_identity_order ... ok
+test dense_dda_matches_clipping_half_open_and_simultaneous_axis_rules ... ok
+test canonical_declared_probes_match_the_oracle_at_revisions_one_and_four ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 19.08s
+
+
+running 4 tests
+test an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state ... ok
+test published_camera_state_waits_for_frame_boundary_acknowledgement ... ok
+test cold_compute_construction_records_revision_attributed_preparation_time ... ok
+test accepted_edits_advance_required_without_changing_the_visible_installation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 11 tests
+test measurement_tests::compute_switch_demo_is_explicit_and_does_not_replace_raster_qualification_modes ... ok
+test measurement_tests::fixed_candidate_raster_region_extent_is_explicitly_configurable ... ok
+test measurement_tests::characterization_line_retains_every_phase_disposition_and_lifecycle_event ... ok
+test measurement_tests::in_client_overlay_text_reports_both_revisions_and_region_counts ... ok
+test measurement_tests::only_one_non_repeated_tab_press_requests_an_interactive_switch ... ok
+test measurement_tests::only_one_non_repeated_space_press_can_start_an_awaiting_edit_burst ... ok
+test measurement_tests::space_requests_are_detected_even_when_compute_burst_admission_will_reject_them ... ok
+test measurement_tests::render_path_overlay_reports_the_idle_presenter_and_rejects_a_preparing_presenter ... ok
+test measurement_tests::steady_collection_pairs_sequences_and_excludes_pre_warmup_frames ... ok
+test measurement_tests::compute_edit_burst_admission_requires_an_idle_compute_presenter_and_awaiting_plan ... ok
+test measurement_tests::fixed_edit_burst_has_three_ordered_value_changing_commands_and_checked_final_revision ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.93s
+
+
+running 5 tests
+test desktop_command_rejects_an_out_of_range_camera_move_without_panicking ... ok
+test desktop_command_reports_the_front_face_winding_diagnostic ... ok
+test desktop_command_rejects_conflicting_scene_selections_in_any_order ... ok
+test desktop_command_exposes_a_deterministic_camera_move_step ... ok
+test desktop_command_reports_each_canonical_scale_and_fixed_pose ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.91s
+
+
+running 3 tests
+test raster_upload_failure_reaches_the_application_boundary_with_source_revision ... ok
+test background_derivation_failure_reaches_the_application_boundary_with_source_revision ... ok
+test every_render_path_phase_failure_reaches_the_application_boundary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+running 2 tests
+test missing_presentation_failure_reaches_the_application_boundary ... ok
+test vulkan_1_2_failure_reaches_the_application_boundary ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test contract_rejects_inconsistent_command_revisions ... ok
+test contract_rejects_failed_semantic_or_localization_summary ... ok
+test contract_rejects_an_unsuccessful_required_process ... ok
+test contract_rejects_unsuccessful_artifact_process ... ok
+test contract_rejects_validation_findings ... ok
+test contract_rejects_an_inconsistent_reproduction_command ... ok
+test contract_rejects_unbalanced_resources ... ok
+test contract_accepts_not_applicable_process_metadata_for_static_artifacts ... ok
+test contract_accepts_the_complete_evidence_summary ... ok
+test contract_rejects_a_missing_required_artifact_category ... ok
+test hash_inventory_rejects_a_missing_artifact ... ok
+test hash_inventory_rejects_a_duplicate_artifact_path ... ok
+test hash_inventory_rejects_a_checksum_mismatch ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test retained_bundle_passes_all_verification_gates ... ok
+test verifier_rejects_a_retained_required_process_nonzero_exit ... ok
+test verifier_rejects_a_source_command_that_disagrees_with_the_bundle_manifest ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 20 tests
+test extent_selection_rejects_a_candidate_that_failed_qualification ... ok
+test extent_selection_rejects_identical_selection_inputs ... ok
+test extent_selection_requires_exactly_the_fixed_candidate_set ... ok
+test manifest_aggregation_rejects_missing_fresh_runs ... ok
+test empty_resource_ledger_is_not_balanced_evidence ... ok
+test focused_render_path_report_retains_comparisons_overlap_and_dense_baseline ... ok
+test extent_selection_uses_the_resolved_lexicographic_rule ... ok
+test occupancy_selection_rejects_cross_camera_machine_substitution ... ok
+test manifest_aggregation_covers_exactly_three_scales_with_literal_summaries ... ok
+test overlap_requires_simultaneous_raster_and_compute_ray_ownership ... ok
+test one_timing_stream_cannot_supply_another_streams_missing_phase ... ok
+test extent_selection_prioritizes_median_then_ninety_fifth_percentile ... ok
+test resource_ledger_rejects_a_live_allocation_at_shutdown ... ok
+test resource_identity_cannot_change_render_path_during_transition ... ok
+test raw_timing_stream_requires_every_attributed_phase ... ok
+test summaries_use_literal_median_nearest_rank_ninety_fifth_percentile_and_maximum ... ok
+test resource_ledger_rejects_missing_scene_attribution ... ok
+test timing_comparison_rejects_substituted_conditions ... ok
+test timing_event_serialization_is_machine_readable_and_phase_specific ... ok
+test dense_dda_remains_selected_when_an_occupancy_interval_includes_zero ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test contract_rejects_revision_regression ... ok
+test contract_rejects_missing_machine_attribution ... ok
+test contract_rejects_unbalanced_ownership ... ok
+test contract_rejects_semantic_mismatch ... ok
+test contract_rejects_substituted_measurement_conditions ... ok
+test contract_rejects_superiority_or_cross_machine_claims ... ok
+test contract_rejects_substituted_executable_hash ... ok
+test contract_rejects_missing_required_still ... ok
+test contract_rejects_validation_findings ... ok
+test contract_accepts_attributed_machine_local_outcomes ... ok
+test hash_inventory_rejects_changed_artifact ... ok
+test bundle_rejects_semantic_mismatch_recorded_in_hashed_stream ... ok
+test bundle_reads_and_accepts_matching_retained_evidence ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 25 tests
+test convergence_tests::lifecycle_cleanup_preserves_the_operational_error_when_control_reporting_also_fails ... ok
+test convergence_tests::lifecycle_characterization_starts_from_the_installed_resources_and_resets_samples ... ok
+test convergence_tests::installation_generation_overflow_uses_the_contextual_upload_failure_path ... ok
+test convergence_tests::dropping_convergence_releases_a_held_cpu_barrier_and_joins_the_worker ... ok
+test convergence_tests::frame_boundary_hook_commits_all_affected_entries_and_visible_revision_together ... ok
+test convergence_tests::configured_candidate_swaps_affected_resources_and_preserves_unaffected_resources ... ok
+test convergence_tests::lifecycle_controller_reports_peak_live_raster_gpu_bytes_and_buffers ... ok
+test convergence_tests::commit_failure_discards_the_hidden_candidate_and_pauses_the_required_target ... ok
+test convergence_tests::controller_observes_superseded_post_upload_rejection_before_final_visibility ... ok
+test convergence_tests::controller_barrier_proves_cancelled_generation_schedules_no_later_region ... ok
+test convergence_tests::missing_configured_region_uses_the_contextual_upload_failure_path ... ok
+test convergence_tests::late_older_derivation_failure_is_observable_without_pausing_newer_convergence ... ok
+test convergence_tests::failed_preparation_clears_dead_active_state_and_retry_progresses ... ok
+test convergence_tests::newer_generation_rejects_a_same_revision_candidate ... ok
+test convergence_tests::submission_bookkeeping_ends_at_the_queued_wait_boundary ... ok
+test convergence_tests::presentation_release_returns_hidden_retirement_when_restart_fails ... ok
+test convergence_tests::private_target_bookkeeping_accumulates_adjacent_work_and_marks_discontinuities ... ok
+test convergence_tests::newer_changed_outcome_resumes_after_the_older_requirement_was_paused ... ok
+test convergence_tests::presentation_release_restarts_the_held_candidate_target ... ok
+test convergence_tests::shutdown_joins_active_work_and_disposes_a_hidden_uploaded_candidate ... ok
+test convergence_tests::terminated_preparation_clears_dead_active_state_and_retry_progresses ... ok
+test convergence_tests::superseded_uploaded_resources_remain_live_until_fence_safe_retirement ... ok
+test convergence_tests::upload_failure_pauses_the_required_target_and_preserves_the_visible_installation ... ok
+test convergence_tests::superseded_candidate_is_rejected_and_event_retention_stays_bounded ... ok
+test convergence_tests::fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates has been running for over 60 seconds
+test convergence_tests::fixed_candidate_extents_pass_canonical_semantic_localization_and_failure_retry_gates ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 142.47s
+
+
+running 2 tests
+test render_path_gate_rejects_a_stale_complete_artifact ... ok
+test render_path_gate_accepts_exactly_one_complete_matching_revision ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test unchanged_outcomes_do_not_advance_the_required_revision ... ok
+test an_older_discontinuous_outcome_cannot_replace_the_newest_requirement ... ok
+test retry_restarts_the_retained_required_view_without_another_edit ... ok
+test a_new_requirement_discards_an_already_ready_result_before_upload ... ok
+test adjacent_outcomes_accumulate_as_one_localized_newest_requirement ... ok
+test a_discontinuous_newest_outcome_replaces_pending_work_with_a_full_rebuild ... ok
+test rapid_requirements_keep_only_the_newest_pending_target ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 7 tests
+test empty_volume_produces_an_empty_complete_artifact ... ok
+test render_path_installs_one_complete_revision_tagged_artifact ... ok
+test one_voxel_produces_six_scene_space_material_colored_faces ... ok
+test adjacent_different_material_voxels_suppress_shared_faces_and_resolve_each_color ... ok
+test occupied_finite_corner_emits_all_outward_boundary_faces_for_every_batch_permutation ... ok
+test adjacent_same_material_voxels_suppress_the_shared_faces_for_every_batch_permutation ... ok
+test hollow_three_cube_includes_outer_boundary_and_inner_cavity_faces_for_every_batch_permutation ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test unknown_volume_error_carries_metadata_phase_and_source_revision ... ok
+test non_finite_scene_transform_returns_only_a_contextual_geometry_error ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test camera_facing_outward_face_matches_the_configured_framebuffer_winding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test applicability_mismatches_leave_the_complete_installation_unchanged ... ok
+test an_edit_in_one_volume_retains_every_installation_in_other_volumes ... ok
+test one_adjacent_edit_replaces_only_face_neighbor_regions_with_complete_results ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test clean_close_releases_a_held_barrier_and_joins_the_worker_under_the_watchdog ... ok
+test derivation_failure_keeps_phase_and_source_revision_at_the_worker_boundary ... ok
+test retained_view_preparation_pauses_on_a_real_worker_until_released ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 5 tests
+test empty_complete_scene_derives_an_empty_revision_tagged_collection ... ok
+test only_core_voxels_own_faces_and_the_face_halo_hides_cross_region_seams ... ok
+test regional_derivation_covers_every_volume_in_the_complete_scene_view ... ok
+test complete_installation_records_empty_regions_with_stable_identity_and_ownership ... ok
+test raster_region_grid_is_zero_anchored_and_stable_across_revisions ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test installed_faces_match_entered_contacts_without_inventing_started_inside_normals ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test publishing_camera_state_does_not_claim_render_path_acknowledgement ... ok
+test awaiting_raster_adapter_is_the_initial_presenting_path_with_path_neutral_stamps ... ok
+test raster_adapter_rejects_an_artifact_from_another_voxel_scene ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+
+
+running 19 tests
+test render_path_switching::tests::exactly_one_presenting_path_records_and_retirement_completion_returns_switching_to_idle ... ok
+test render_path_switching::tests::configure_aggregates_presenting_and_replacement_failures ... ok
+test render_path_switching::tests::post_handoff_retirement_failure_retains_the_new_presenting_path_without_rollback ... ok
+test render_path_switching::tests::failed_replacement_is_cleaned_before_a_fresh_cold_switch ... ok
+test render_path_switching::tests::handoff_defers_for_each_mismatched_path_neutral_stamp ... ok
+test render_path_switching::tests::release_aggregates_presenting_and_retiring_failures ... ok
+test render_path_switching::tests::rejected_switch_is_not_queued_when_the_presenting_path_is_not_converged ... ok
+test render_path_switching::tests::rejected_switch_is_not_queued_when_the_presenting_path_is_not_recordable ... ok
+test render_path_switching::tests::rejected_switch_is_not_queued_while_another_switch_is_in_progress ... ok
+test render_path_switching::tests::release_aggregates_presenting_and_replacement_failures ... ok
+test render_path_switching::tests::held_replacement_tracks_camera_and_presentation_recreation_before_handoff ... ok
+test render_path_switching::tests::configure_aggregates_presenting_and_retiring_failures ... ok
+test render_path_switching::tests::replacement_prepares_without_presenting_then_hands_off_matching_stamps_atomically ... ok
+test render_path_switching::tests::revision_four_paths_complete_the_raster_compute_raster_compute_round_trip ... ok
+test render_path_switching::tests::shutdown_aggregates_presenting_and_replacement_failures ... ok
+test tests::backend_frame_sequences_remain_monotonic_across_presentation_generations ... ok
+test tests::frame_boundary_failure_prevents_image_acquisition ... ok
+test tests::frame_boundary_waits_then_advances_the_current_complete_target_before_acquisition ... ok
+test tests::graphics_queue_selection_prefers_a_compute_capable_graphics_family ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test accepts_separate_graphics_and_presentation_queues ... ok
+test rejects_devices_below_vulkan_1_3 ... ok
+test rejects_devices_without_swapchain_support ... ok
+test rejects_devices_without_present_modes ... ok
+test rejects_devices_without_surface_formats ... ok
+test reports_every_missing_presentation_requirement ... ok
+test rejects_devices_without_a_presentation_queue ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test frame_observation_buffer_keeps_only_the_latest_completed_frame ... ok
+test frame_observation_uses_valid_bits_for_wrapped_timestamps ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test render_path_protocol_accepts_an_independent_image_strategy ... ok
+test every_render_path_phase_preserves_phase_and_source_context ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test runtime_context_reports_device_driver_and_api_versions ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 3 tests
+test swapchain_respects_a_surface_fixed_extent ... ok
+test swapchain_uses_the_initial_drawable_extent_and_stable_presentation ... ok
+test zero_sized_drawable_suspends_swapchain_configuration ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 18 tests
+test clipped_start_inside_an_occupied_value_has_no_outward_normal ... ok
+test adjacent_occupied_values_report_only_the_exposed_entry_contact ... ok
+test empty_scene_and_parallel_outside_ray_miss ... ok
+test equal_distance_contacts_use_stable_volume_identity_order ... ok
+test edge_only_cell_contact_is_not_a_hit ... ok
+test clipped_start_on_an_internal_half_open_boundary_uses_the_containing_value ... ok
+test entered_contact_identifies_the_pinned_scene_and_occupied_value ... ok
+test finite_direction_magnitude_does_not_change_scene_space_distance ... ok
+test invalid_semantic_rays_are_rejected_before_scene_evaluation ... ok
+test nearest_volume_wins_independently_of_publication_order ... ok
+test declared_probe_identity_is_retained_with_its_observation ... ok
+test half_open_bounds_and_clip_interval_exclude_non_contacts ... ok
+test nonzero_volume_origin_and_non_unit_voxel_size_preserve_material_identity ... ok
+test observation_comparison_tolerates_only_contact_distance ... ok
+test occupied_voxel_is_entered_through_each_exposed_face ... ok
+test ray_starting_in_an_empty_value_reaches_the_next_occupied_value ... ok
+test simultaneous_axis_crossings_advance_all_axes_with_fixed_normal_priority ... ok
+test two_axis_crossing_uses_x_before_y_for_the_entered_normal ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 4 tests
+test changed_edit_publishes_the_adjacent_view_and_complete_logical_change_set ... ok
+test semantically_unchanged_edit_returns_the_current_view_without_a_change_set ... ok
+test invalid_edits_preserve_the_current_publication_with_contextual_errors ... ok
+test concurrent_commands_are_classified_in_serialized_publication_order ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 2 tests
+test published_scene_view_retains_identity_and_logical_contents ... ok
+test region_contents_are_independent_of_dense_batch_shape ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 7 tests
+test publication_rejects_duplicate_catalogue_identities ... ok
+test frontend_rejects_a_second_publication_and_retains_the_first ... ok
+test publication_reports_unknown_material_with_volume_and_coordinate_context ... ok
+test maximum_coordinate_is_a_valid_out_of_bounds_region ... ok
+test publication_rejects_invalid_volume_metadata_and_extents ... ok
+test publication_rejects_incomplete_overlapping_and_malformed_dense_batches ... ok
+test read_errors_identify_unknown_volumes_and_malformed_regions ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

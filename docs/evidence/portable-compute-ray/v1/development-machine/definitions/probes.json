@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "source": "correctness/desktop-demo.stdout.log",
+  "probes": [
+    {
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "kind": "probe_definition",
+      "maximum_distance": 0.125,
+      "minimum_distance": 0.0,
+      "origin": [
+        -7.96875,
+        -3.96875,
+        -8.0625
+      ],
+      "probe_identity": "edit-0-0-0"
+    },
+    {
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "kind": "probe_definition",
+      "maximum_distance": 0.125,
+      "minimum_distance": 0.0,
+      "origin": [
+        -5.46875,
+        -3.96875,
+        -8.0625
+      ],
+      "probe_identity": "edit-40-0-0"
+    },
+    {
+      "direction": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "kind": "probe_definition",
+      "maximum_distance": 0.125,
+      "minimum_distance": 0.0,
+      "origin": [
+        -2.96875,
+        -3.96875,
+        -8.0625
+      ],
+      "probe_identity": "edit-80-0-0"
+    }
+  ]
+}

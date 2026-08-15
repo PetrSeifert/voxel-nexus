@@ -1,0 +1,2 @@
+Canonical camera: camera=overview eye=20,14,22 target=0,0,0 up=0,1,0 fov_degrees=50 near=0.1 far=100
+Compute lifecycle qualification published the deterministic Camera State change
