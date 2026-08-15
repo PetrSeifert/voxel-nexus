@@ -141,7 +141,7 @@ function Get-ArtifactCategory {
         '^definitions/camera\.log$' { return "camera_definition" }
         '^definitions/probes\.json$' { return "probe_definition" }
         '^checks/oracle-self-tests\.stdout\.log$' { return "oracle_self_tests" }
-        '^correctness/semantic-observations\.log$' { return "semantic_observations" }
+        '^correctness/semantic-observations\.jsonl$' { return "semantic_observations" }
         '^correctness/event-timeline\.json$' { return "event_timeline" }
         '^correctness/desktop-demo\.stdout\.log$' { return "lifecycle_log" }
         '^checks/failure-qualification\.stdout\.log$' { return "failure_log" }
@@ -253,31 +253,43 @@ if (@($sceneLines).Count -ne 1 -or @($cameraLines).Count -lt 2) {
 Write-TextFile -Path (Join-Path $evidencePath "definitions/scene.log") -Contents (($sceneLines -join "`n") + "`n")
 Write-TextFile -Path (Join-Path $evidencePath "definitions/camera.log") -Contents (($cameraLines -join "`n") + "`n")
 
-$semanticLines = [Regex]::Matches($correctnessOutput, "(?m)^Semantic qualification: .+result=pass$") | ForEach-Object Value
-if (@($semanticLines).Count -eq 0) {
+$semanticEvidence = @([Regex]::Matches($correctnessOutput, "(?m)^Semantic evidence: (?<Json>.+)$") | ForEach-Object {
+    $_.Groups["Json"].Value | ConvertFrom-Json
+})
+$probeDefinitions = @($semanticEvidence | Where-Object kind -eq "probe_definition" |
+    Group-Object probe_identity | ForEach-Object { $_.Group[0] } | Sort-Object probe_identity)
+$semanticObservations = @($semanticEvidence | Where-Object kind -eq "observation")
+if ($probeDefinitions.Count -eq 0 -or $semanticObservations.Count -eq 0) {
     throw "The milestone run retained no Semantic Ray observations."
 }
-Write-TextFile -Path (Join-Path $evidencePath "correctness/semantic-observations.log") -Contents (($semanticLines -join "`n") + "`n")
-$probeIdentities = @($semanticLines | ForEach-Object {
-    $match = [Regex]::Match($_, "probe=(?<Probe>\S+)")
-    if ($match.Success) { $match.Groups["Probe"].Value }
-} | Sort-Object -Unique)
-if ($probeIdentities.Count -eq 0) {
-    throw "The Semantic Ray observations have no probe attribution."
-}
+$semanticObservationLines = @($semanticObservations | ForEach-Object { $_ | ConvertTo-Json -Depth 10 -Compress })
+Write-TextFile -Path (Join-Path $evidencePath "correctness/semantic-observations.jsonl") -Contents (($semanticObservationLines -join "`n") + "`n")
 Write-JsonFile -Path (Join-Path $evidencePath "definitions/probes.json") -Value ([ordered]@{
     schema_version = 1
-    source = "correctness/semantic-observations.log"
-    probe_identities = $probeIdentities
+    source = "correctness/desktop-demo.stdout.log"
+    probes = $probeDefinitions
 })
 Write-JsonFile -Path (Join-Path $evidencePath "semantic-summary.json") -Value ([ordered]@{
     schema_version = 1
     oracle_self_tests_passed = $true
     compute_observations_passed = $true
     raster_correspondence_passed = $true
-    observation_count = @($semanticLines).Count
+    observation_count = $semanticObservations.Count
     mismatches = 0
     started_inside_normals = 0
+    table = @($semanticObservations | ForEach-Object {
+        $actualProperty = $_.PSObject.Properties["actual"]
+        $correspondenceProperty = $_.PSObject.Properties["correspondence"]
+        [ordered]@{
+            render_path = $_.render_path
+            probe_identity = $_.probe_identity
+            revision = $_.revision
+            frame_sequence = $_.frame_sequence
+            result = if ($null -ne $actualProperty) { $actualProperty.Value.result } else { $_.oracle.result }
+            correspondence = if ($null -ne $correspondenceProperty) { $correspondenceProperty.Value } else { $null }
+            passed = $_.passed
+        }
+    })
 })
 
 $timingLines = [Regex]::Matches($timingOutput, "(?m)^(Compute timing event|Render Path timing event): .+$") | ForEach-Object Value

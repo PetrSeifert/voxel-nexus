@@ -180,6 +180,129 @@ pub enum EvidenceError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("retained evidence {path} is invalid: {reason}")]
+    RetainedEvidence { path: String, reason: String },
+}
+
+#[derive(Deserialize)]
+struct CapabilityEvidence {
+    device: String,
+    driver: String,
+    vulkan_api_version: String,
+    correctness_validation: String,
+    timing_validation: String,
+    timing_present_mode: String,
+    selected_traversal: String,
+    occupancy_attempted: bool,
+}
+
+#[derive(Deserialize)]
+struct ProbeEvidenceFile {
+    schema_version: u32,
+    probes: Vec<ProbeEvidence>,
+}
+
+#[derive(Deserialize)]
+struct ProbeEvidence {
+    kind: String,
+    probe_identity: String,
+    origin: [f64; 3],
+    direction: [f64; 3],
+    minimum_distance: f64,
+    maximum_distance: f64,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct SemanticResultEvidence {
+    result: String,
+    #[serde(default)]
+    volume_identity: Option<String>,
+    #[serde(default)]
+    coordinate: Option<[i32; 3]>,
+    #[serde(default)]
+    material_identity: Option<String>,
+    #[serde(default)]
+    distance: Option<f64>,
+    #[serde(default)]
+    classification: Option<String>,
+    #[serde(default)]
+    outward_normal: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SemanticObservationEvidence {
+    kind: String,
+    render_path: String,
+    probe_identity: String,
+    revision: String,
+    frame_sequence: u64,
+    #[serde(default)]
+    actual: Option<SemanticResultEvidence>,
+    oracle: SemanticResultEvidence,
+    #[serde(default)]
+    distance_tolerance: Option<f64>,
+    #[serde(default)]
+    correspondence: Option<String>,
+    passed: bool,
+}
+
+#[derive(Deserialize)]
+struct SemanticSummaryEvidence {
+    oracle_self_tests_passed: bool,
+    compute_observations_passed: bool,
+    raster_correspondence_passed: bool,
+    observation_count: usize,
+    mismatches: u32,
+    started_inside_normals: u32,
+    table: Vec<SemanticSummaryRow>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+struct SemanticSummaryRow {
+    render_path: String,
+    probe_identity: String,
+    revision: String,
+    frame_sequence: u64,
+    result: String,
+    #[serde(default)]
+    correspondence: Option<String>,
+    passed: bool,
+}
+
+#[derive(Deserialize)]
+struct TimelineEvidence {
+    event: String,
+    elapsed_seconds: f64,
+    window_title: String,
+}
+
+#[derive(Deserialize)]
+struct ValidationEvidence {
+    enabled: bool,
+    warnings: u32,
+    errors: u32,
+}
+
+#[derive(Deserialize)]
+struct ProvenanceEvidence {
+    repository_remote: String,
+    repository_revision: String,
+    executable_path: String,
+    executable_sha256: String,
+}
+
+#[derive(Deserialize)]
+struct ShutdownEvidence {
+    #[serde(rename = "Cases")]
+    cases: Vec<ShutdownCaseEvidence>,
+}
+
+#[derive(Deserialize)]
+struct ShutdownCaseEvidence {
+    #[serde(rename = "ValidationWarnings")]
+    validation_warnings: u32,
+    #[serde(rename = "ValidationErrors")]
+    validation_errors: u32,
 }
 
 pub fn read_manifest(path: &Path) -> Result<BundleManifest, EvidenceError> {
@@ -422,7 +545,567 @@ pub fn verify_bundle(
 ) -> Result<VerificationSummary, EvidenceError> {
     let summary = verify_manifest_contract(manifest)?;
     verify_hash_inventory(bundle_root, &manifest.artifacts)?;
+    verify_retained_evidence(bundle_root, manifest)?;
     Ok(summary)
+}
+
+fn verify_retained_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    verify_provenance_evidence(bundle_root, manifest)?;
+    verify_capability_evidence(bundle_root, manifest)?;
+    let probes = verify_probe_evidence(bundle_root, manifest)?;
+    let observations = verify_semantic_evidence(bundle_root, manifest, &probes)?;
+    verify_semantic_summary(bundle_root, manifest, &observations)?;
+    verify_scene_and_camera_evidence(bundle_root, manifest)?;
+    verify_timeline_evidence(bundle_root, manifest)?;
+    verify_lifecycle_and_resource_evidence(bundle_root, manifest)?;
+    verify_timing_evidence(bundle_root, manifest)?;
+    verify_validation_evidence(bundle_root, manifest)?;
+    verify_shutdown_evidence(bundle_root, manifest)?;
+    let oracle = read_artifact_text(bundle_root, manifest, ArtifactCategory::OracleSelfTests)?;
+    if !oracle.contains("test result: ok") || oracle.contains("FAILED") {
+        return retained_error(
+            artifact_path(manifest, ArtifactCategory::OracleSelfTests)?,
+            "oracle self-tests did not retain a passing result",
+        );
+    }
+    let failure = read_artifact_text(bundle_root, manifest, ArtifactCategory::FailureLog)?;
+    if !failure.contains("test result: ok") || failure.contains("FAILED") {
+        return retained_error(
+            artifact_path(manifest, ArtifactCategory::FailureLog)?,
+            "failure-path qualification did not retain a passing result",
+        );
+    }
+    Ok(())
+}
+
+fn verify_provenance_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let (path, evidence) = read_artifact_json::<ProvenanceEvidence>(
+        bundle_root,
+        manifest,
+        ArtifactCategory::Provenance,
+    )?;
+    if evidence.repository_remote != manifest.provenance.remote
+        || evidence.repository_revision != manifest.provenance.revision
+        || evidence.executable_path != manifest.provenance.executable_path
+        || evidence.executable_sha256 != manifest.provenance.executable_sha256
+    {
+        return retained_error(path, "provenance differs from the manifest");
+    }
+    Ok(())
+}
+
+fn verify_capability_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let (path, evidence) = read_artifact_json::<CapabilityEvidence>(
+        bundle_root,
+        manifest,
+        ArtifactCategory::CapabilityFacts,
+    )?;
+    if evidence.device != manifest.conditions.device
+        || evidence.driver != manifest.conditions.driver
+        || evidence.vulkan_api_version != manifest.conditions.vulkan_api_version
+        || evidence.correctness_validation != "enabled"
+        || evidence.timing_validation != "disabled"
+        || evidence.timing_present_mode != "IMMEDIATE"
+        || evidence.selected_traversal != "dense_dda"
+        || evidence.occupancy_attempted
+    {
+        return retained_error(
+            path,
+            "capability or measurement conditions differ from the manifest",
+        );
+    }
+    Ok(())
+}
+
+fn verify_probe_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<BTreeSet<String>, EvidenceError> {
+    let (path, evidence) = read_artifact_json::<ProbeEvidenceFile>(
+        bundle_root,
+        manifest,
+        ArtifactCategory::ProbeDefinition,
+    )?;
+    if evidence.schema_version != 1 || evidence.probes.is_empty() {
+        return retained_error(path, "probe definitions are empty or use another schema");
+    }
+    let mut identities = BTreeSet::new();
+    for probe in evidence.probes {
+        if probe.kind != "probe_definition"
+            || probe.probe_identity.is_empty()
+            || !identities.insert(probe.probe_identity)
+            || probe
+                .origin
+                .iter()
+                .chain(probe.direction.iter())
+                .any(|component| !component.is_finite())
+            || probe.direction.iter().all(|component| *component == 0.0)
+            || !probe.minimum_distance.is_finite()
+            || !probe.maximum_distance.is_finite()
+            || probe.minimum_distance < 0.0
+            || probe.maximum_distance < probe.minimum_distance
+        {
+            return retained_error(path, "a probe definition is incomplete or invalid");
+        }
+    }
+    Ok(identities)
+}
+
+fn verify_semantic_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+    probes: &BTreeSet<String>,
+) -> Result<Vec<SemanticSummaryRow>, EvidenceError> {
+    let path = artifact_path(manifest, ArtifactCategory::SemanticObservations)?;
+    let text = read_artifact_text(
+        bundle_root,
+        manifest,
+        ArtifactCategory::SemanticObservations,
+    )?;
+    let mut compute_revisions = BTreeSet::new();
+    let mut raster_revisions = BTreeSet::new();
+    let mut summary_rows = Vec::new();
+    for line in text.lines() {
+        let observation =
+            serde_json::from_str::<SemanticObservationEvidence>(line).map_err(|source| {
+                EvidenceError::RetainedEvidence {
+                    path: path.to_owned(),
+                    reason: format!("could not parse observation: {source}"),
+                }
+            })?;
+        let revision = observation.revision.parse::<u64>().map_err(|error| {
+            EvidenceError::RetainedEvidence {
+                path: path.to_owned(),
+                reason: format!("invalid revision: {error}"),
+            }
+        })?;
+        verify_semantic_result_shape(&observation.oracle, path)?;
+        if observation.kind != "observation"
+            || !observation.passed
+            || !probes.contains(&observation.probe_identity)
+            || observation.frame_sequence == 0
+            || !matches!(revision, 1 | 4)
+        {
+            return retained_error(path, "an observation is unproved or lacks attribution");
+        }
+        match observation.render_path.as_str() {
+            "compute_ray" => {
+                let actual =
+                    observation
+                        .actual
+                        .as_ref()
+                        .ok_or_else(|| EvidenceError::RetainedEvidence {
+                            path: path.to_owned(),
+                            reason: "a compute observation has no actual result".to_owned(),
+                        })?;
+                verify_semantic_result_shape(actual, path)?;
+                let tolerance = observation.distance_tolerance.ok_or_else(|| {
+                    EvidenceError::RetainedEvidence {
+                        path: path.to_owned(),
+                        reason: "a compute observation has no distance tolerance".to_owned(),
+                    }
+                })?;
+                if !semantic_results_agree(actual, &observation.oracle, tolerance) {
+                    return retained_error(path, "compute observation disagrees with the oracle");
+                }
+                compute_revisions.insert(revision);
+            }
+            "raster" => {
+                if observation.actual.is_some()
+                    || !raster_correspondence_agrees(
+                        observation.correspondence.as_deref(),
+                        &observation.oracle,
+                    )
+                {
+                    return retained_error(path, "raster correspondence disagrees with the oracle");
+                }
+                raster_revisions.insert(revision);
+            }
+            _ => return retained_error(path, "an observation names an unknown Render Path"),
+        }
+        let result = observation.actual.as_ref().map_or_else(
+            || observation.oracle.result.clone(),
+            |actual| actual.result.clone(),
+        );
+        summary_rows.push(SemanticSummaryRow {
+            render_path: observation.render_path,
+            probe_identity: observation.probe_identity,
+            revision: observation.revision,
+            frame_sequence: observation.frame_sequence,
+            result,
+            correspondence: observation.correspondence,
+            passed: observation.passed,
+        });
+    }
+    let expected_revisions = BTreeSet::from([1_u64, 4_u64]);
+    if compute_revisions != expected_revisions || raster_revisions != expected_revisions {
+        return retained_error(
+            path,
+            "semantic evidence does not cover both revisions and paths",
+        );
+    }
+    Ok(summary_rows)
+}
+
+fn verify_semantic_result_shape(
+    result: &SemanticResultEvidence,
+    path: &str,
+) -> Result<(), EvidenceError> {
+    match result.result.as_str() {
+        "miss" => {
+            if result.volume_identity.is_some()
+                || result.coordinate.is_some()
+                || result.material_identity.is_some()
+                || result.distance.is_some()
+                || result.classification.is_some()
+                || result.outward_normal.is_some()
+            {
+                return retained_error(path, "a miss contains contact fields");
+            }
+        }
+        "contact" => {
+            if result
+                .volume_identity
+                .as_ref()
+                .is_none_or(|value| value.is_empty())
+                || result.coordinate.is_none()
+                || result
+                    .material_identity
+                    .as_ref()
+                    .is_none_or(|value| value.is_empty())
+                || result.distance.is_none_or(|value| !value.is_finite())
+            {
+                return retained_error(path, "a contact is missing semantic fields");
+            }
+            match result.classification.as_deref() {
+                Some("entered") if result.outward_normal.is_some() => {}
+                Some("started_inside") if result.outward_normal.is_none() => {}
+                _ => return retained_error(path, "contact classification and normal disagree"),
+            }
+        }
+        _ => return retained_error(path, "semantic result is neither hit nor miss"),
+    }
+    Ok(())
+}
+
+fn semantic_results_agree(
+    actual: &SemanticResultEvidence,
+    oracle: &SemanticResultEvidence,
+    tolerance: f64,
+) -> bool {
+    if !tolerance.is_finite() || tolerance < 0.0 {
+        return false;
+    }
+    actual.result == oracle.result
+        && actual.volume_identity == oracle.volume_identity
+        && actual.coordinate == oracle.coordinate
+        && actual.material_identity == oracle.material_identity
+        && actual.classification == oracle.classification
+        && actual.outward_normal == oracle.outward_normal
+        && match (actual.distance, oracle.distance) {
+            (Some(actual), Some(oracle)) => (actual - oracle).abs() <= tolerance,
+            (None, None) => true,
+            _ => false,
+        }
+}
+
+fn raster_correspondence_agrees(
+    correspondence: Option<&str>,
+    oracle: &SemanticResultEvidence,
+) -> bool {
+    match (
+        oracle.result.as_str(),
+        oracle.classification.as_deref(),
+        correspondence,
+    ) {
+        ("miss", None, Some("NotApplicableMiss")) => true,
+        ("contact", Some("started_inside"), Some("NotApplicableStartedInside")) => true,
+        ("contact", Some("entered"), Some(value)) => value.starts_with("Matched("),
+        _ => false,
+    }
+}
+
+fn verify_semantic_summary(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+    observations: &[SemanticSummaryRow],
+) -> Result<(), EvidenceError> {
+    let (path, summary) = read_artifact_json::<SemanticSummaryEvidence>(
+        bundle_root,
+        manifest,
+        ArtifactCategory::SemanticSummary,
+    )?;
+    if !summary.oracle_self_tests_passed
+        || !summary.compute_observations_passed
+        || !summary.raster_correspondence_passed
+        || summary.observation_count != observations.len()
+        || summary.table != observations
+        || summary.mismatches != 0
+        || summary.started_inside_normals != 0
+    {
+        return retained_error(path, "semantic summary disagrees with raw observations");
+    }
+    Ok(())
+}
+
+fn verify_scene_and_camera_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let scene_path = artifact_path(manifest, ArtifactCategory::SceneDefinition)?;
+    let scene = read_artifact_text(bundle_root, manifest, ArtifactCategory::SceneDefinition)?;
+    if scene
+        .lines()
+        .filter(|line| line.starts_with("Canonical scene: "))
+        .count()
+        != 1
+    {
+        return retained_error(
+            scene_path,
+            "canonical scene attribution is missing or ambiguous",
+        );
+    }
+    let camera_path = artifact_path(manifest, ArtifactCategory::CameraDefinition)?;
+    let camera = read_artifact_text(bundle_root, manifest, ArtifactCategory::CameraDefinition)?;
+    if !camera.contains("Canonical camera:")
+        || !camera.contains("Compute lifecycle qualification published")
+    {
+        return retained_error(
+            camera_path,
+            "initial and lifecycle camera definitions were not retained",
+        );
+    }
+    Ok(())
+}
+
+fn verify_timeline_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let (path, timeline) = read_artifact_json::<Vec<TimelineEvidence>>(
+        bundle_root,
+        manifest,
+        ArtifactCategory::EventTimeline,
+    )?;
+    let expected = [
+        "raster_revision_1",
+        "compute_revision_1",
+        "edit_burst_requested",
+        "compute_required_4_visible_1",
+        "compute_revision_4",
+        "raster_revision_4",
+        "compute_revision_4_final",
+        "clean_close",
+    ];
+    if timeline.len() != expected.len()
+        || timeline
+            .iter()
+            .map(|event| event.event.as_str())
+            .ne(expected)
+        || timeline.iter().any(|event| {
+            !event.elapsed_seconds.is_finite()
+                || event.elapsed_seconds < 0.0
+                || event.window_title.is_empty()
+        })
+        || timeline
+            .windows(2)
+            .any(|events| events[1].elapsed_seconds < events[0].elapsed_seconds)
+        || !timeline[3].window_title.contains("Required=4 Visible=1")
+        || timeline[4..7]
+            .iter()
+            .any(|event| !event.window_title.contains("Required=4 Visible=4"))
+    {
+        return retained_error(path, "event order or revision attribution changed");
+    }
+    Ok(())
+}
+
+fn verify_lifecycle_and_resource_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let lifecycle = read_artifact_text(bundle_root, manifest, ArtifactCategory::LifecycleLog)?;
+    let resource = read_artifact_text(bundle_root, manifest, ArtifactCategory::ResourceLedger)?;
+    for required in [
+        "Compute edit burst converged newest-only: Required=4 Visible=4",
+        "obsolete_presented_frames=0 obsolete_semantic_observations=0",
+        "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches=3 closing_presenter=ComputeRay",
+        "Render Path-owned raster resources after shutdown: 0",
+        "Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0",
+        "Render Path switching resources after shutdown: replacement=0 retiring=0",
+    ] {
+        if !lifecycle.contains(required) {
+            return retained_error(
+                artifact_path(manifest, ArtifactCategory::LifecycleLog)?,
+                "lifecycle sequence or final ownership evidence is missing",
+            );
+        }
+    }
+    for required in [
+        "Compute resource observation:",
+        "Render Path-owned raster resources after shutdown: 0",
+        "Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0",
+        "Render Path switching resources after shutdown: replacement=0 retiring=0",
+    ] {
+        if !resource.contains(required) {
+            return retained_error(
+                artifact_path(manifest, ArtifactCategory::ResourceLedger)?,
+                "resource evidence does not finish at zero ownership",
+            );
+        }
+    }
+    Ok(())
+}
+
+fn verify_timing_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let path = artifact_path(manifest, ArtifactCategory::TimingStream)?;
+    let timing = read_artifact_text(bundle_root, manifest, ArtifactCategory::TimingStream)?;
+    for phase in [
+        "Preparation",
+        "Upload",
+        "Installation",
+        "Dispatch",
+        "Composite",
+    ] {
+        if !timing.contains(&format!("Compute timing event: phase={phase}")) {
+            return retained_error(path, "compute timing phases are incomplete");
+        }
+    }
+    for phase in ["Switching", "Presentation"] {
+        if !timing.contains(&format!("Render Path timing event: phase={phase}")) {
+            return retained_error(path, "Render Path timing phases are incomplete");
+        }
+    }
+    let mut elapsed_count = 0usize;
+    for line in timing.lines() {
+        let Some((_, value)) = line.split_once("elapsed_ms=") else {
+            continue;
+        };
+        let value =
+            value
+                .split_whitespace()
+                .next()
+                .ok_or_else(|| EvidenceError::RetainedEvidence {
+                    path: path.to_owned(),
+                    reason: "a timing sample has no elapsed value".to_owned(),
+                })?;
+        let elapsed = value
+            .parse::<f64>()
+            .map_err(|error| EvidenceError::RetainedEvidence {
+                path: path.to_owned(),
+                reason: format!("a timing sample is not numeric: {error}"),
+            })?;
+        if !elapsed.is_finite() || elapsed < 0.0 {
+            return retained_error(path, "a timing sample is negative or non-finite");
+        }
+        elapsed_count =
+            elapsed_count
+                .checked_add(1)
+                .ok_or_else(|| EvidenceError::RetainedEvidence {
+                    path: path.to_owned(),
+                    reason: "timing sample count overflowed".to_owned(),
+                })?;
+    }
+    if elapsed_count < 7 {
+        return retained_error(path, "timing stream has too few attributed samples");
+    }
+    Ok(())
+}
+
+fn verify_validation_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let (path, validation) = read_artifact_json::<ValidationEvidence>(
+        bundle_root,
+        manifest,
+        ArtifactCategory::ValidationLog,
+    )?;
+    if !validation.enabled || validation.warnings != 0 || validation.errors != 0 {
+        return retained_error(path, "validation was disabled or contains findings");
+    }
+    Ok(())
+}
+
+fn verify_shutdown_evidence(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+) -> Result<(), EvidenceError> {
+    let (path, shutdown) = read_artifact_json::<ShutdownEvidence>(
+        bundle_root,
+        manifest,
+        ArtifactCategory::ShutdownLog,
+    )?;
+    if shutdown.cases.is_empty()
+        || shutdown
+            .cases
+            .iter()
+            .any(|case| case.validation_warnings != 0 || case.validation_errors != 0)
+    {
+        return retained_error(path, "shutdown qualification contains validation findings");
+    }
+    Ok(())
+}
+
+fn artifact_path(
+    manifest: &BundleManifest,
+    category: ArtifactCategory,
+) -> Result<&str, EvidenceError> {
+    manifest
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.category == category)
+        .map(|artifact| artifact.path.as_str())
+        .ok_or(EvidenceError::InvalidArtifactCount {
+            category,
+            expected: 1,
+            actual: 0,
+        })
+}
+
+fn read_artifact_text(
+    bundle_root: &Path,
+    manifest: &BundleManifest,
+    category: ArtifactCategory,
+) -> Result<String, EvidenceError> {
+    let path = artifact_path(manifest, category)?;
+    fs::read_to_string(bundle_root.join(path)).map_err(|source| EvidenceError::ArtifactRead {
+        path: path.to_owned(),
+        source,
+    })
+}
+
+fn read_artifact_json<'a, T: for<'de> Deserialize<'de>>(
+    bundle_root: &Path,
+    manifest: &'a BundleManifest,
+    category: ArtifactCategory,
+) -> Result<(&'a str, T), EvidenceError> {
+    let path = artifact_path(manifest, category)?;
+    let text = read_artifact_text(bundle_root, manifest, category)?;
+    let value = serde_json::from_str(&text).map_err(|source| EvidenceError::RetainedEvidence {
+        path: path.to_owned(),
+        reason: format!("could not parse JSON: {source}"),
+    })?;
+    Ok((path, value))
+}
+
+fn retained_error<T>(path: &str, reason: &str) -> Result<T, EvidenceError> {
+    Err(EvidenceError::RetainedEvidence {
+        path: path.to_owned(),
+        reason: reason.to_owned(),
+    })
 }
 
 fn is_lower_hex(value: &str, length: usize) -> bool {

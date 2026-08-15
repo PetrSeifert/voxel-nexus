@@ -387,6 +387,7 @@ dependencies = [
  "raw-window-handle",
  "render-backend",
  "semantic-ray-oracle",
+ "serde_json",
  "voxel-frontend",
  "windows-sys 0.59.0",
  "winit",

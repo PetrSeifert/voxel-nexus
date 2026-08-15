@@ -362,6 +362,29 @@ try {
     if ($semanticPasses -eq 0) {
         throw "The milestone proof retained no passing Semantic Ray observations."
     }
+    $requiredRevisions = @(1) + @([Regex]::Matches($standardOutput, "(?m)^Compute edit requirement submitted: Required=(?<Revision>\d+)$") |
+        ForEach-Object { [uint64]$_.Groups["Revision"].Value })
+    $newestOnly = [Regex]::Match(
+        $standardOutput,
+        "(?m)^Compute edit burst converged newest-only: Required=(?<Required>\d+) Visible=(?<Visible>\d+) installed_revisions=\[VoxelSceneRevision\((?<Installed>\d+)\)\] obsolete_presented_frames=(?<Presented>\d+) obsolete_semantic_observations=(?<Semantic>\d+)"
+    )
+    $roundTrip = [Regex]::Match(
+        $standardOutput,
+        "(?m)^Render Path round trip complete: .* switches=(?<Switches>\d+) closing_presenter=(?<Presenter>\w+)$"
+    )
+    if (-not $newestOnly.Success -or -not $roundTrip.Success) {
+        throw "The milestone proof could not derive revision or round-trip outcomes from the retained log."
+    }
+    $visibleRevisions = @(1, [uint64]$newestOnly.Groups["Visible"].Value)
+    $installedComputeRevisions = @(1, [uint64]$newestOnly.Groups["Installed"].Value)
+    $completedSwitches = [uint64]$roundTrip.Groups["Switches"].Value
+    $finalPresenter = if ($roundTrip.Groups["Presenter"].Value -eq "ComputeRay") { "compute_ray" } else { $roundTrip.Groups["Presenter"].Value }
+    $obsoletePresentedFrames = [uint64]$newestOnly.Groups["Presented"].Value
+    $obsoleteSemanticObservations = [uint64]$newestOnly.Groups["Semantic"].Value
+    $missingOwnershipLines = @($requiredLines[6..8] | Where-Object {
+        $standardOutput -notmatch [Regex]::Escape($_)
+    })
+    $ownershipBalanced = $missingOwnershipLines.Count -eq 0
     $script:timeline | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 (Join-Path $evidencePath "event-timeline.json")
     [ordered]@{
         schema_version = 1
@@ -371,14 +394,14 @@ try {
         validation_warnings = $validationWarnings
         validation_errors = $validationErrors
         semantic_passes = $semanticPasses
-        completed_switches = 3
-        final_presenter = "compute_ray"
-        required_revisions = @(1, 2, 3, 4)
-        visible_revisions = @(1, 4)
-        installed_compute_revisions = @(1, 4)
-        obsolete_presented_frames = 0
-        obsolete_semantic_observations = 0
-        ownership_balanced = $true
+        completed_switches = $completedSwitches
+        final_presenter = $finalPresenter
+        required_revisions = $requiredRevisions
+        visible_revisions = $visibleRevisions
+        installed_compute_revisions = $installedComputeRevisions
+        obsolete_presented_frames = $obsoletePresentedFrames
+        obsolete_semantic_observations = $obsoleteSemanticObservations
+        ownership_balanced = $ownershipBalanced
         shutdown = [ordered]@{
             switching = [ordered]@{ objects = 0; allocations = 0; workers = 0; views = 0 }
             raster = [ordered]@{ objects = 0; allocations = 0; workers = 0; views = 0 }

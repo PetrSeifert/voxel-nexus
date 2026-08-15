@@ -1,9 +1,12 @@
 use portable_compute_ray_evidence::{
     ArtifactCategory, ArtifactRecord, BundleManifest, LifecycleOutcomes, MACHINE_LOCAL_SCOPE,
     MeasurementConditions, OwnedResources, REPOSITORY_REMOTE, RepositoryProvenance,
-    RevisionOutcomes, SemanticOutcomes, verify_hash_inventory, verify_manifest_contract,
+    RevisionOutcomes, SemanticOutcomes, verify_bundle, verify_hash_inventory,
+    verify_manifest_contract,
 };
+use sha2::{Digest, Sha256};
 use std::fs;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -110,6 +113,111 @@ fn valid_manifest() -> BundleManifest {
     }
 }
 
+fn artifact_contents(category: ArtifactCategory) -> &'static str {
+    match category {
+        ArtifactCategory::Provenance => {
+            r#"{"repository_remote":"https://github.com/PetrSeifert/voxel-nexus.git","repository_revision":"0123456789abcdef0123456789abcdef01234567","executable_path":"bin/desktop-demo.exe","executable_sha256":"placeholder"}"#
+        }
+        ArtifactCategory::CapabilityFacts => {
+            r#"{"device":"recorded-device","driver":"recorded-driver","vulkan_api_version":"1.3","correctness_validation":"enabled","timing_validation":"disabled","timing_present_mode":"IMMEDIATE","selected_traversal":"dense_dda","occupancy_attempted":false}"#
+        }
+        ArtifactCategory::SceneDefinition => "Canonical scene: fixture\n",
+        ArtifactCategory::CameraDefinition => concat!(
+            "Canonical camera: overview\n",
+            "Compute lifecycle qualification published camera=cavity\n",
+        ),
+        ArtifactCategory::ProbeDefinition => {
+            r#"{"schema_version":1,"probes":[{"kind":"probe_definition","probe_identity":"probe-a","origin":[0.0,0.0,0.0],"direction":[0.0,0.0,1.0],"minimum_distance":0.0,"maximum_distance":1.0}]}"#
+        }
+        ArtifactCategory::SemanticObservations => concat!(
+            "{\"kind\":\"observation\",\"render_path\":\"compute_ray\",\"probe_identity\":\"probe-a\",\"revision\":\"1\",\"frame_sequence\":1,\"actual\":{\"result\":\"miss\"},\"oracle\":{\"result\":\"miss\"},\"distance_tolerance\":0.0001,\"passed\":true}\n",
+            "{\"kind\":\"observation\",\"render_path\":\"raster\",\"probe_identity\":\"probe-a\",\"revision\":\"1\",\"frame_sequence\":2,\"oracle\":{\"result\":\"miss\"},\"correspondence\":\"NotApplicableMiss\",\"passed\":true}\n",
+            "{\"kind\":\"observation\",\"render_path\":\"compute_ray\",\"probe_identity\":\"probe-a\",\"revision\":\"4\",\"frame_sequence\":3,\"actual\":{\"result\":\"miss\"},\"oracle\":{\"result\":\"miss\"},\"distance_tolerance\":0.0001,\"passed\":true}\n",
+            "{\"kind\":\"observation\",\"render_path\":\"raster\",\"probe_identity\":\"probe-a\",\"revision\":\"4\",\"frame_sequence\":4,\"oracle\":{\"result\":\"miss\"},\"correspondence\":\"NotApplicableMiss\",\"passed\":true}\n",
+        ),
+        ArtifactCategory::SemanticSummary => {
+            r#"{"oracle_self_tests_passed":true,"compute_observations_passed":true,"raster_correspondence_passed":true,"observation_count":4,"mismatches":0,"started_inside_normals":0,"table":[{"render_path":"compute_ray","probe_identity":"probe-a","revision":"1","frame_sequence":1,"result":"miss","correspondence":null,"passed":true},{"render_path":"raster","probe_identity":"probe-a","revision":"1","frame_sequence":2,"result":"miss","correspondence":"NotApplicableMiss","passed":true},{"render_path":"compute_ray","probe_identity":"probe-a","revision":"4","frame_sequence":3,"result":"miss","correspondence":null,"passed":true},{"render_path":"raster","probe_identity":"probe-a","revision":"4","frame_sequence":4,"result":"miss","correspondence":"NotApplicableMiss","passed":true}]}"#
+        }
+        ArtifactCategory::EventTimeline => {
+            r#"[{"event":"raster_revision_1","elapsed_seconds":0.0,"window_title":"Required=1 Visible=1"},{"event":"compute_revision_1","elapsed_seconds":1.0,"window_title":"Required=1 Visible=1"},{"event":"edit_burst_requested","elapsed_seconds":2.0,"window_title":"Required=1 Visible=1"},{"event":"compute_required_4_visible_1","elapsed_seconds":3.0,"window_title":"Required=4 Visible=1"},{"event":"compute_revision_4","elapsed_seconds":4.0,"window_title":"Required=4 Visible=4"},{"event":"raster_revision_4","elapsed_seconds":5.0,"window_title":"Required=4 Visible=4"},{"event":"compute_revision_4_final","elapsed_seconds":6.0,"window_title":"Required=4 Visible=4"},{"event":"clean_close","elapsed_seconds":7.0,"window_title":"closed"}]"#
+        }
+        ArtifactCategory::LifecycleLog => concat!(
+            "Compute edit burst converged newest-only: Required=4 Visible=4 installed_revisions=[VoxelSceneRevision(4)] obsolete_presented_frames=0 obsolete_semantic_observations=0\n",
+            "Render Path round trip complete: raster-to-compute-to-raster-to-compute switches=3 closing_presenter=ComputeRay\n",
+            "Render Path-owned raster resources after shutdown: 0\n",
+            "Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0\n",
+            "Render Path switching resources after shutdown: replacement=0 retiring=0\n",
+        ),
+        ArtifactCategory::ResourceLedger => concat!(
+            "Compute resource observation: phase=Installed objects=1 allocations=1 workers=0 views=1\n",
+            "Render Path-owned raster resources after shutdown: 0\n",
+            "Render Path-owned compute resources after shutdown: objects=0 allocations=0 workers=0 views=0\n",
+            "Render Path switching resources after shutdown: replacement=0 retiring=0\n",
+        ),
+        ArtifactCategory::ValidationLog => r#"{"enabled":true,"warnings":0,"errors":0}"#,
+        ArtifactCategory::ShutdownLog => {
+            r#"{"Cases":[{"ValidationWarnings":0,"ValidationErrors":0}]}"#
+        }
+        ArtifactCategory::OracleSelfTests | ArtifactCategory::FailureLog => {
+            "test result: ok. 7 passed; 0 failed\n"
+        }
+        ArtifactCategory::TimingStream => concat!(
+            "Compute timing event: phase=Preparation elapsed_ms=1\n",
+            "Compute timing event: phase=Upload elapsed_ms=1\n",
+            "Compute timing event: phase=Installation elapsed_ms=1\n",
+            "Compute timing event: phase=Dispatch elapsed_ms=1\n",
+            "Compute timing event: phase=Composite elapsed_ms=1\n",
+            "Render Path timing event: phase=Switching elapsed_ms=1\n",
+            "Render Path timing event: phase=Presentation elapsed_ms=1\n",
+        ),
+        _ => "evidence\n",
+    }
+}
+
+fn materialize_bundle(
+    root: &Path,
+    manifest: &mut BundleManifest,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for artifact in &mut manifest.artifacts {
+        let path = root.join(&artifact.path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let contents = artifact_contents(artifact.category).as_bytes();
+        fs::write(&path, contents)?;
+        artifact.bytes = u64::try_from(contents.len())?;
+        artifact.sha256 = format!("{:x}", Sha256::digest(contents));
+    }
+    manifest.provenance.executable_sha256 = manifest
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.category == ArtifactCategory::Executable)
+        .ok_or("fixture executable is missing")?
+        .sha256
+        .clone();
+    let provenance = manifest
+        .artifacts
+        .iter_mut()
+        .find(|artifact| artifact.category == ArtifactCategory::Provenance)
+        .ok_or("fixture provenance is missing")?;
+    let contents = artifact_contents(ArtifactCategory::Provenance)
+        .replace("placeholder", &manifest.provenance.executable_sha256);
+    fs::write(root.join(&provenance.path), &contents)?;
+    provenance.bytes = u64::try_from(contents.len())?;
+    provenance.sha256 = format!("{:x}", Sha256::digest(contents.as_bytes()));
+    Ok(())
+}
+
+fn rejected(
+    manifest: &BundleManifest,
+    accepted_message: &'static str,
+) -> Result<portable_compute_ray_evidence::EvidenceError, Box<dyn std::error::Error>> {
+    match verify_manifest_contract(manifest) {
+        Ok(_) => Err(accepted_message.into()),
+        Err(error) => Ok(error),
+    }
+}
+
 #[test]
 fn contract_accepts_attributed_machine_local_outcomes() -> Result<(), Box<dyn std::error::Error>> {
     let summary = verify_manifest_contract(&valid_manifest())?;
@@ -120,91 +228,98 @@ fn contract_accepts_attributed_machine_local_outcomes() -> Result<(), Box<dyn st
 }
 
 #[test]
-fn contract_rejects_semantic_mismatch() {
+fn contract_rejects_semantic_mismatch() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.semantics.mismatches = 1;
 
-    let error = verify_manifest_contract(&manifest).expect_err("semantic mismatch was accepted");
+    let error = rejected(&manifest, "semantic mismatch was accepted")?;
 
     assert!(error.to_string().contains("semantic"));
+    Ok(())
 }
 
 #[test]
-fn contract_rejects_revision_regression() {
+fn contract_rejects_revision_regression() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.revisions.visible = vec![1, 4, 3];
 
-    let error = verify_manifest_contract(&manifest).expect_err("revision regression was accepted");
+    let error = rejected(&manifest, "revision regression was accepted")?;
 
     assert!(error.to_string().contains("revision"));
+    Ok(())
 }
 
 #[test]
-fn contract_rejects_substituted_measurement_conditions() {
+fn contract_rejects_substituted_measurement_conditions() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.conditions.resource_conditions_identity = "another-machine".to_owned();
 
-    let error =
-        verify_manifest_contract(&manifest).expect_err("substituted conditions were accepted");
+    let error = rejected(&manifest, "substituted conditions were accepted")?;
 
     assert!(error.to_string().contains("conditions"));
+    Ok(())
 }
 
 #[test]
-fn contract_rejects_unbalanced_ownership() {
+fn contract_rejects_unbalanced_ownership() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.lifecycle.compute_after_shutdown.workers = 1;
 
-    let error = verify_manifest_contract(&manifest).expect_err("live worker was accepted");
+    let error = rejected(&manifest, "live worker was accepted")?;
 
     assert!(error.to_string().contains("ownership"));
+    Ok(())
 }
 
 #[test]
-fn contract_rejects_validation_findings() {
+fn contract_rejects_validation_findings() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.lifecycle.validation_warnings = 1;
 
-    let error = verify_manifest_contract(&manifest).expect_err("validation warning was accepted");
+    let error = rejected(&manifest, "validation warning was accepted")?;
 
     assert!(error.to_string().contains("validation"));
+    Ok(())
 }
 
 #[test]
-fn contract_rejects_superiority_or_cross_machine_claims() {
+fn contract_rejects_superiority_or_cross_machine_claims() -> Result<(), Box<dyn std::error::Error>>
+{
     let mut manifest = valid_manifest();
     manifest.conditions.superiority_claimed = true;
 
-    let error = verify_manifest_contract(&manifest).expect_err("superiority claim was accepted");
+    let error = rejected(&manifest, "superiority claim was accepted")?;
 
     assert!(error.to_string().contains("claim"));
+    Ok(())
 }
 
 #[test]
-fn contract_rejects_missing_required_still() {
+fn contract_rejects_missing_required_still() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     let selected_frame = manifest
         .artifacts
         .iter()
         .position(|artifact| artifact.category == ArtifactCategory::SelectedFrame)
-        .expect("fixture has selected frames");
+        .ok_or("fixture has no selected frames")?;
     manifest.artifacts.remove(selected_frame);
 
-    let error = verify_manifest_contract(&manifest).expect_err("missing still was accepted");
+    let error = rejected(&manifest, "missing still was accepted")?;
 
     assert!(error.to_string().contains("SelectedFrame"));
+    Ok(())
 }
 
 #[test]
-fn contract_rejects_substituted_executable_hash() {
+fn contract_rejects_substituted_executable_hash() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.provenance.executable_sha256 =
         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff".to_owned();
 
-    let error =
-        verify_manifest_contract(&manifest).expect_err("substituted executable was accepted");
+    let error = rejected(&manifest, "substituted executable was accepted")?;
 
     assert!(error.to_string().contains("executable"));
+    Ok(())
 }
 
 #[test]
@@ -223,7 +338,10 @@ fn hash_inventory_rejects_changed_artifact() -> Result<(), Box<dyn std::error::E
         bytes: 7,
     };
 
-    let error = verify_hash_inventory(&root, &[artifact]).expect_err("changed hash was accepted");
+    let error = match verify_hash_inventory(&root, &[artifact]) {
+        Ok(()) => return Err("changed hash was accepted".into()),
+        Err(error) => error,
+    };
 
     assert!(error.to_string().contains("proof.log"));
     fs::remove_dir_all(root)?;
@@ -231,11 +349,65 @@ fn hash_inventory_rejects_changed_artifact() -> Result<(), Box<dyn std::error::E
 }
 
 #[test]
-fn contract_rejects_missing_machine_attribution() {
+fn bundle_reads_and_accepts_matching_retained_evidence() -> Result<(), Box<dyn std::error::Error>> {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "voxel-nexus-portable-compute-ray-bundle-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root)?;
+    let mut manifest = valid_manifest();
+    materialize_bundle(&root, &mut manifest)?;
+
+    verify_bundle(&root, &manifest)?;
+
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn bundle_rejects_semantic_mismatch_recorded_in_hashed_stream()
+-> Result<(), Box<dyn std::error::Error>> {
+    let unique = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "voxel-nexus-portable-compute-ray-mismatch-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root)?;
+    let mut manifest = valid_manifest();
+    materialize_bundle(&root, &mut manifest)?;
+    let semantic_artifact = manifest
+        .artifacts
+        .iter_mut()
+        .find(|artifact| artifact.category == ArtifactCategory::SemanticObservations)
+        .ok_or("fixture semantic stream is missing")?;
+    let path = root.join(&semantic_artifact.path);
+    let mismatched = artifact_contents(ArtifactCategory::SemanticObservations).replacen(
+        "\"actual\":{\"result\":\"miss\"}",
+        "\"actual\":{\"result\":\"contact\"}",
+        1,
+    );
+    fs::write(&path, &mismatched)?;
+    semantic_artifact.bytes = u64::try_from(mismatched.len())?;
+    semantic_artifact.sha256 = format!("{:x}", Sha256::digest(mismatched.as_bytes()));
+
+    let error = match verify_bundle(&root, &manifest) {
+        Ok(_) => return Err("semantic mismatch in hashed stream was accepted".into()),
+        Err(error) => error,
+    };
+
+    assert!(error.to_string().contains("semantic"));
+    fs::remove_dir_all(root)?;
+    Ok(())
+}
+
+#[test]
+fn contract_rejects_missing_machine_attribution() -> Result<(), Box<dyn std::error::Error>> {
     let mut manifest = valid_manifest();
     manifest.conditions.machine_identity.clear();
 
-    let error = verify_manifest_contract(&manifest).expect_err("missing attribution was accepted");
+    let error = rejected(&manifest, "missing attribution was accepted")?;
 
     assert!(error.to_string().contains("machine_identity"));
+    Ok(())
 }

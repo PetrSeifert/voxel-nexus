@@ -35,7 +35,8 @@ use render_backend::{
 };
 #[cfg(target_os = "windows")]
 use semantic_ray_oracle::{
-    SemanticRayDistanceTolerance, SemanticRayProbeObservation, observe_probe,
+    SemanticRayContactClassification, SemanticRayDistanceTolerance, SemanticRayObservation,
+    SemanticRayProbe, SemanticRayProbeObservation, SemanticRayResult, observe_probe,
 };
 #[cfg(target_os = "windows")]
 use std::collections::VecDeque;
@@ -1114,6 +1115,48 @@ struct SemanticQualificationState {
 }
 
 #[cfg(target_os = "windows")]
+fn semantic_result_json(observation: &SemanticRayObservation) -> serde_json::Value {
+    match observation.result() {
+        SemanticRayResult::Miss => serde_json::json!({ "result": "miss" }),
+        SemanticRayResult::Contact(contact) => {
+            let (classification, outward_normal) = match contact.classification() {
+                SemanticRayContactClassification::Entered(normal) => {
+                    ("entered", Some(format!("{normal:?}")))
+                }
+                SemanticRayContactClassification::StartedInside => ("started_inside", None),
+            };
+            serde_json::json!({
+                "result": "contact",
+                "volume_identity": format!("{:?}", contact.volume_identity()),
+                "coordinate": contact.coordinate().components(),
+                "material_identity": format!("{:?}", contact.material_identity()),
+                "distance": contact.distance(),
+                "classification": classification,
+                "outward_normal": outward_normal,
+            })
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn report_semantic_probe_definitions(probes: &[SemanticRayProbe]) {
+    for probe in probes {
+        let ray = probe.ray();
+        println!(
+            "Semantic evidence: {}",
+            serde_json::json!({
+                "kind": "probe_definition",
+                "probe_identity": probe.identity(),
+                "origin": ray.origin(),
+                "direction": ray.direction(),
+                "minimum_distance": ray.minimum_distance(),
+                "maximum_distance": ray.maximum_distance(),
+            })
+        );
+    }
+}
+
+#[cfg(target_os = "windows")]
 impl SemanticQualificationState {
     fn register_compute(
         &mut self,
@@ -1121,6 +1164,7 @@ impl SemanticQualificationState {
         view: &VoxelSceneView,
     ) -> Result<(), String> {
         let probes = canonical_edit_semantic_ray_probes().map_err(|error| error.to_string())?;
+        report_semantic_probe_definitions(&probes);
         let oracle = probes
             .iter()
             .map(|probe| observe_probe(view, probe).map_err(|error| error.to_string()))
@@ -1144,6 +1188,7 @@ impl SemanticQualificationState {
         view: &VoxelSceneView,
     ) -> Result<(), String> {
         let probes = canonical_edit_semantic_ray_probes().map_err(|error| error.to_string())?;
+        report_semantic_probe_definitions(&probes);
         let oracle = probes
             .iter()
             .map(|probe| observe_probe(view, probe).map_err(|error| error.to_string()))
@@ -1163,6 +1208,7 @@ impl SemanticQualificationState {
 
     fn request_active_compute(&mut self, view: &VoxelSceneView) -> Result<(), String> {
         let probes = canonical_edit_semantic_ray_probes().map_err(|error| error.to_string())?;
+        report_semantic_probe_definitions(&probes);
         let oracle = probes
             .iter()
             .map(|probe| observe_probe(view, probe).map_err(|error| error.to_string()))
@@ -1241,6 +1287,20 @@ impl SemanticQualificationState {
                     actual.revision(),
                     observation.frame_sequence()
                 );
+                println!(
+                    "Semantic evidence: {}",
+                    serde_json::json!({
+                        "kind": "observation",
+                        "render_path": "compute_ray",
+                        "probe_identity": observation.probe_identity(),
+                        "revision": actual.revision().to_string(),
+                        "frame_sequence": observation.frame_sequence(),
+                        "actual": semantic_result_json(actual),
+                        "oracle": semantic_result_json(oracle.observation()),
+                        "distance_tolerance": tolerance.maximum_absolute_difference(),
+                        "passed": true,
+                    })
+                );
                 self.pending_compute_observation_count = self
                     .pending_compute_observation_count
                     .checked_sub(1)
@@ -1271,12 +1331,40 @@ impl SemanticQualificationState {
                         observation.correspondence()
                     ));
                 }
+                let oracle = self
+                    .oracle_observations
+                    .iter()
+                    .find(|oracle| {
+                        oracle.probe_identity() == observation.probe_identity()
+                            && oracle.observation().scene_identity() == observation.scene_identity()
+                            && oracle.observation().revision() == observation.revision()
+                    })
+                    .ok_or_else(|| {
+                        format!(
+                            "raster Semantic Face observation {} at revision {} has no oracle attribution",
+                            observation.probe_identity(),
+                            observation.revision()
+                        )
+                    })?;
                 println!(
                     "Semantic qualification: path=Raster probe={} revision={} frame={} correspondence={:?} result=pass",
                     observation.probe_identity(),
                     observation.revision(),
                     observation.frame_sequence(),
                     observation.correspondence()
+                );
+                println!(
+                    "Semantic evidence: {}",
+                    serde_json::json!({
+                        "kind": "observation",
+                        "render_path": "raster",
+                        "probe_identity": observation.probe_identity(),
+                        "revision": observation.revision().to_string(),
+                        "frame_sequence": observation.frame_sequence(),
+                        "oracle": semantic_result_json(oracle.observation()),
+                        "correspondence": format!("{:?}", observation.correspondence()),
+                        "passed": true,
+                    })
                 );
                 self.pending_raster_observation_count = self
                     .pending_raster_observation_count
@@ -1397,6 +1485,12 @@ const STEADY_MEASUREMENT_EXTENT: ash::vk::Extent2D = ash::vk::Extent2D {
 
 #[cfg(target_os = "windows")]
 impl DesktopApplication {
+    fn interactive_compute_switch_demo_active(&self) -> bool {
+        self.render_configuration.compute_switch_demo
+            && (!self.render_configuration.compute_switch_lifecycle_demo
+                || self.portable_milestone_lifecycle_complete)
+    }
+
     fn new(
         render_configuration: DesktopRenderConfiguration,
         event_proxy: EventLoopProxy<DesktopEvent>,
@@ -3818,10 +3912,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
     ) {
         match event {
             WindowEvent::CloseRequested => {
-                if self.render_configuration.compute_switch_demo
-                    && (!self.render_configuration.compute_switch_lifecycle_demo
-                        || self.portable_milestone_lifecycle_complete)
-                {
+                if self.interactive_compute_switch_demo_active() {
                     if self
                         .render_configuration
                         .compute_shutdown_qualification
@@ -4072,9 +4163,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     self.start_edit_burst(event_loop);
                 }
                 if should_request_render_path_switch(
-                    self.render_configuration.compute_switch_demo
-                        && (!self.render_configuration.compute_switch_lifecycle_demo
-                            || self.portable_milestone_lifecycle_complete),
+                    self.interactive_compute_switch_demo_active(),
                     event.state,
                     event.repeat,
                     &event.logical_key,
@@ -4082,9 +4171,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     self.handle_render_path_switch_key(event_loop);
                 }
                 if should_request_compute_edit_burst(
-                    self.render_configuration.compute_switch_demo
-                        && (!self.render_configuration.compute_switch_lifecycle_demo
-                            || self.portable_milestone_lifecycle_complete),
+                    self.interactive_compute_switch_demo_active(),
                     event.state,
                     event.repeat,
                     &event.logical_key,
@@ -4281,10 +4368,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                                 false
                             };
                         let compute_edit_burst_in_progress =
-                            if self.render_configuration.compute_switch_demo
-                                && (!self.render_configuration.compute_switch_lifecycle_demo
-                                    || self.portable_milestone_lifecycle_complete)
-                            {
+                            if self.interactive_compute_switch_demo_active() {
                                 match self.update_compute_edit_burst() {
                                     Ok(in_progress) => in_progress,
                                     Err(error) => {
@@ -4365,9 +4449,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         {
                             window.request_redraw();
                         }
-                        if self.render_configuration.compute_switch_demo
-                            && (!self.render_configuration.compute_switch_lifecycle_demo
-                                || self.portable_milestone_lifecycle_complete)
+                        if self.interactive_compute_switch_demo_active()
                             && let Err(error) = self.set_render_path_overlay()
                         {
                             self.fail(event_loop, error);
