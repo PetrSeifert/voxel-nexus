@@ -189,8 +189,8 @@ Hit trace_volume(
         if (next_distance > exit_distance || next_distance > ray_maximum) {
             return miss;
         }
-        float tie_tolerance = 0.00001 * max(1.0, abs(next_distance));
-        bvec3 tied = lessThanEqual(abs(crossing - vec3(next_distance)), vec3(tie_tolerance));
+        // A tolerance can merge distinct crossings and skip a cell occupied by the ray.
+        bvec3 tied = equal(crossing, vec3(next_distance));
         uint normal_axis = tied.x ? 0 : (tied.y ? 1 : 2);
         normal = vec3(0.0);
         normal[normal_axis] = ray_direction[normal_axis] > 0.0 ? -1.0 : 1.0;
