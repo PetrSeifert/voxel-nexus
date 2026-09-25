@@ -5348,6 +5348,13 @@ impl RasterRenderPath {
             },
         ];
         self.update_camera_constants(target.extent())?;
+        // LESS keeps the first equal-depth fragment. Match the Semantic Ray oracle's
+        // volume-identity tie break even after localized replacements reorder resources.
+        self.region_resources.sort_unstable_by(|left, right| {
+            left.identity
+                .volume_identity()
+                .cmp(right.identity.volume_identity())
+        });
         let render_pass_info = vk::RenderPassBeginInfo::default()
             .render_pass(self.render_pass)
             .framebuffer(framebuffer)
