@@ -26,7 +26,7 @@ fn canonical_camera_poses_fix_every_scene_coordinate_parameter()
     ];
 
     for (identity, eye, target, field_of_view_degrees) in cases {
-        let pose = identity.pose();
+        let pose = identity.pose()?;
         assert_eq!(pose.eye(), eye);
         assert_eq!(pose.target(), target);
         assert_eq!(pose.up(), [0.0, 1.0, 0.0]);
@@ -47,7 +47,7 @@ fn overview_to_cavity_move_has_fixed_step_outputs() -> Result<(), Box<dyn std::e
     assert_eq!(movement.total_steps(), 120);
     assert_eq!(
         movement.pose_at_step(0)?,
-        CanonicalCameraPose::Overview.pose()
+        CanonicalCameraPose::Overview.pose()?
     );
     let midpoint = movement.pose_at_step(60)?;
     assert_eq!(midpoint.eye(), [10.0, 7.5, 19.5]);
@@ -58,7 +58,7 @@ fn overview_to_cavity_move_has_fixed_step_outputs() -> Result<(), Box<dyn std::e
     assert_eq!(midpoint.far_plane(), 100.0);
     assert_eq!(
         movement.pose_at_step(120)?,
-        CanonicalCameraPose::CavityMaterialCloseUp.pose()
+        CanonicalCameraPose::CavityMaterialCloseUp.pose()?
     );
     assert!(movement.pose_at_step(121).is_err());
     Ok(())
@@ -67,9 +67,32 @@ fn overview_to_cavity_move_has_fixed_step_outputs() -> Result<(), Box<dyn std::e
 #[test]
 fn raster_render_path_retains_the_selected_logical_camera_pose()
 -> Result<(), Box<dyn std::error::Error>> {
-    let pose = CanonicalCameraPose::BoundaryCutaway.pose();
+    let pose = CanonicalCameraPose::BoundaryCutaway.pose()?;
     let render_path = RasterRenderPath::with_camera_pose(pose);
 
     assert_eq!(render_path.camera_pose()?, pose);
+    Ok(())
+}
+
+#[test]
+fn camera_move_rejects_a_degenerate_intermediate_pose() -> Result<(), Box<dyn std::error::Error>> {
+    use raster_render_path::{CameraConfigurationError, CameraPose, DeterministicCameraMove};
+
+    let start = CameraPose::new([0.0, 0.0, 5.0], [0.0; 3], [0.0, 1.0, 0.0], 60.0, 0.1, 100.0)?;
+    let end = CameraPose::new(
+        [0.0, 0.0, -5.0],
+        [0.0; 3],
+        [0.0, 1.0, 0.0],
+        60.0,
+        0.1,
+        100.0,
+    )?;
+    let movement = DeterministicCameraMove::new(start, end, 2)?;
+    assert_eq!(movement.pose_at_step(0)?, start);
+    assert_eq!(
+        movement.pose_at_step(1),
+        Err(CameraConfigurationError::CoincidentEyeAndTarget)
+    );
+    assert_eq!(movement.pose_at_step(2)?, end);
     Ok(())
 }

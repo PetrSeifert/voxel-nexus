@@ -188,7 +188,7 @@ fn shared_camera_state_generates_pixel_center_rays_and_view_space_clipping()
         50.0,
         0.1,
         100.0,
-    );
+    )?;
     let extent = vk::Extent2D {
         width: 101,
         height: 51,

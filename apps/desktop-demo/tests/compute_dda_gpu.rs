@@ -54,7 +54,7 @@ fn check_gpu(
     probes: Vec<SemanticRayProbe>,
     scale: f64,
 ) -> TestResult {
-    let camera = CameraState::new([0.0, 0.0, 5.0], [0.0; 3], [0.0, 1.0, 0.0], 50.0, 0.1, 100.0);
+    let camera = CameraState::new([0.0, 0.0, 5.0], [0.0; 3], [0.0, 1.0, 0.0], 50.0, 0.1, 100.0)?;
     let mut path =
         ComputeRayRenderPathAdapter::new(view.clone(), camera, CameraStateRevision::new(1))?;
     let controller = path.enable_semantic_ray_observation();

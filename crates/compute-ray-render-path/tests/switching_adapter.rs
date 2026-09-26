@@ -27,7 +27,7 @@ fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
         50.0,
         0.1,
         100.0,
-    );
+    )?;
     let adapter = ComputeRayRenderPathAdapter::new(view, camera, CameraStateRevision::new(3))?;
 
     let stamp = adapter.stamp();
@@ -60,7 +60,7 @@ fn cold_compute_construction_records_revision_attributed_preparation_time()
         50.0,
         0.1,
         100.0,
-    );
+    )?;
 
     let (_adapter, measurement) = ComputeRayRenderPathAdapter::new_with_measurement(
         view,
@@ -100,7 +100,7 @@ fn published_camera_state_waits_for_frame_boundary_acknowledgement()
         50.0,
         0.1,
         100.0,
-    );
+    )?;
     let changed_camera = CameraState::new(
         [7.0, 6.0, 5.0],
         [0.0, 0.0, 0.0],
@@ -108,7 +108,7 @@ fn published_camera_state_waits_for_frame_boundary_acknowledgement()
         55.0,
         0.1,
         100.0,
-    );
+    )?;
     let mut adapter =
         ComputeRayRenderPathAdapter::new(view, initial_camera, CameraStateRevision::new(3))?;
 
@@ -149,7 +149,7 @@ fn accepted_edits_advance_required_without_changing_the_visible_installation()
         50.0,
         0.1,
         100.0,
-    );
+    )?;
     let mut adapter = ComputeRayRenderPathAdapter::new(view, camera, CameraStateRevision::new(3))?;
     let outcome = frontend.edit(VoxelEditCommand::new(
         VoxelVolumeId::new("terrain"),

@@ -2747,7 +2747,7 @@ mod tests {
                 50.0,
                 0.1,
                 100.0,
-            ),
+            )?,
             None,
         );
         let controller = render_path.convergence.enable_control(true);

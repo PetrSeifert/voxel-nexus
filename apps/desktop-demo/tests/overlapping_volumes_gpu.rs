@@ -170,7 +170,7 @@ fn run_fixtures(event_loop: &ActiveEventLoop) -> TestResult {
         45.0,
         0.1,
         20.0,
-    );
+    )?;
     for zeta_depth in [0.25, 0.0, -0.25] {
         for reverse in [false, true] {
             let window = event_loop.create_window(

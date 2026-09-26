@@ -28,22 +28,73 @@ pub struct CameraState {
 }
 
 impl CameraState {
-    pub const fn new(
+    /// Validates the camera for every nonzero `u32` drawable extent.
+    pub fn new(
         eye: [f32; 3],
         target: [f32; 3],
         up: [f32; 3],
         field_of_view_degrees: f32,
         near_plane: f32,
         far_plane: f32,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, CameraConfigurationError> {
+        for (parameter, values) in [
+            ("eye", eye.as_slice()),
+            ("target", target.as_slice()),
+            ("up", up.as_slice()),
+            (
+                "field of view",
+                std::slice::from_ref(&field_of_view_degrees),
+            ),
+            ("near plane", std::slice::from_ref(&near_plane)),
+            ("far plane", std::slice::from_ref(&far_plane)),
+        ] {
+            if values.iter().any(|value| !value.is_finite()) {
+                return Err(CameraConfigurationError::NonfiniteParameter { parameter });
+            }
+        }
+        if eye == target {
+            return Err(CameraConfigurationError::CoincidentEyeAndTarget);
+        }
+        let direction = subtract(target, eye);
+        let direction_length_squared = dot(direction, direction);
+        if !direction_length_squared.is_finite() || direction_length_squared <= 0.0 {
+            return Err(CameraConfigurationError::UnrepresentableTransform);
+        }
+        // Test collinearity before normalization can introduce rounding noise.
+        let [direction_x, direction_y, direction_z] = direction.map(f64::from);
+        let [up_x, up_y, up_z] = up.map(f64::from);
+        if direction_y * up_z == direction_z * up_y
+            && direction_z * up_x == direction_x * up_z
+            && direction_x * up_y == direction_y * up_x
+        {
+            return Err(CameraConfigurationError::DegenerateUpDirection);
+        }
+        let side = cross(normalize(direction), up);
+        let side_length_squared = dot(side, side);
+        if side_length_squared == 0.0 {
+            return Err(CameraConfigurationError::DegenerateUpDirection);
+        }
+        if !side_length_squared.is_finite() {
+            return Err(CameraConfigurationError::UnrepresentableTransform);
+        }
+        if !(0.0 < field_of_view_degrees && field_of_view_degrees < 180.0) {
+            return Err(CameraConfigurationError::InvalidFieldOfView);
+        }
+        if !(0.0 < near_plane && near_plane < far_plane) {
+            return Err(CameraConfigurationError::InvalidClipPlanes);
+        }
+        let camera = Self {
             eye,
             target,
             up,
             field_of_view_degrees,
             near_plane,
             far_plane,
-        }
+        };
+        // Only the horizontal projection scale depends on extent. Its largest
+        // magnitude occurs at the narrowest supported aspect ratio.
+        camera.view_projection([1, u32::MAX])?;
+        Ok(camera)
     }
 
     pub fn eye(self) -> [f32; 3] {
@@ -86,12 +137,43 @@ impl CameraState {
             self.far_plane,
         );
         let view = look_at(self.eye, self.target, self.up);
-        Ok(multiply_matrices(projection, view))
+        let matrix = multiply_matrices(projection, view);
+        if matrix.iter().any(|component| !component.is_finite()) {
+            return Err(CameraConfigurationError::UnrepresentableTransform);
+        }
+        Ok(matrix)
+    }
+}
+
+impl Default for CameraState {
+    fn default() -> Self {
+        Self {
+            eye: [5.0, 4.0, 6.0],
+            target: [0.0; 3],
+            up: [0.0, 1.0, 0.0],
+            field_of_view_degrees: 55.0,
+            near_plane: 0.1,
+            far_plane: 100.0,
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum CameraConfigurationError {
+    #[error("camera {parameter} must contain only finite values")]
+    NonfiniteParameter { parameter: &'static str },
+    #[error("camera eye and target must be distinct")]
+    CoincidentEyeAndTarget,
+    #[error("camera up direction must be nonzero and not parallel to the view direction")]
+    DegenerateUpDirection,
+    #[error("camera vertical field of view must be greater than 0 and less than 180 degrees")]
+    InvalidFieldOfView,
+    #[error("camera clip planes must satisfy 0 < near < far")]
+    InvalidClipPlanes,
+    #[error(
+        "camera transform exceeds f32 precision or range; reduce coordinate, up vector, or projection extremes"
+    )]
+    UnrepresentableTransform,
     #[error("camera projection requires a non-zero drawable extent")]
     ZeroDrawableExtent,
     #[error("a deterministic camera move requires at least one step")]

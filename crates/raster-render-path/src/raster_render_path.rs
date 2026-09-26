@@ -104,7 +104,7 @@ impl DeterministicCameraMove {
             });
         }
         let progress = step as f32 / self.total_steps as f32;
-        Ok(CameraPose::new(
+        CameraPose::new(
             interpolate_vector(self.start.eye(), self.end.eye(), progress),
             interpolate_vector(self.start.target(), self.end.target(), progress),
             interpolate_vector(self.start.up(), self.end.up(), progress),
@@ -115,7 +115,7 @@ impl DeterministicCameraMove {
             ),
             interpolate_scalar(self.start.near_plane(), self.end.near_plane(), progress),
             interpolate_scalar(self.start.far_plane(), self.end.far_plane(), progress),
-        ))
+        )
     }
 }
 
@@ -1359,14 +1359,7 @@ impl SwitchableRenderPath for RasterRenderPathAdapter {
 
 impl Default for RasterRenderPath {
     fn default() -> Self {
-        let camera_pose = CameraPose::new(
-            [5.0, 4.0, 6.0],
-            [0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            55.0,
-            0.1,
-            100.0,
-        );
+        let camera_pose = CameraPose::default();
         let camera_state_revision = CameraStateRevision::new(1);
         Self {
             artifact: None,

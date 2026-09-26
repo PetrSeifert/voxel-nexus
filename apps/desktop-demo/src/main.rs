@@ -84,10 +84,10 @@ enum DesktopCameraSelection {
 }
 
 impl DesktopCameraSelection {
-    fn pose(self) -> CameraPose {
+    fn pose(self) -> Result<CameraPose, String> {
         match self {
-            Self::Fixed(identity) => identity.pose(),
-            Self::MoveStep { pose, .. } => pose,
+            Self::Fixed(identity) => identity.pose().map_err(|error| error.to_string()),
+            Self::MoveStep { pose, .. } => Ok(pose),
         }
     }
 
@@ -135,7 +135,7 @@ enum ComputeShutdownQualification {
 }
 
 impl DesktopRenderConfiguration {
-    fn camera_pose(&self) -> CameraPose {
+    fn camera_pose(&self) -> Result<CameraPose, String> {
         match self.scene {
             DesktopSceneSelection::Canonical(_) => self.camera.pose(),
             DesktopSceneSelection::WindingDiagnostic => CameraPose::new(
@@ -145,7 +145,8 @@ impl DesktopRenderConfiguration {
                 60.0,
                 0.1,
                 10.0,
-            ),
+            )
+            .map_err(|error| error.to_string()),
         }
     }
 
@@ -423,11 +424,13 @@ fn winding_diagnostic_scene() -> (DenseVoxelScene, VoxelVolumeId) {
     (scene, volume_identity)
 }
 
-fn report_winding_diagnostic_configuration(configuration: &DesktopRenderConfiguration) {
+fn report_winding_diagnostic_configuration(
+    configuration: &DesktopRenderConfiguration,
+) -> Result<(), String> {
     println!(
         "Diagnostic scene: identity=raster-front-face-winding dimensions=1x1x2 origin=0,0,0 voxel_size=1 materials=winding-diagnostic-far-blue,winding-diagnostic-near-warm occupied=2 exposed_faces=10"
     );
-    let camera = configuration.camera_pose();
+    let camera = configuration.camera_pose()?;
     println!(
         "Diagnostic camera: camera={} eye={} target={} up={} fov_degrees={} near={} far={}",
         configuration.camera_identity(),
@@ -438,12 +441,13 @@ fn report_winding_diagnostic_configuration(configuration: &DesktopRenderConfigur
         camera.near_plane(),
         camera.far_plane(),
     );
+    Ok(())
 }
 
 fn report_canonical_configuration(
     metadata: &CanonicalSceneMetadata,
     configuration: &DesktopRenderConfiguration,
-) {
+) -> Result<(), String> {
     let [width, height, depth] = metadata.dimensions();
     let [origin_x, origin_y, origin_z] = metadata.scene_origin();
     let material_identities = metadata
@@ -476,7 +480,7 @@ fn report_canonical_configuration(
         metadata.exposed_face_count(),
         metadata.exposed_face_limit(),
     );
-    let camera = configuration.camera.pose();
+    let camera = configuration.camera.pose()?;
     println!(
         "Canonical camera: camera={} eye={} target={} up={} fov_degrees={} near={} far={}",
         configuration.camera.report_identity(),
@@ -487,18 +491,19 @@ fn report_canonical_configuration(
         camera.near_plane(),
         camera.far_plane(),
     );
+    Ok(())
 }
 
 fn report_render_configuration(configuration: &DesktopRenderConfiguration) -> Result<(), String> {
     match configuration.scene {
         DesktopSceneSelection::WindingDiagnostic => {
-            report_winding_diagnostic_configuration(configuration);
+            report_winding_diagnostic_configuration(configuration)?;
         }
         DesktopSceneSelection::Canonical(scale) => {
             let canonical = generate_canonical_scene(scale).map_err(|error| {
                 format!("could not generate the canonical Voxel Scene: {error}")
             })?;
-            report_canonical_configuration(canonical.metadata(), configuration);
+            report_canonical_configuration(canonical.metadata(), configuration)?;
         }
     }
     Ok(())
@@ -1503,7 +1508,7 @@ impl DesktopApplication {
         render_configuration: DesktopRenderConfiguration,
         event_proxy: EventLoopProxy<DesktopEvent>,
     ) -> Result<Self, String> {
-        let camera_state = render_configuration.camera_pose();
+        let camera_state = render_configuration.camera_pose()?;
         let measurement = render_configuration
             .measurement
             .as_ref()
@@ -2604,7 +2609,11 @@ impl DesktopApplication {
                 if replacement.readiness() != RenderPathReadiness::Recordable {
                     return Ok(());
                 }
-                self.publish_camera_state(CanonicalCameraPose::CavityMaterialCloseUp.pose())?;
+                self.publish_camera_state(
+                    CanonicalCameraPose::CavityMaterialCloseUp
+                        .pose()
+                        .map_err(|error| error.to_string())?,
+                )?;
                 self.compute_switch_lifecycle_stage =
                     Some(ComputeSwitchLifecycleStage::CameraAcknowledgement);
                 println!(
@@ -3501,7 +3510,10 @@ impl DesktopApplication {
     }
 
     fn select_camera(&mut self, event_loop: &ActiveEventLoop, selection: DesktopCameraSelection) {
-        if let Err(error) = self.publish_camera_state(selection.pose()) {
+        if let Err(error) = selection
+            .pose()
+            .and_then(|pose| self.publish_camera_state(pose))
+        {
             self.fail(event_loop, error);
             return;
         }
@@ -3639,7 +3651,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         let (scene, occupied_voxels) = match self.render_configuration.scene {
             DesktopSceneSelection::WindingDiagnostic => {
                 let (scene, _) = winding_diagnostic_scene();
-                report_winding_diagnostic_configuration(&self.render_configuration);
+                if let Err(error) =
+                    report_winding_diagnostic_configuration(&self.render_configuration)
+                {
+                    self.fail(event_loop, error);
+                    return;
+                }
                 (scene, 2)
             }
             DesktopSceneSelection::Canonical(scale) => {
@@ -3653,7 +3670,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                         return;
                     }
                 };
-                report_canonical_configuration(canonical.metadata(), &self.render_configuration);
+                if let Err(error) =
+                    report_canonical_configuration(canonical.metadata(), &self.render_configuration)
+                {
+                    self.fail(event_loop, error);
+                    return;
+                }
                 let occupied_voxels = canonical.metadata().occupied_count();
                 (canonical.into_scene(), occupied_voxels)
             }
@@ -5235,7 +5257,7 @@ mod measurement_tests {
             frontend.publish(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
         let compute = compute_ray_render_path::ComputeRayRenderPathAdapter::new(
             view,
-            CanonicalCameraPose::Overview.pose(),
+            CanonicalCameraPose::Overview.pose()?,
             CameraStateRevision::new(1),
         )?;
         let owner = RenderPathSwitchOwner::new(Box::new(compute));
@@ -5246,7 +5268,7 @@ mod measurement_tests {
 
         let revision = VoxelSceneRevision::new(1);
         let (raster, _, _) = RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
-            CanonicalCameraPose::Overview.pose(),
+            CanonicalCameraPose::Overview.pose()?,
             CameraStateRevision::new(1),
             voxel_frontend::VoxelSceneId::new("raster"),
             revision,
@@ -5257,7 +5279,8 @@ mod measurement_tests {
     }
 
     #[test]
-    fn render_path_overlay_reports_the_idle_presenter_and_rejects_a_preparing_presenter() {
+    fn render_path_overlay_reports_the_idle_presenter_and_rejects_a_preparing_presenter()
+    -> Result<(), Box<dyn std::error::Error>> {
         let revision = VoxelSceneRevision::new(4);
         let (raster, _, _) = RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
             CameraPose::new(
@@ -5267,7 +5290,7 @@ mod measurement_tests {
                 60.0,
                 0.1,
                 100.0,
-            ),
+            )?,
             CameraStateRevision::new(7),
             voxel_frontend::VoxelSceneId::new("revision-four"),
             revision,
@@ -5285,6 +5308,7 @@ mod measurement_tests {
             ),
             "Presenter=Raster Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=inactive Camera=overview Control=Tab-rejected-presenter-not-ready"
         );
+        Ok(())
     }
 
     #[test]

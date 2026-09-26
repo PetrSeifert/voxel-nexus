@@ -58,7 +58,7 @@ fn camera_facing_outward_face_matches_the_configured_framebuffer_winding()
         60.0,
         0.1,
         10.0,
-    );
+    )?;
     let drawable_dimensions = [800, 600];
     let view_projection = camera.view_projection(drawable_dimensions)?;
     let framebuffer_vertices = first_triangle_indices

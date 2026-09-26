@@ -32,14 +32,7 @@ fn artifact(
 }
 
 fn camera_pose() -> CameraPose {
-    CameraPose::new(
-        [5.0, 4.0, 6.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        55.0,
-        0.1,
-        100.0,
-    )
+    CameraPose::default()
 }
 
 #[test]

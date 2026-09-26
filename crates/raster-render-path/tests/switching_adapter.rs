@@ -9,14 +9,7 @@ use render_backend::{
 use voxel_frontend::{VoxelFrontend, VoxelSceneId, VoxelSceneRevision};
 
 fn camera_pose() -> CameraPose {
-    CameraPose::new(
-        [5.0, 4.0, 6.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-        55.0,
-        0.1,
-        100.0,
-    )
+    CameraPose::default()
 }
 
 #[test]
@@ -70,7 +63,8 @@ fn publishing_camera_state_does_not_claim_render_path_acknowledgement() -> Resul
                 50.0,
                 0.1,
                 100.0,
-            ),
+            )
+            .map_err(|error| error.to_string())?,
             CameraStateRevision::new(5),
         )
         .map_err(|error| error.to_string())?;

@@ -1241,7 +1241,7 @@ mod tests {
         })
     }
 
-    fn changed_camera_state() -> CameraState {
+    fn changed_camera_state() -> Result<CameraState, crate::CameraConfigurationError> {
         CameraState::new(
             [7.0, 6.0, 5.0],
             [0.0, 0.0, 0.0],
@@ -1411,7 +1411,7 @@ mod tests {
         owner
             .request_switch(replacement)
             .expect("the held replacement should be admitted");
-        owner.publish_camera_state(changed_camera_state(), CameraStateRevision::new(2))?;
+        owner.publish_camera_state(changed_camera_state()?, CameraStateRevision::new(2))?;
         let device = proof_device();
 
         owner.advance_frame_boundary(proof_device_context(&device), proof_target(1, 800, 600))?;
@@ -1565,7 +1565,7 @@ mod tests {
 
             let failure = match failure_point {
                 ProofFailurePoint::Publication => {
-                    owner.publish_camera_state(changed_camera_state(), CameraStateRevision::new(2))
+                    owner.publish_camera_state(changed_camera_state()?, CameraStateRevision::new(2))
                 }
                 ProofFailurePoint::Release => owner.release(proof_device_context(&device)),
                 ProofFailurePoint::Configure => {

@@ -8,7 +8,7 @@ pub enum CanonicalCameraPose {
 }
 
 impl CanonicalCameraPose {
-    pub fn pose(self) -> CameraPose {
+    pub fn pose(self) -> Result<CameraPose, CameraConfigurationError> {
         match self {
             Self::Overview => CameraPose::new(
                 [20.0, 14.0, 22.0],
@@ -41,8 +41,8 @@ impl CanonicalCameraPose {
 pub fn overview_to_cavity_camera_move() -> Result<DeterministicCameraMove, CameraConfigurationError>
 {
     DeterministicCameraMove::new(
-        CanonicalCameraPose::Overview.pose(),
-        CanonicalCameraPose::CavityMaterialCloseUp.pose(),
+        CanonicalCameraPose::Overview.pose()?,
+        CanonicalCameraPose::CavityMaterialCloseUp.pose()?,
         120,
     )
 }
