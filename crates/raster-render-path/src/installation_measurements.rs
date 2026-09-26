@@ -1,6 +1,14 @@
 use super::*;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
+use std::thread;
+use voxel_frontend::VoxelCoordinate;
+use voxel_frontend::VoxelExtent;
+use voxel_frontend::VoxelMaterialId;
+use voxel_frontend::VoxelRegion;
+use voxel_frontend::VoxelValue;
+use voxel_frontend::VoxelVolumeId;
+use voxel_frontend::VoxelVolumeMetadata;
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelEditCommand, VoxelFrontend,
     VoxelMaterial,
