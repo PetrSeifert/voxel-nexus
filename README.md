@@ -1,0 +1,132 @@
+# Voxel Nexus
+
+Voxel Nexus is a voxel engine that keeps the Voxel Scene independent of storage and rendering. The desktop demo renders a generated scene using rasterization and a compute-ray Render Path, with fixed edit sequences for checking convergence and switching.
+
+## Requirements
+
+The desktop window currently runs on Windows. You need:
+
+- A graphics driver with Vulkan 1.3 and window presentation support.
+- Rust and Cargo, plus a native C/C++ build toolchain and CMake for the `shaderc` dependency.
+- The Vulkan SDK with `VK_LAYER_KHRONOS_validation` installed and `VULKAN_SDK` set. Normal demo runs require the validation layer.
+- PowerShell 7 for the automated verification scripts.
+
+Cargo compiles the shaders during the build. Run the commands below from the repository root in an interactive desktop session.
+
+## Start here
+
+Launch the interactive Render Path switching demo with the small scene:
+
+```powershell
+cargo run --locked --package desktop-demo -- --scene-scale 64 --compute-switch-demo
+```
+
+Click the demo window to give it keyboard focus, then follow this sequence:
+
+1. Wait for the raster scene and `Control=Tab-ready` in the overlay or window title.
+2. Press **Tab** once to switch to compute-ray rendering. Wait for `Presenter=ComputeRay` and `Control=Space-ready`.
+3. Press **Space** once to run the three-command voxel edit burst. Wait for `Required=4 Visible=4` and `Control=Space-complete-Tab-ready`.
+4. Press **Tab** to switch back to raster. Wait for `Presenter=Raster` and `Control=Tab-ready-completed-2`.
+5. Press **Tab** again to return to compute-ray. Wait for `Control=Tab-ready-completed-3`, then close the window normally.
+
+This mode checks the completed round trip when you close it. Closing early reports an incomplete qualification error. The edit burst runs once per launch; restart to repeat it.
+
+The overlay shows the presenting Render Path, switch state, Required and Visible Voxel Scene Revisions, edit-burst stage, and control readiness. During edits, Required can advance while Visible still shows the previous complete scene.
+
+There are no WASD, mouse-look, or arbitrary block-editing controls. Tab switches Render Paths in the compute demo, and Space runs its fixed edit sequence. Camera views are selected at launch or driven by the verification scripts.
+
+## View the scene without a qualification sequence
+
+For a simple raster viewer that you can close at any time:
+
+```powershell
+cargo run --locked --package desktop-demo -- --scene-scale 64 --camera-pose overview
+```
+
+Try the material close-up or boundary cutaway:
+
+```powershell
+cargo run --locked --package desktop-demo -- --scene-scale 64 --camera-pose cavity
+cargo run --locked --package desktop-demo -- --scene-scale 64 --camera-pose boundary
+```
+
+| Option | Values | Default |
+| --- | --- | --- |
+| `--scene-scale` | `64`, `128`, `256` | `256` |
+| `--camera-pose` | `overview`, `cavity`, `boundary` | `overview` |
+| `--camera-move-step` | `0` through `120`, a fixed position along the overview-to-cavity move | Unset |
+| `--raster-region-extent` | `16`, `32`, `64` | `32` |
+
+Choose either a camera pose or a camera move step. For example, `--camera-move-step 60` opens at the midpoint; it does not start an animation. Scene scales correspond to volumes of 64×32×64, 128×64×128, and 256×128×256 voxels.
+
+Print the scene and camera configuration without opening a window:
+
+```powershell
+cargo run --locked --package desktop-demo -- --scene-scale 64 --report-canonical-configuration
+```
+
+## Other demo modes
+
+| Mode | What it does |
+| --- | --- |
+| `--portable-compute-ray-milestone-demo` | Automatically exercises compute replacement, camera acknowledgement, resizing, suspension, and restoration. When `Control=Space-ready` appears, continue from step 3 of the interactive sequence above. |
+| `--compute-switch-lifecycle-demo` | Runs the automatic replacement lifecycle qualification and exits on completion. |
+| `--edit-burst-demo` | Runs the raster edit scenario, with deliberate barriers that the verification script must release. Use the script below for a complete run. |
+| `--winding-diagnostic` | Opens a small raster winding diagnostic scene. Use instead of scene-scale and camera options. |
+
+For example:
+
+```powershell
+cargo run --locked --package desktop-demo -- --scene-scale 64 --portable-compute-ray-milestone-demo
+```
+
+Compute demo modes cannot be combined with raster edit-burst, raster hold/failure-injection, or measurement modes. Flags such as `--hold-background-preparation`, `--hold-post-upload-candidate`, and `--compute-shutdown-qualification` are intended for the verification scripts and can deliberately leave work paused.
+
+## Run the scripted demonstrations
+
+These scripts build the demo, drive its controls, and save logs and evidence. Each evidence directory must be new or empty.
+
+```powershell
+# Raster edits, lifecycle checks, and shutdown checks.
+pwsh -NoProfile -File scripts/verify-edit-burst-demo.ps1 -EvidenceDirectory artifacts/raster-demo -SceneScale 64
+
+# Compute replacement, edits, three Render Path switches, and captures.
+pwsh -NoProfile -File scripts/verify-portable-compute-ray-milestone.ps1 -EvidenceDirectory artifacts/compute-demo
+
+# Four compute shutdown scenarios.
+pwsh -NoProfile -File scripts/verify-compute-shutdown.ps1 -EvidenceDirectory artifacts/compute-shutdown
+```
+
+The portable milestone capture script also uses FFmpeg. See [Windows lifecycle verification](docs/verification/windows-lifecycle.md) for the full lifecycle runner, camera captures, and deliberate failure diagnostics, and [portable compute-ray evidence](docs/verification/portable-compute-ray-evidence.md) for collecting and verifying a complete evidence bundle.
+
+## Collect measurements
+
+Create the output directory first, then run either measurement mode:
+
+```powershell
+New-Item -ItemType Directory -Force artifacts | Out-Null
+
+cargo run --locked --package desktop-demo -- --scene-scale 64 --measurement-mode first-correct-frame --measurement-output artifacts/first-frame.jsonl
+
+cargo run --locked --package desktop-demo -- --scene-scale 64 --measurement-mode steady-state --measurement-output artifacts/steady-state.jsonl
+```
+
+`first-correct-frame` exits after presenting the matching raster artifact. `steady-state` uses a 1920×1080 borderless window, warms up for five seconds, then collects CPU/GPU frame measurements for thirty seconds and exits. Keep that window visible at its required size. Output is JSON Lines; an existing output file is overwritten.
+
+For the repeatable timing workflow, see [timing evidence](docs/verification/timing-evidence.md).
+
+## Build and check
+
+```powershell
+cargo build --locked --package desktop-demo
+cargo test --locked --workspace
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+```
+
+After building, you can launch the executable directly:
+
+```powershell
+.\target\debug\desktop-demo.exe --scene-scale 64 --compute-switch-demo
+```
+
+If startup fails, read the terminal error for the missing Vulkan capability or validation layer. If controls appear inactive, check that the window has focus and wait for the overlay's ready state. A raster edit scenario paused at a barrier needs its verification script to continue.
