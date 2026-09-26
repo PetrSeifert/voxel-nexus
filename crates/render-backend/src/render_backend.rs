@@ -708,6 +708,41 @@ impl RenderPathDeviceContext<'_> {
     }
 
     /// # Safety
+    /// `memory` must be host-visible, coherent, and allocated for at least `size` bytes.
+    /// No submitted work may access the memory until this call returns.
+    pub unsafe fn write_memory_ranges(
+        &self,
+        memory: vk::DeviceMemory,
+        size: u64,
+        ranges: &[(usize, &[u8])],
+    ) -> Result<(), vk::Result> {
+        let length = usize::try_from(size).map_err(|_| vk::Result::ERROR_OUT_OF_HOST_MEMORY)?;
+        if ranges.iter().any(|(offset, bytes)| {
+            offset
+                .checked_add(bytes.len())
+                .is_none_or(|end| end > length)
+        }) {
+            return Err(vk::Result::ERROR_OUT_OF_HOST_MEMORY);
+        }
+        // Validate every range and map once so a failure cannot leave a partial revision.
+        let destination = unsafe {
+            self.device
+                .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?
+        };
+        for (offset, bytes) in ranges {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    bytes.as_ptr(),
+                    destination.cast::<u8>().add(*offset),
+                    bytes.len(),
+                );
+            }
+        }
+        unsafe { self.device.unmap_memory(memory) };
+        Ok(())
+    }
+
+    /// # Safety
     /// `memory` must be host-visible, coherent, and allocated for at least `bytes.len()` bytes.
     /// Submitted writes to the range must be available to the host before this call.
     pub unsafe fn read_memory(

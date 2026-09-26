@@ -19,6 +19,7 @@ use voxel_frontend::{
 
 mod compute_convergence;
 mod compute_scene;
+mod scene_words;
 
 pub use compute_convergence::{
     ComputeCandidateDisposition, ComputeConvergenceAcceptance, ComputeConvergenceControlError,
@@ -1953,7 +1954,12 @@ impl ComputeRayRenderPath {
                 }
             };
             let upload_started_at = Instant::now();
-            let candidate_resources = match create_scene_gpu_resources(device, candidate_bundle) {
+            let incremental = candidate_bundle.predecessor() == Some(self.scene_gpu_revision);
+            let candidate_resources = match if incremental {
+                Ok(None)
+            } else {
+                create_scene_gpu_resources(device, candidate_bundle).map(Some)
+            } {
                 Ok(resources) => resources,
                 Err(error) => {
                     self.convergence
@@ -1966,11 +1972,13 @@ impl ComputeRayRenderPath {
                 resources: candidate_resources,
                 range: candidate_range,
             });
-            self.record_timing(
-                ComputeTimingPhase::Upload,
-                candidate_stamp,
-                upload_started_at,
-            )?;
+            if !incremental {
+                self.record_timing(
+                    ComputeTimingPhase::Upload,
+                    candidate_stamp,
+                    upload_started_at,
+                )?;
+            }
             self.convergence.mark_hidden_uploaded();
         }
         if let Some(control) = &self.convergence_control
@@ -1989,6 +1997,40 @@ impl ComputeRayRenderPath {
             return Err(ComputeRenderPathError::InjectedConvergenceFailure(
                 ComputeConvergenceFailurePhase::Installation,
             ));
+        }
+        let candidate_bundle = self
+            .convergence
+            .hidden_bundle()
+            .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
+        if candidate_bundle.predecessor() == Some(self.scene_gpu_revision) {
+            let upload_started_at = Instant::now();
+            let ranges = candidate_bundle
+                .patches()
+                .iter()
+                .map(|(index, word)| (index * 4, u32_bytes(std::slice::from_ref(word))))
+                .collect::<Vec<_>>();
+            // The backend has waited for the preceding frame. Hidden candidates never
+            // touch Visible memory, and all rejection checks precede this atomic write.
+            if let Err(error) = unsafe {
+                device.write_memory_ranges(self.scene_memory, self.scene_allocation_bytes, &ranges)
+            } {
+                self.convergence
+                    .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
+                self.release_hidden_scene_gpu_resources_with(|resources| {
+                    release_scene_gpu_resources(device, resources)
+                })?;
+                return Err(ComputeRenderPathError::WriteSceneMemory(error));
+            }
+            // Timing reporting must not interrupt the CPU/GPU revision commit.
+            let elapsed = upload_started_at;
+            self.install_incremental_candidate(candidate_revision)?;
+            self.record_timing(ComputeTimingPhase::Upload, candidate_stamp, elapsed)?;
+            self.record_timing(
+                ComputeTimingPhase::Installation,
+                candidate_stamp,
+                installation_started_at,
+            )?;
+            return Ok(());
         }
         let retired_bundle = match self.convergence.install_hidden(self.scene_gpu_revision) {
             Ok(Some(bundle)) => bundle,
@@ -2013,8 +2055,11 @@ impl ComputeRayRenderPath {
             .hidden_scene_gpu_resources
             .take()
             .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
+        let resources = candidate
+            .resources
+            .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
         let scene_buffer = [vk::DescriptorBufferInfo::default()
-            .buffer(candidate.resources.buffer)
+            .buffer(resources.buffer)
             .offset(0)
             .range(candidate.range)];
         let writes = [vk::WriteDescriptorSet::default()
@@ -2024,11 +2069,11 @@ impl ComputeRayRenderPath {
             .buffer_info(&scene_buffer)];
         unsafe { device.update_descriptor_sets(&writes) };
         let retired_resources = ComputeSceneGpuResources {
-            buffer: std::mem::replace(&mut self.scene_buffer, candidate.resources.buffer),
-            memory: std::mem::replace(&mut self.scene_memory, candidate.resources.memory),
+            buffer: std::mem::replace(&mut self.scene_buffer, resources.buffer),
+            memory: std::mem::replace(&mut self.scene_memory, resources.memory),
             allocation_bytes: std::mem::replace(
                 &mut self.scene_allocation_bytes,
-                candidate.resources.allocation_bytes,
+                resources.allocation_bytes,
             ),
         };
         self.scene_gpu_revision = candidate_revision;
@@ -2045,6 +2090,21 @@ impl ComputeRayRenderPath {
         Ok(())
     }
 
+    fn install_incremental_candidate(
+        &mut self,
+        revision: VoxelSceneRevision,
+    ) -> Result<(), ComputeRenderPathError> {
+        self.convergence
+            .install_hidden(self.scene_gpu_revision)?
+            .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
+        self.scene_gpu_revision = revision;
+        self.hidden_scene_gpu_resources = None;
+        if let Some(control) = &self.convergence_control {
+            control.clear_post_upload_revision(revision)?;
+        }
+        Ok(())
+    }
+
     fn release_hidden_scene_gpu_resources_with(
         &mut self,
         mut release: impl FnMut(ComputeSceneGpuResources),
@@ -2057,7 +2117,9 @@ impl ComputeRayRenderPath {
             .as_ref()
             .map(|control| control.clear_post_upload_revision(candidate.stamp.revision()))
             .transpose();
-        release(candidate.resources);
+        if let Some(resources) = candidate.resources {
+            release(resources);
+        }
         control_result?;
         Ok(())
     }
@@ -2131,8 +2193,10 @@ impl ComputeRayRenderPath {
     }
 
     fn release_scene_resources(&mut self, device: &RenderPathDeviceContext<'_>) {
-        if let Some(candidate) = self.hidden_scene_gpu_resources.take() {
-            release_scene_gpu_resources(device, candidate.resources);
+        if let Some(candidate) = self.hidden_scene_gpu_resources.take()
+            && let Some(resources) = candidate.resources
+        {
+            release_scene_gpu_resources(device, resources);
         }
         unsafe {
             if self.scene_buffer != vk::Buffer::null() {
@@ -2162,7 +2226,7 @@ impl ComputeRayRenderPath {
         let hidden_resources = self
             .hidden_scene_gpu_resources
             .as_ref()
-            .map(|candidate| &candidate.resources);
+            .and_then(|candidate| candidate.resources.as_ref());
         let objects = [
             self.output_image != vk::Image::null(),
             self.output_view != vk::ImageView::null(),
@@ -2344,7 +2408,7 @@ struct ComputeSceneGpuResources {
 
 struct ComputeHiddenSceneGpuResources {
     stamp: ComputeConvergenceWorkStamp,
-    resources: ComputeSceneGpuResources,
+    resources: Option<ComputeSceneGpuResources>,
     range: u64,
 }
 
@@ -2352,11 +2416,15 @@ fn scene_storage_byte_size(
     device: &RenderPathDeviceContext<'_>,
     bundle: &ComputeSceneBundle,
 ) -> Result<u64, ComputeRenderPathError> {
-    let byte_size = u64::try_from(u32_bytes(bundle.storage_words()).len()).map_err(|_| {
-        ComputeRenderPathError::SceneStorageBufferRange {
-            required: u64::MAX,
-            available: device.capabilities().max_storage_buffer_range,
-        }
+    let byte_size = u64::try_from(
+        bundle
+            .storage_word_count()
+            .checked_mul(4)
+            .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?,
+    )
+    .map_err(|_| ComputeRenderPathError::SceneStorageBufferRange {
+        required: u64::MAX,
+        available: device.capabilities().max_storage_buffer_range,
     })?;
     if byte_size > u64::from(device.capabilities().max_storage_buffer_range) {
         return Err(ComputeRenderPathError::SceneStorageBufferRange {
@@ -2371,7 +2439,8 @@ fn create_scene_gpu_resources(
     device: &RenderPathDeviceContext<'_>,
     bundle: &ComputeSceneBundle,
 ) -> Result<ComputeSceneGpuResources, ComputeRenderPathError> {
-    let bytes = u32_bytes(bundle.storage_words());
+    let storage_words = bundle.storage_words();
+    let bytes = u32_bytes(&storage_words);
     let byte_size = scene_storage_byte_size(device, bundle)?;
     let buffer_info = vk::BufferCreateInfo::default()
         .size(byte_size)
@@ -2755,11 +2824,11 @@ mod tests {
         let installed = render_path.convergence.status().installed();
         render_path.hidden_scene_gpu_resources = Some(ComputeHiddenSceneGpuResources {
             stamp: installed,
-            resources: ComputeSceneGpuResources {
+            resources: Some(ComputeSceneGpuResources {
                 buffer: vk::Buffer::null(),
                 memory: vk::DeviceMemory::null(),
                 allocation_bytes: 0,
-            },
+            }),
             range: 0,
         });
         assert!(controller.hold_post_upload(installed.revision())?);

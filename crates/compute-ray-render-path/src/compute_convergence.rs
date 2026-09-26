@@ -4,7 +4,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use thiserror::Error;
-use voxel_frontend::{VoxelEditOutcome, VoxelSceneId, VoxelSceneRevision, VoxelSceneView};
+use voxel_frontend::{
+    VoxelChangeSet, VoxelEditOutcome, VoxelSceneId, VoxelSceneRevision, VoxelSceneView,
+};
 
 const RETAINED_EVENT_CAPACITY: usize = 64;
 
@@ -592,6 +594,8 @@ pub enum ComputeConvergenceError {
 #[derive(Clone)]
 struct ComputePreparationTarget {
     view: VoxelSceneView,
+    base: ComputeSceneBundle,
+    changes: Vec<VoxelChangeSet>,
 }
 
 impl ComputePreparationTarget {
@@ -668,6 +672,7 @@ pub(crate) struct ComputeConvergence {
     scene_identity: VoxelSceneId,
     installed_bundle: ComputeSceneBundle,
     installed_generation: ComputeConvergenceGeneration,
+    changes: Vec<VoxelChangeSet>,
     required_revision: VoxelSceneRevision,
     required_generation: ComputeConvergenceGeneration,
     active: Option<ComputeActivePreparation>,
@@ -686,6 +691,7 @@ impl ComputeConvergence {
             scene_identity,
             installed_bundle,
             installed_generation: ComputeConvergenceGeneration::initial(),
+            changes: Vec::new(),
             required_revision,
             required_generation: ComputeConvergenceGeneration::initial(),
             active: None,
@@ -789,8 +795,21 @@ impl ComputeConvergence {
             .required_generation
             .checked_successor()
             .ok_or(ComputeConvergenceError::GenerationOverflow)?;
-        let target = ComputePreparationTarget { view };
+        // A stalled consumer must not retain an unbounded history. Dropping the
+        // chain makes the next preparation use its authoritative full view.
+        let mut changes = if self.changes.len() < RETAINED_EVENT_CAPACITY {
+            self.changes.clone()
+        } else {
+            Vec::new()
+        };
+        changes.push(change_set.clone());
+        let target = ComputePreparationTarget {
+            view,
+            base: self.installed_bundle.clone(),
+            changes: changes.clone(),
+        };
         self.schedule_target(generation, target)?;
+        self.changes = changes;
         self.required_generation = generation;
         self.required_revision = change_set.successor_revision();
         Ok(ComputeConvergenceAcceptance::Accepted {
@@ -899,7 +918,9 @@ impl ComputeConvergence {
         };
         let stamp = candidate.stamp();
         let retired = std::mem::replace(&mut self.installed_bundle, candidate.bundle);
+        self.installed_bundle.finish_installation();
         self.installed_generation = candidate.generation;
+        self.changes.clear();
         self.events
             .push(ComputeConvergenceEvent::CandidateInstalled { stamp });
         Ok(Some(retired))
@@ -1049,6 +1070,8 @@ impl ComputeConvergence {
             .name(format!("compute-convergence-{}", stamp.revision))
             .spawn({
                 let view = target.view.clone();
+                let base = target.base.clone();
+                let changes = target.changes.clone();
                 let cancellation = Arc::clone(&cancellation);
                 let preparation_barrier = preparation_barrier.clone();
                 move || {
@@ -1062,8 +1085,9 @@ impl ComputeConvergence {
                         .transpose();
                     let mut result = match injected_failure {
                         Ok(Some(true)) => Err(ComputeSceneBuildError::InjectedPreparationFailure),
-                        Ok(_) => ComputeSceneBundle::from_view_with_block_completion(
+                        Ok(_) => base.successor_with_block_completion(
                             &view,
+                            &changes,
                             || cancellation.load(Ordering::Acquire),
                             || {
                                 preparation_barrier
@@ -1399,6 +1423,141 @@ mod tests {
             thread::yield_now();
         }
         Err(format!("{phase:?} failure was not observed").into())
+    }
+
+    #[test]
+    fn installing_a_broad_edit_releases_upload_patches() -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("broad", 0, VoxelExtent::new(4096, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        let outcome = frontend.edit(VoxelEditCommand::from_edits(
+            (0..4096)
+                .map(|coordinate| {
+                    voxel_frontend::VoxelEdit::new(
+                        VoxelVolumeId::new("terrain"),
+                        VoxelCoordinate::new(coordinate, 0, 0),
+                        VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+                    )
+                })
+                .collect(),
+        ))?;
+        convergence.accept(outcome)?;
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(1))?;
+        convergence.retain_ready_candidate();
+        assert_eq!(
+            convergence
+                .hidden_bundle()
+                .ok_or("missing candidate")?
+                .patches()
+                .len(),
+            4096
+        );
+        convergence
+            .install_hidden(VoxelSceneRevision::new(0))?
+            .ok_or("missing installation")?;
+        assert!(convergence.installed_bundle().patches().is_empty());
+        assert!(
+            convergence
+                .installed_bundle()
+                .voxel_words()
+                .iter()
+                .all(|word| *word == 1)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn incremental_chain_preserves_visible_words_and_coalesces_repeated_edits()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("incremental", 0, VoxelExtent::new(65, 33, 2))?;
+        let visible = ComputeSceneBundle::from_view(&frontend.scene_view()?)?;
+        let original_words = visible.storage_words();
+        let mut changes = Vec::new();
+        for (coordinate, value) in [
+            (
+                VoxelCoordinate::new(64, 32, 1),
+                VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+            ),
+            (
+                VoxelCoordinate::new(0, 0, 0),
+                VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+            ),
+            (VoxelCoordinate::new(64, 32, 1), VoxelValue::Empty),
+        ] {
+            let VoxelEditOutcome::Changed { change_set, .. } = frontend.edit(
+                VoxelEditCommand::new(VoxelVolumeId::new("terrain"), coordinate, value),
+            )?
+            else {
+                return Err("edit did not change the scene".into());
+            };
+            changes.push(change_set);
+        }
+        let view = frontend.scene_view()?;
+        let successor =
+            visible.successor_with_block_completion(&view, &changes, || false, || Ok(()))?;
+        assert_eq!(
+            successor.storage_words(),
+            ComputeSceneBundle::from_view(&view)?.storage_words()
+        );
+        assert_eq!(visible.storage_words(), original_words);
+        assert_eq!(successor.predecessor(), Some(visible.revision()));
+        assert_eq!(successor.patches().len(), 2);
+        for chain in [&changes[1..], &changes[..2], &[]] {
+            let rebuilt =
+                visible.successor_with_block_completion(&view, chain, || false, || Ok(()))?;
+            assert_eq!(rebuilt.predecessor(), None);
+            assert_eq!(rebuilt.storage_words(), successor.storage_words());
+        }
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "preparation benchmark; run with --release --ignored --nocapture"]
+    fn measure_incremental_preparation() -> Result<(), Box<dyn std::error::Error>> {
+        for edge in [32, 64, 128] {
+            let frontend = frontend("measurement", 0, VoxelExtent::new(edge, edge, edge))?;
+            let mut visible = ComputeSceneBundle::from_view(&frontend.scene_view()?)?;
+            let mut full_milliseconds = 0.0;
+            let mut incremental_milliseconds = 0.0;
+            let mut uploaded_bytes = 0;
+            for index in 0..20 {
+                let value = if index % 2 == 0 {
+                    VoxelValue::Occupied(VoxelMaterialId::new("stone"))
+                } else {
+                    VoxelValue::Empty
+                };
+                let VoxelEditOutcome::Changed { view, change_set } =
+                    frontend.edit(VoxelEditCommand::new(
+                        VoxelVolumeId::new("terrain"),
+                        VoxelCoordinate::new(1, 1, 1),
+                        value,
+                    ))?
+                else {
+                    return Err("benchmark edit did not change the scene".into());
+                };
+                let started = Instant::now();
+                let full = ComputeSceneBundle::from_view(&view)?;
+                full_milliseconds += started.elapsed().as_secs_f64() * 1000.0;
+                let started = Instant::now();
+                let incremental = visible.successor_with_block_completion(
+                    &view,
+                    &[change_set],
+                    || false,
+                    || Ok(()),
+                )?;
+                incremental_milliseconds += started.elapsed().as_secs_f64() * 1000.0;
+                uploaded_bytes += incremental.patches().len() * 4;
+                assert_eq!(incremental.storage_words(), full.storage_words());
+                visible = incremental;
+            }
+            println!(
+                "edge={edge} full_prepare_ms={:.6} incremental_prepare_ms={:.6} full_upload_bytes={} incremental_upload_bytes={}",
+                full_milliseconds / 20.0,
+                incremental_milliseconds / 20.0,
+                visible.storage_word_count() * 4,
+                uploaded_bytes / 20
+            );
+        }
+        Ok(())
     }
 
     #[test]

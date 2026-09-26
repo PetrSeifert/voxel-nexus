@@ -1,13 +1,16 @@
+use crate::scene_words::SceneWords;
 use semantic_ray_oracle::{
     AxisNormal, SemanticRay, SemanticRayContact, SemanticRayContactClassification,
     SemanticRayObservation, SemanticRayResult,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::num::TryFromIntError;
+use std::sync::Arc;
 use thiserror::Error;
 use voxel_frontend::{
-    VoxelCoordinate, VoxelExtent, VoxelFrontendError, VoxelMaterialId, VoxelRegion, VoxelSceneId,
-    VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+    VoxelChangeSet, VoxelCoordinate, VoxelExtent, VoxelFrontendError, VoxelMaterialId, VoxelRegion,
+    VoxelSceneId, VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId,
+    VoxelVolumeMetadata,
 };
 
 pub(crate) const SCENE_PREFIX_WORD_COUNT: usize = 4;
@@ -65,11 +68,13 @@ impl ComputeVolumeHeader {
 pub struct ComputeSceneBundle {
     scene_identity: VoxelSceneId,
     revision: VoxelSceneRevision,
-    volume_headers: Vec<ComputeVolumeHeader>,
-    material_identities: Vec<VoxelMaterialId>,
-    material_words: Vec<u32>,
-    voxel_words: Vec<u32>,
-    storage_words: Vec<u32>,
+    volume_headers: Arc<[ComputeVolumeHeader]>,
+    material_identities: Arc<[VoxelMaterialId]>,
+    material_words: Arc<[u32]>,
+    storage_words: SceneWords,
+    voxel_start: usize,
+    predecessor: Option<VoxelSceneRevision>,
+    patches: Arc<BTreeMap<usize, u32>>,
 }
 
 impl ComputeSceneBundle {
@@ -171,11 +176,13 @@ impl ComputeSceneBundle {
         Ok(Self {
             scene_identity: view.scene_id().clone(),
             revision: view.revision(),
-            volume_headers,
-            material_identities,
-            material_words,
-            voxel_words,
-            storage_words,
+            volume_headers: volume_headers.into(),
+            material_identities: material_identities.into(),
+            material_words: material_words.into(),
+            voxel_start: storage_words.len() - voxel_words.len(),
+            storage_words: SceneWords::new(&storage_words),
+            predecessor: None,
+            patches: Arc::new(BTreeMap::new()),
         })
     }
 
@@ -199,17 +206,168 @@ impl ComputeSceneBundle {
         &self.material_words
     }
 
-    pub fn voxel_words(&self) -> &[u32] {
-        &self.voxel_words
+    /// Deferred materialization avoids allocating a full voxel buffer during convergence.
+    pub fn voxel_words(&self) -> Vec<u32> {
+        self.storage_words
+            .flatten()
+            .into_iter()
+            .skip(self.voxel_start)
+            .collect()
     }
 
-    pub fn storage_words(&self) -> &[u32] {
-        &self.storage_words
+    /// Deferred packing keeps full-buffer allocation out of incremental uploads.
+    pub fn storage_words(&self) -> Vec<u32> {
+        self.storage_words.flatten()
+    }
+
+    pub(crate) fn storage_word_count(&self) -> usize {
+        self.storage_words.len()
+    }
+
+    pub(crate) fn predecessor(&self) -> Option<VoxelSceneRevision> {
+        self.predecessor
+    }
+
+    pub(crate) fn finish_installation(&mut self) {
+        self.patches = Arc::new(BTreeMap::new());
+        self.predecessor = None;
+    }
+
+    pub(crate) fn patches(&self) -> &BTreeMap<usize, u32> {
+        &self.patches
+    }
+
+    pub(crate) fn successor_with_block_completion(
+        &self,
+        view: &VoxelSceneView,
+        changes: &[VoxelChangeSet],
+        mut cancellation_requested: impl FnMut() -> bool,
+        mut block_completed: impl FnMut() -> Result<(), ComputeSceneBuildError>,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        let mut revision = self.revision;
+        let chain_matches = self.scene_identity() == view.scene_id()
+            && changes.iter().all(|change| {
+                let matches = change.scene_identity() == self.scene_identity()
+                    && change.predecessor_revision() == revision
+                    && revision.checked_successor() == Some(change.successor_revision());
+                revision = change.successor_revision();
+                matches
+            })
+            && revision == view.revision();
+        let layout_matches = view.volumes().len() == self.volume_headers.len()
+            && self.volume_headers.iter().all(|header| {
+                view.volumes().iter().any(|volume| {
+                    volume.identity() == header.identity()
+                        && volume.extent() == header.extent()
+                        && volume.scene_origin() == header.scene_origin()
+                        && volume.voxel_size() == header.voxel_size()
+                })
+            })
+            && view.materials().len() == self.material_identities.len()
+            && view
+                .materials()
+                .iter()
+                .zip(self.material_identities.iter())
+                .all(|(material, identity)| material.identity() == identity)
+            && view
+                .materials()
+                .iter()
+                .flat_map(|material| material.linear_base_color().map(f32::to_bits))
+                .eq(self.material_words.iter().copied());
+        if !chain_matches || !layout_matches {
+            return Self::from_view_with_block_completion(
+                view,
+                cancellation_requested,
+                block_completed,
+            );
+        }
+        let mut successor = Self {
+            revision: view.revision(),
+            predecessor: Some(self.revision),
+            patches: Arc::new(BTreeMap::new()),
+            ..self.clone()
+        };
+        for change in changes {
+            for changed in change.changed_regions() {
+                let header = self
+                    .volume_headers
+                    .iter()
+                    .find(|header| header.identity() == changed.volume_identity())
+                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+                let [origin_x, origin_y, origin_z] = changed.region().origin().components();
+                let [width, height, depth] = changed.region().extent().dimensions();
+                for local_z in 0..depth {
+                    for local_y in 0..height {
+                        for local_x in (0..width).step_by(REGION_READ_EDGE as usize) {
+                            if cancellation_requested() {
+                                return Err(ComputeSceneBuildError::Cancelled);
+                            }
+                            let coordinate = VoxelCoordinate::new(
+                                origin_x
+                                    .checked_add(i32::try_from(local_x)?)
+                                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?,
+                                origin_y
+                                    .checked_add(i32::try_from(local_y)?)
+                                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?,
+                                origin_z
+                                    .checked_add(i32::try_from(local_z)?)
+                                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?,
+                            );
+                            let row_width = REGION_READ_EDGE.min(width - local_x);
+                            let mut values = vec![VoxelValue::Empty; usize::try_from(row_width)?];
+                            view.read_region_into(
+                                header.identity(),
+                                VoxelRegion::new(coordinate, VoxelExtent::new(row_width, 1, 1)),
+                                &mut values,
+                            )?;
+                            let start = self
+                                .voxel_start
+                                .checked_add(usize::try_from(header.voxel_word_offset)?)
+                                .and_then(|start| {
+                                    start.checked_add(dense_index(header.extent, coordinate)?)
+                                })
+                                .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+                            for (offset, value) in values.into_iter().enumerate() {
+                                let word = match value {
+                                    VoxelValue::Empty => 0,
+                                    VoxelValue::Occupied(identity) => u32::try_from(
+                                        self.material_identities
+                                            .iter()
+                                            .position(|material| material == &identity)
+                                            .ok_or_else(|| {
+                                                ComputeSceneBuildError::UnknownMaterial {
+                                                    volume: header.identity.clone(),
+                                                    material: identity,
+                                                }
+                                            })?,
+                                    )?
+                                    .checked_add(1)
+                                    .ok_or(ComputeSceneBuildError::TooManyMaterials)?,
+                                };
+                                let index = start
+                                    .checked_add(offset)
+                                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+                                successor
+                                    .storage_words
+                                    .set(index, word)
+                                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+                                Arc::make_mut(&mut successor.patches).insert(index, word);
+                            }
+                            block_completed()?;
+                        }
+                    }
+                }
+            }
+        }
+        if cancellation_requested() {
+            return Err(ComputeSceneBuildError::Cancelled);
+        }
+        Ok(successor)
     }
 
     pub fn observe(&self, ray: &SemanticRay) -> SemanticRayObservation {
         let mut nearest_contact = None;
-        for header in &self.volume_headers {
+        for header in self.volume_headers.iter() {
             let Some(contact) = trace_volume(self, header, ray) else {
                 continue;
             };
@@ -584,7 +742,9 @@ fn voxel_word(
     let index = usize::try_from(header.voxel_word_offset)
         .ok()?
         .checked_add(dense_index(header.extent, coordinate)?)?;
-    scene.voxel_words.get(index).copied()
+    scene
+        .storage_words
+        .get(scene.voxel_start.checked_add(index)?)
 }
 
 fn dense_index(extent: VoxelExtent, coordinate: VoxelCoordinate) -> Option<usize> {
