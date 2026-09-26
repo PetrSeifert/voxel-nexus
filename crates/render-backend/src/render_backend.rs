@@ -334,6 +334,10 @@ pub enum SwapchainConfigurationError {
 
 #[derive(Debug, Error)]
 pub enum BackendError {
+    #[error(
+        "the Render Backend cannot render after a frame failure; shut it down and create a new backend"
+    )]
+    FrameFailureIsTerminal,
     #[error("could not load the Vulkan loader: {0}")]
     LoadVulkan(#[from] ash::LoadingError),
     #[error("the Vulkan loader supports API {major}.{minor}, but Vulkan 1.3 is required")]
@@ -1227,6 +1231,7 @@ impl FrameObservationBuffer {
 }
 
 pub struct RenderBackend {
+    frame_failed: bool,
     rendering: Option<PresentationResources>,
     path: Box<dyn RenderPath>,
     device: LogicalDevice,
@@ -1338,6 +1343,7 @@ impl RenderBackend {
         };
 
         let mut backend = Self {
+            frame_failed: false,
             rendering,
             path: Box::new(path),
             device,
@@ -1410,12 +1416,29 @@ impl RenderBackend {
     }
 
     pub fn refresh_render_path(&mut self) -> Result<(), BackendError> {
+        if self.frame_failed {
+            return Err(BackendError::FrameFailureIsTerminal);
+        }
         unsafe { self.device.device_wait_idle() }.map_err(BackendError::WaitForDevice)?;
         self.release_path()?;
         self.configure_path()
     }
 
+    /// A frame error is terminal for this backend. The failing call preserves the original
+    /// error; later calls return `FrameFailureIsTerminal`, including after resize or refresh.
+    /// Call `shutdown` and create a new backend to resume rendering.
     pub fn draw_frame(&mut self) -> Result<FrameOutcome, BackendError> {
+        if self.frame_failed {
+            return Err(BackendError::FrameFailureIsTerminal);
+        }
+        let result = self.draw_frame_inner();
+        // Acquisition may have signaled a semaphore without a submission consuming it.
+        // Keep all presentation resources for idle shutdown, never for another frame.
+        self.frame_failed = result.is_err();
+        result
+    }
+
+    fn draw_frame_inner(&mut self) -> Result<FrameOutcome, BackendError> {
         if drawable_extent_is_zero(self.drawable_extent) {
             if self.path_is_configured || self.rendering.is_some() {
                 unsafe { self.device.device_wait_idle() }.map_err(BackendError::WaitForDevice)?;
@@ -1938,9 +1961,6 @@ impl PresentationResources {
             .ok_or(BackendError::SubmitFrame(vk::Result::ERROR_UNKNOWN))?;
         unsafe {
             self.device
-                .reset_fences(&[self.frame_fence])
-                .map_err(BackendError::ResetFrame)?;
-            self.device
                 .reset_command_buffer(self.command_buffer, vk::CommandBufferResetFlags::empty())
                 .map_err(BackendError::ResetFrame)?;
         }
@@ -1956,6 +1976,9 @@ impl PresentationResources {
             .command_buffers(&command_buffers)
             .signal_semaphores(&signal_semaphores);
         unsafe {
+            self.device
+                .reset_fences(&[self.frame_fence])
+                .map_err(BackendError::ResetFrame)?;
             self.device
                 .queue_submit(graphics_queue, &[submit_info], self.frame_fence)
                 .map_err(BackendError::SubmitFrame)?;
