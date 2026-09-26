@@ -2335,9 +2335,7 @@ pub fn derive_raster_artifact(
             )
         })?;
         let linear_base_color = view
-            .materials()
-            .iter()
-            .find(|material| material.identity() == material_identity)
+            .material(material_identity)
             .map(|material| material.linear_base_color())
             .ok_or_else(|| {
                 build_error(
@@ -2690,9 +2688,7 @@ fn derive_raster_region(
                     continue;
                 };
                 let linear_base_color = view
-                    .materials()
-                    .iter()
-                    .find(|material| material.identity() == material_identity)
+                    .material(material_identity)
                     .map(|material| material.linear_base_color())
                     .ok_or_else(|| {
                         build_error(

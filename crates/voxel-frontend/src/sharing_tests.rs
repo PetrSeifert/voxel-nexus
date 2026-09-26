@@ -84,7 +84,7 @@ fn revisions_share_all_but_the_edited_page() -> Result<(), Box<dyn std::error::E
         ));
         assert_eq!(
             previous_storage.value(VoxelCoordinate::new(coordinate, 0, 0)),
-            &VoxelValue::Empty
+            MaterialIndex::EMPTY
         );
         retained.push(successor.clone());
     }
@@ -117,5 +117,92 @@ fn revisions_share_all_but_the_edited_page() -> Result<(), Box<dyn std::error::E
     ))?;
     assert!(unchanged.change_set().is_none());
     assert!(Arc::ptr_eq(&current.published, &unchanged.view().published));
+    Ok(())
+}
+
+#[test]
+fn palette_indices_are_compact_and_scene_local() -> Result<(), Box<dyn std::error::Error>> {
+    assert_eq!(size_of::<MaterialIndex>(), 4);
+    for identities in [["stone", "grass"], ["grass", "stone"]] {
+        let frontend = VoxelFrontend::new();
+        let volume = VoxelVolumeId::new("volume");
+        let extent = VoxelExtent::new(3, 1, 1);
+        let region = VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent);
+        let values = vec![
+            VoxelValue::Empty,
+            VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+            VoxelValue::Occupied(VoxelMaterialId::new("grass")),
+        ];
+        let materials: Vec<_> = identities
+            .into_iter()
+            .enumerate()
+            .map(|(index, identity)| {
+                VoxelMaterial::new(VoxelMaterialId::new(identity), [index as f32; 4])
+            })
+            .collect();
+        let view = frontend.publish(DenseVoxelScene::new(
+            VoxelSceneId::new("palette"),
+            VoxelSceneRevision::new(0),
+            materials.clone(),
+            vec![DenseVoxelVolume::new(
+                VoxelVolumeMetadata::new(volume.clone(), extent, [0.0; 3], 1.0),
+                vec![DenseVoxelBatch::new(region, values.clone())],
+            )],
+        ))?;
+        for material in &materials {
+            assert_eq!(
+                view.material(&VoxelMaterialId::new(material.identity.0.to_string())),
+                Some(material)
+            );
+        }
+        assert!(view.material(&VoxelMaterialId::new("unknown")).is_none());
+        assert_eq!(
+            view.read_region(&volume, region)?
+                .into_iter()
+                .map(|sample| sample.value)
+                .collect::<Vec<_>>(),
+            values
+        );
+        let storage = view
+            .published
+            .volumes
+            .get(&volume)
+            .ok_or("missing volume")?;
+        assert_eq!(
+            storage
+                .pages
+                .iter()
+                .map(|page| page.len() * size_of::<MaterialIndex>())
+                .sum::<usize>(),
+            12
+        );
+        let outcome = frontend.edit(VoxelEditCommand::new(
+            volume.clone(),
+            VoxelCoordinate::new(1, 0, 0),
+            VoxelValue::Occupied(VoxelMaterialId::new("grass")),
+        ))?;
+        assert!(Arc::ptr_eq(
+            &view.published.material_indices,
+            &outcome.view().published.material_indices
+        ));
+        assert!(Arc::ptr_eq(
+            &view.published.palette_values,
+            &outcome.view().published.palette_values
+        ));
+        assert_eq!(
+            view.read_region(&volume, region)?
+                .get(1)
+                .map(VoxelSample::value),
+            values.get(1)
+        );
+        assert_eq!(
+            outcome
+                .view()
+                .read_region(&volume, region)?
+                .get(1)
+                .map(VoxelSample::value),
+            values.get(2)
+        );
+    }
     Ok(())
 }
