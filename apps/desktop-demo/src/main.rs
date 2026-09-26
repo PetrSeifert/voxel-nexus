@@ -3312,11 +3312,11 @@ impl DesktopApplication {
                 }
             };
             let resource_counts = (|| {
-                let exposed_quads = u64::try_from(artifact.semantic_faces().len())
+                let exposed_quads = u64::try_from(artifact.semantic_face_count())
                     .map_err(|_| "exposed quad count cannot be represented".to_owned())?;
-                let vertices = u64::try_from(artifact.vertices().len())
+                let vertices = u64::try_from(artifact.vertex_count())
                     .map_err(|_| "vertex count cannot be represented".to_owned())?;
-                let indices = u64::try_from(artifact.indices().len())
+                let indices = u64::try_from(artifact.index_count())
                     .map_err(|_| "index count cannot be represented".to_owned())?;
                 let vertex_bytes = u64::try_from(artifact.vertex_byte_size())
                     .map_err(|_| "vertex byte count cannot be represented".to_owned())?;

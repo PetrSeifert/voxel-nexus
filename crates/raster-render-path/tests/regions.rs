@@ -82,6 +82,65 @@ fn raster_region_grid_is_zero_anchored_and_stable_across_revisions()
 }
 
 #[test]
+fn explicit_flattening_rebases_indices_and_preserves_region_face_order()
+-> Result<(), Box<dyn std::error::Error>> {
+    let artifact = derive_raster_regions(
+        &view(
+            7,
+            VoxelExtent::new(6, 1, 1),
+            &[
+                (VoxelCoordinate::new(0, 0, 0), "stone"),
+                (VoxelCoordinate::new(4, 0, 0), "stone"),
+            ],
+        )?,
+        VoxelExtent::new(2, 1, 1),
+    )?;
+    let geometry = artifact.flatten_geometry()?;
+    assert_eq!(geometry.vertices().len(), artifact.vertex_count());
+    assert_eq!(geometry.indices().len(), artifact.index_count());
+    assert_eq!(
+        geometry.semantic_faces().len(),
+        artifact.semantic_face_count()
+    );
+    assert!(
+        geometry
+            .semantic_faces()
+            .iter()
+            .eq(artifact.semantic_faces())
+    );
+    let mut vertex_offset = 0;
+    let mut index_offset = 0;
+    for region in artifact.regions() {
+        assert_eq!(
+            geometry
+                .vertices()
+                .get(vertex_offset..vertex_offset + region.vertices().len()),
+            Some(region.vertices())
+        );
+        for (index, local_index) in region.indices().iter().enumerate() {
+            assert_eq!(
+                geometry.indices().get(index_offset + index),
+                Some(&(u32::try_from(vertex_offset)? + local_index))
+            );
+        }
+        for face in region.semantic_faces() {
+            let face_index = geometry
+                .semantic_faces()
+                .iter()
+                .position(|candidate| candidate == face)
+                .ok_or("missing flattened face")?;
+            assert_eq!(
+                artifact.quad_vertices(face),
+                geometry.vertices().get(face_index * 4..face_index * 4 + 4)
+            );
+        }
+        vertex_offset += region.vertices().len();
+        index_offset += region.indices().len();
+    }
+    Ok(())
+}
+
+#[test]
 fn only_core_voxels_own_faces_and_the_face_halo_hides_cross_region_seams()
 -> Result<(), Box<dyn std::error::Error>> {
     let artifact = derive_raster_regions(
@@ -209,7 +268,7 @@ fn regional_derivation_covers_every_volume_in_the_complete_scene_view()
 
     assert_eq!(artifact.volume_identity(), None);
     assert_eq!(artifact.regions().len(), 2);
-    assert_eq!(artifact.semantic_faces().len(), 12);
+    assert_eq!(artifact.semantic_face_count(), 12);
     assert_eq!(
         artifact
             .regions()
@@ -236,7 +295,7 @@ fn empty_complete_scene_derives_an_empty_revision_tagged_collection()
     assert_eq!(artifact.source_revision(), VoxelSceneRevision::new(32));
     assert_eq!(artifact.volume_identity(), None);
     assert!(artifact.regions().is_empty());
-    assert!(artifact.vertices().is_empty());
-    assert!(artifact.indices().is_empty());
+    assert!(artifact.vertex_count() == 0);
+    assert!(artifact.index_count() == 0);
     Ok(())
 }

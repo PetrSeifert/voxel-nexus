@@ -76,7 +76,7 @@ fn retained_view_preparation_pauses_on_a_real_worker_until_released()
         .try_complete()?
         .ok_or("completed preparation did not publish its artifact")?;
     assert_eq!(artifact.source_revision(), VoxelSceneRevision::new(27));
-    assert_eq!(artifact.semantic_faces().len(), 6);
+    assert_eq!(artifact.semantic_face_count(), 6);
     Ok(())
 }
 

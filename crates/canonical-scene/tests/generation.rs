@@ -125,17 +125,11 @@ fn every_canonical_scale_derives_the_recorded_bounded_surface()
         let artifact = derive_raster_artifact(&view, &volume_identity)?;
 
         assert_eq!(
-            u64::try_from(artifact.semantic_faces().len())?,
+            u64::try_from(artifact.semantic_face_count())?,
             expected_exposed_faces
         );
-        assert_eq!(
-            artifact.vertices().len(),
-            artifact.semantic_faces().len() * 4
-        );
-        assert_eq!(
-            artifact.indices().len(),
-            artifact.semantic_faces().len() * 6
-        );
+        assert_eq!(artifact.vertex_count(), artifact.semantic_face_count() * 4);
+        assert_eq!(artifact.index_count(), artifact.semantic_face_count() * 6);
     }
     Ok(())
 }

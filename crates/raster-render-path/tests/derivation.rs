@@ -89,7 +89,7 @@ fn diagnostic_artifacts(
 }
 
 fn face_set(artifact: &raster_render_path::RasterArtifact) -> HashSet<SemanticFace> {
-    artifact.semantic_faces().iter().cloned().collect()
+    artifact.semantic_faces().cloned().collect()
 }
 
 fn semantic_face(coordinate: [i32; 3], normal: AxisNormal, material: &str) -> SemanticFace {
@@ -118,8 +118,8 @@ fn one_voxel_produces_six_scene_space_material_colored_faces()
         artifact.volume_identity(),
         Some(&VoxelVolumeId::new("diagnostic"))
     );
-    assert_eq!(artifact.vertices().len(), 24);
-    assert_eq!(artifact.indices().len(), 36);
+    assert_eq!(artifact.vertex_count(), 24);
+    assert_eq!(artifact.index_count(), 36);
     assert_eq!(artifact.vertex_byte_size(), 24 * 10 * size_of::<f32>());
     assert_eq!(artifact.index_byte_size(), 36 * size_of::<u32>());
     let expected_faces = [
@@ -141,14 +141,11 @@ fn one_voxel_produces_six_scene_space_material_colored_faces()
     })
     .collect::<HashSet<_>>();
     assert_eq!(
-        artifact
-            .semantic_faces()
-            .iter()
-            .cloned()
-            .collect::<HashSet<_>>(),
+        artifact.semantic_faces().cloned().collect::<HashSet<_>>(),
         expected_faces
     );
-    assert!(artifact.vertices().iter().all(|vertex| {
+    let geometry = artifact.flatten_geometry()?;
+    assert!(geometry.vertices().iter().all(|vertex| {
         vertex.linear_base_color() == [0.25, 0.5, 0.75, 1.0]
             && vertex
                 .position()
@@ -156,8 +153,8 @@ fn one_voxel_produces_six_scene_space_material_colored_faces()
                 .zip([10.0, 20.0, 30.0])
                 .all(|(value, minimum)| *value == minimum || *value == minimum + 0.5)
     }));
-    assert!(artifact.indices().iter().all(|index| *index < 24));
-    let (index_quads, remaining_indices) = artifact.indices().as_chunks::<6>();
+    assert!(geometry.indices().iter().all(|index| *index < 24));
+    let (index_quads, remaining_indices) = geometry.indices().as_chunks::<6>();
     assert!(remaining_indices.is_empty());
     assert!(index_quads.iter().enumerate().all(|(quad_index, indices)| {
         let Some(first_vertex) = quad_index
@@ -187,9 +184,9 @@ fn empty_volume_produces_an_empty_complete_artifact() -> Result<(), Box<dyn std:
     )?;
 
     assert!(artifacts.iter().all(|artifact| {
-        artifact.vertices().is_empty()
-            && artifact.indices().is_empty()
-            && artifact.semantic_faces().is_empty()
+        artifact.vertex_count() == 0
+            && artifact.index_count() == 0
+            && artifact.semantic_face_count() == 0
             && artifact.vertex_byte_size() == 0
             && artifact.index_byte_size() == 0
     }));

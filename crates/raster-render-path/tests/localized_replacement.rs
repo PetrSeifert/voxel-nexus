@@ -194,7 +194,6 @@ fn one_adjacent_edit_replaces_only_face_neighbor_regions_with_complete_results()
             .installed_artifact()
             .ok_or("missing installed artifact")?
             .semantic_faces()
-            .iter()
             .cloned()
             .collect::<HashSet<_>>(),
         semantic_face_oracle(&occupied)
@@ -218,7 +217,8 @@ fn applicability_mismatches_leave_the_complete_installation_unchanged()
         .installed_artifact()
         .ok_or("missing artifact")?
         .semantic_faces()
-        .to_vec();
+        .cloned()
+        .collect::<Vec<_>>();
 
     let other_frontend = frontend("other", 8, extent, &occupied)?;
     let other_edit = other_frontend.edit(VoxelEditCommand::new(
@@ -246,7 +246,9 @@ fn applicability_mismatches_leave_the_complete_installation_unchanged()
         render_path
             .installed_artifact()
             .ok_or("missing artifact")?
-            .semantic_faces(),
+            .semantic_faces()
+            .cloned()
+            .collect::<Vec<_>>(),
         before_faces
     );
 
@@ -270,7 +272,9 @@ fn applicability_mismatches_leave_the_complete_installation_unchanged()
         render_path
             .installed_artifact()
             .ok_or("missing artifact")?
-            .semantic_faces(),
+            .semantic_faces()
+            .cloned()
+            .collect::<Vec<_>>(),
         before_faces
     );
     Ok(())
@@ -347,7 +351,6 @@ fn an_edit_in_one_volume_retains_every_installation_in_other_volumes()
             .installed_artifact()
             .ok_or("missing artifact")?
             .semantic_faces()
-            .iter()
             .filter(|face| face.volume_identity() == &VoxelVolumeId::new("detail"))
             .count(),
         6

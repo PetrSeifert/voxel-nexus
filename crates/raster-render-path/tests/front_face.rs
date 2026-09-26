@@ -30,6 +30,7 @@ fn camera_facing_outward_face_matches_the_configured_framebuffer_winding()
         )],
     ))?;
     let artifact = derive_raster_artifact(&view, &volume_identity)?;
+    let geometry = artifact.flatten_geometry()?;
     let camera_facing_face = SemanticFace::new(
         volume_identity,
         VoxelCoordinate::new(0, 0, 0),
@@ -38,7 +39,6 @@ fn camera_facing_outward_face_matches_the_configured_framebuffer_winding()
     );
     let face_index = artifact
         .semantic_faces()
-        .iter()
         .position(|face| face == &camera_facing_face)
         .ok_or("the derived artifact did not contain the camera-facing positive-Z face")?;
     let first_triangle_start = face_index
@@ -47,7 +47,7 @@ fn camera_facing_outward_face_matches_the_configured_framebuffer_winding()
     let first_triangle_end = first_triangle_start
         .checked_add(3)
         .ok_or("the triangle index range overflowed")?;
-    let first_triangle_indices = artifact
+    let first_triangle_indices = geometry
         .indices()
         .get(first_triangle_start..first_triangle_end)
         .ok_or("the camera-facing face did not contain its first indexed triangle")?;
@@ -65,7 +65,7 @@ fn camera_facing_outward_face_matches_the_configured_framebuffer_winding()
         .iter()
         .map(|index| {
             let index = usize::try_from(*index)?;
-            let vertex = artifact
+            let vertex = geometry
                 .vertices()
                 .get(index)
                 .ok_or("the triangle referenced a missing vertex")?;

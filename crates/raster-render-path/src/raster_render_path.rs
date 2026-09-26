@@ -324,7 +324,10 @@ fn raster_semantic_face_observation(
                     raster_axis_normal(normal),
                     contact.material_identity().clone(),
                 );
-                if artifact.semantic_faces().contains(&face) {
+                if artifact
+                    .semantic_faces()
+                    .any(|candidate| candidate == &face)
+                {
                     RasterSemanticFaceCorrespondence::Matched(face)
                 } else {
                     RasterSemanticFaceCorrespondence::Missing(face)
@@ -382,9 +385,6 @@ pub struct RasterArtifact {
     source_revision: VoxelSceneRevision,
     region_extent: Option<VoxelExtent>,
     volume_identity: Option<VoxelVolumeId>,
-    vertices: Vec<RasterVertex>,
-    indices: Vec<u32>,
-    semantic_faces: Vec<SemanticFace>,
     vertex_byte_size: usize,
     index_byte_size: usize,
     regions: Vec<RasterRegionResult>,
@@ -411,9 +411,28 @@ pub struct RasterRegionResult {
     identity: RasterRegionIdentity,
     core: VoxelRegion,
     source_revision: VoxelSceneRevision,
+    geometry: Arc<RasterGeometry>,
+}
+
+#[derive(Debug)]
+pub struct RasterGeometry {
     vertices: Vec<RasterVertex>,
     indices: Vec<u32>,
     semantic_faces: Vec<SemanticFace>,
+}
+
+impl RasterGeometry {
+    pub fn vertices(&self) -> &[RasterVertex] {
+        &self.vertices
+    }
+
+    pub fn indices(&self) -> &[u32] {
+        &self.indices
+    }
+
+    pub fn semantic_faces(&self) -> &[SemanticFace] {
+        &self.semantic_faces
+    }
 }
 
 impl RasterRegionResult {
@@ -430,19 +449,19 @@ impl RasterRegionResult {
     }
 
     pub fn vertices(&self) -> &[RasterVertex] {
-        &self.vertices
+        &self.geometry.vertices
     }
 
     pub fn indices(&self) -> &[u32] {
-        &self.indices
+        &self.geometry.indices
     }
 
     pub fn semantic_faces(&self) -> &[SemanticFace] {
-        &self.semantic_faces
+        &self.geometry.semantic_faces
     }
 
     pub fn is_empty(&self) -> bool {
-        self.semantic_faces.is_empty()
+        self.geometry.semantic_faces.is_empty()
     }
 }
 
@@ -2052,26 +2071,72 @@ impl RasterArtifact {
         self.volume_identity.as_ref()
     }
 
-    pub fn vertices(&self) -> &[RasterVertex] {
-        &self.vertices
+    pub fn vertex_count(&self) -> usize {
+        self.vertex_byte_size / size_of::<RasterVertex>()
     }
 
-    pub fn indices(&self) -> &[u32] {
-        &self.indices
+    pub fn index_count(&self) -> usize {
+        self.index_byte_size / size_of::<u32>()
     }
 
-    pub fn semantic_faces(&self) -> &[SemanticFace] {
-        &self.semantic_faces
+    pub fn semantic_face_count(&self) -> usize {
+        self.vertex_count() / 4
+    }
+
+    pub fn semantic_faces(&self) -> impl Iterator<Item = &SemanticFace> {
+        self.regions
+            .iter()
+            .flat_map(|region| region.semantic_faces())
     }
 
     pub fn quad_vertices(&self, face: &SemanticFace) -> Option<&[RasterVertex]> {
-        let face_index = self
+        self.regions.iter().find_map(|region| {
+            let face_index = region
+                .semantic_faces()
+                .iter()
+                .position(|candidate| candidate == face)?;
+            let start = face_index.checked_mul(4)?;
+            let end = start.checked_add(4)?;
+            region.vertices().get(start..end)
+        })
+    }
+
+    pub fn flatten_geometry(&self) -> Result<RasterGeometry, RasterArtifactBuildError> {
+        let source_revision = self.source_revision;
+        u32::try_from(self.vertex_count()).map_err(|_| geometry_overflow(source_revision))?;
+        let mut geometry = RasterGeometry {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            semantic_faces: Vec::new(),
+        };
+        geometry
+            .vertices
+            .try_reserve_exact(self.vertex_count())
+            .map_err(|_| geometry_allocation(source_revision))?;
+        geometry
+            .indices
+            .try_reserve_exact(self.index_count())
+            .map_err(|_| geometry_allocation(source_revision))?;
+        geometry
             .semantic_faces
-            .iter()
-            .position(|candidate| candidate == face)?;
-        let start = face_index.checked_mul(4)?;
-        let end = start.checked_add(4)?;
-        self.vertices.get(start..end)
+            .try_reserve_exact(self.semantic_face_count())
+            .map_err(|_| geometry_allocation(source_revision))?;
+        for region in &self.regions {
+            let first_vertex = u32::try_from(geometry.vertices.len())
+                .map_err(|_| geometry_overflow(source_revision))?;
+            geometry.vertices.extend_from_slice(region.vertices());
+            for index in region.indices() {
+                geometry.indices.push(
+                    first_vertex
+                        .checked_add(*index)
+                        .ok_or_else(|| geometry_overflow(source_revision))?,
+                );
+            }
+            geometry
+                .semantic_faces
+                .extend_from_slice(region.semantic_faces());
+        }
+        Ok(geometry)
     }
 
     pub fn vertex_byte_size(&self) -> usize {
@@ -2683,28 +2748,23 @@ fn assemble_raster_artifact(
     region_extent: VoxelExtent,
     regions: Vec<RasterRegionResult>,
 ) -> Result<RasterArtifact, RasterArtifactBuildError> {
-    let mut vertices = Vec::new();
-    let mut indices = Vec::new();
-    let mut semantic_faces = Vec::new();
-    for region in &regions {
-        let first_vertex =
-            u32::try_from(vertices.len()).map_err(|_| geometry_overflow(source_revision))?;
-        vertices.extend_from_slice(&region.vertices);
-        for index in &region.indices {
-            indices.push(
-                first_vertex
-                    .checked_add(*index)
-                    .ok_or_else(|| geometry_overflow(source_revision))?,
-            );
-        }
-        semantic_faces.extend_from_slice(&region.semantic_faces);
-    }
-    let vertex_byte_size = vertices
-        .len()
+    let (vertex_count, index_count) =
+        regions
+            .iter()
+            .try_fold((0_usize, 0_usize), |(vertices, indices), region| {
+                Ok::<_, RasterArtifactBuildError>((
+                    vertices
+                        .checked_add(region.vertices().len())
+                        .ok_or_else(|| geometry_overflow(source_revision))?,
+                    indices
+                        .checked_add(region.indices().len())
+                        .ok_or_else(|| geometry_overflow(source_revision))?,
+                ))
+            })?;
+    let vertex_byte_size = vertex_count
         .checked_mul(size_of::<RasterVertex>())
         .ok_or_else(|| geometry_overflow(source_revision))?;
-    let index_byte_size = indices
-        .len()
+    let index_byte_size = index_count
         .checked_mul(size_of::<u32>())
         .ok_or_else(|| geometry_overflow(source_revision))?;
     Ok(RasterArtifact {
@@ -2712,9 +2772,6 @@ fn assemble_raster_artifact(
         source_revision,
         region_extent: Some(region_extent),
         volume_identity: None,
-        vertices,
-        indices,
-        semantic_faces,
         vertex_byte_size,
         index_byte_size,
         regions,
@@ -3364,7 +3421,7 @@ impl RasterConvergence {
             RasterPreparationTargetScope::Localized(_) => {
                 let replacements = regions
                     .iter()
-                    .map(|region| (region.identity().clone(), region.clone()))
+                    .map(|region| (region.identity(), region))
                     .collect::<HashMap<_, _>>();
                 installed_artifact
                     .regions()
@@ -3372,8 +3429,9 @@ impl RasterConvergence {
                     .map(|region| {
                         replacements
                             .get(region.identity())
-                            .cloned()
-                            .unwrap_or_else(|| region.clone())
+                            .copied()
+                            .unwrap_or(region)
+                            .clone()
                     })
                     .collect()
             }
@@ -4525,18 +4583,17 @@ fn build_geometry(
         },
         core: VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), metadata.extent()),
         source_revision,
-        vertices: vertices.clone(),
-        indices: indices.clone(),
-        semantic_faces: semantic_faces.clone(),
+        geometry: Arc::new(RasterGeometry {
+            vertices,
+            indices,
+            semantic_faces,
+        }),
     };
     Ok(RasterArtifact {
         scene_identity: scene_identity.clone(),
         source_revision,
         region_extent: None,
         volume_identity: Some(volume_identity.clone()),
-        vertices,
-        indices,
-        semantic_faces,
         vertex_byte_size,
         index_byte_size,
         regions: vec![region],
@@ -5996,18 +6053,15 @@ mod convergence_tests {
                 .installed_artifact()
                 .ok_or("localized candidate has no installed artifact")?
                 .semantic_faces()
-                .iter()
                 .cloned()
                 .collect::<HashSet<_>>();
             let complete_region_faces = derive_raster_regions(&final_view, region_extent)?
                 .semantic_faces()
-                .iter()
                 .cloned()
                 .collect::<HashSet<_>>();
             let semantic_reference =
                 derive_raster_artifact(&final_view, &VoxelVolumeId::new("canonical-volume"))?
                     .semantic_faces()
-                    .iter()
                     .cloned()
                     .collect::<HashSet<_>>();
             assert_eq!(localized_faces, complete_region_faces);
@@ -6864,3 +6918,6 @@ fn interpolate_vector(start: [f32; 3], end: [f32; 3], progress: f32) -> [f32; 3]
 fn interpolate_scalar(start: f32, end: f32, progress: f32) -> f32 {
     start + (end - start) * progress
 }
+
+#[cfg(test)]
+mod installation_measurements;
