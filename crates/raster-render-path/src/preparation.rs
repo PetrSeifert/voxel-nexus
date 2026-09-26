@@ -2,11 +2,11 @@ use super::meshing::{
     RasterArtifact, RasterArtifactBuildError, derive_raster_artifact,
     derive_raster_regions_until_cancelled, metadata_dimensions_error,
 };
+use super::worker_pool::{RasterTask, RasterWorkerPool};
 #[cfg(any(test, feature = "qualification"))]
 use super::{RasterPreparationBarrier, RasterPreparationBarrierRelease};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
-use std::thread::{self, JoinHandle};
 use thiserror::Error;
 use voxel_frontend::{
     VoxelCoordinate, VoxelExtent, VoxelSceneRevision, VoxelSceneView, VoxelVolumeId,
@@ -82,7 +82,8 @@ impl RasterArtifactPreparationError {
 pub struct RasterArtifactPreparation {
     source_revision: VoxelSceneRevision,
     result_receiver: mpsc::Receiver<Result<Option<RasterArtifact>, RasterArtifactPreparationError>>,
-    worker: Option<JoinHandle<()>>,
+    worker: Option<RasterTask<()>>,
+    worker_pool: Option<Arc<RasterWorkerPool>>,
     cancellation: Arc<AtomicBool>,
     #[cfg(any(test, feature = "qualification"))]
     cancellation_barrier: Option<RasterPreparationBarrierRelease>,
@@ -100,8 +101,8 @@ impl RasterArtifactPreparation {
             #[cfg(any(test, feature = "qualification"))]
             None,
             notify,
-            move |cancellation| {
-                derive_raster_regions_until_cancelled(&view, region_extent, cancellation)
+            move |cancellation, pool| {
+                derive_raster_regions_until_cancelled(&view, region_extent, cancellation, pool)
             },
         )
     }
@@ -114,9 +115,14 @@ impl RasterArtifactPreparation {
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
         let source_revision = view.revision();
-        Self::start_with_derivation(source_revision, barrier, notify, move |cancellation| {
-            derive_raster_regions_until_cancelled(&view, region_extent, cancellation)
-        })
+        Self::start_with_derivation(
+            source_revision,
+            barrier,
+            notify,
+            move |cancellation, pool| {
+                derive_raster_regions_until_cancelled(&view, region_extent, cancellation, pool)
+            },
+        )
     }
 
     pub fn start(
@@ -130,7 +136,7 @@ impl RasterArtifactPreparation {
             #[cfg(any(test, feature = "qualification"))]
             None,
             notify,
-            move |_| derive_raster_artifact(&view, &volume_identity).map(Some),
+            move |_, _| derive_raster_artifact(&view, &volume_identity).map(Some),
         )
     }
 
@@ -142,7 +148,7 @@ impl RasterArtifactPreparation {
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
         let source_revision = view.revision();
-        Self::start_with_derivation(source_revision, barrier, notify, move |_| {
+        Self::start_with_derivation(source_revision, barrier, notify, move |_, _| {
             derive_raster_artifact(&view, &volume_identity).map(Some)
         })
     }
@@ -151,7 +157,10 @@ impl RasterArtifactPreparation {
         source_revision: VoxelSceneRevision,
         #[cfg(any(test, feature = "qualification"))] barrier: Option<RasterPreparationBarrier>,
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
-        derive: impl FnOnce(&AtomicBool) -> Result<Option<RasterArtifact>, RasterArtifactBuildError>
+        derive: impl FnOnce(
+            Arc<AtomicBool>,
+            &RasterWorkerPool,
+        ) -> Result<Option<RasterArtifact>, RasterArtifactBuildError>
         + Send
         + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
@@ -164,7 +173,14 @@ impl RasterArtifactPreparation {
                 .map(|barrier| RasterPreparationBarrierRelease {
                     shared: barrier.shared.clone(),
                 });
+        let worker_pool = Arc::new(RasterWorkerPool::new().map_err(|source| {
+            RasterArtifactPreparationError::WorkerStart {
+                source_revision,
+                source,
+            }
+        })?);
         let worker_task = {
+            let worker_pool = worker_pool.clone();
             let cancellation = cancellation.clone();
             move || {
                 let result = (|| {
@@ -175,7 +191,7 @@ impl RasterArtifactPreparation {
                     if cancellation.load(Ordering::Acquire) {
                         return Ok(None);
                     }
-                    derive(&cancellation).map_err(|source| {
+                    derive(cancellation, &worker_pool).map_err(|source| {
                         RasterArtifactPreparationError::Derivation {
                             source_revision,
                             source,
@@ -194,17 +210,17 @@ impl RasterArtifactPreparation {
                 }
             }
         };
-        let worker = thread::Builder::new()
-            .name(format!("raster-preparation-{source_revision}"))
-            .spawn(worker_task)
-            .map_err(|source| RasterArtifactPreparationError::WorkerStart {
+        let worker = worker_pool.execute(worker_task).map_err(|source| {
+            RasterArtifactPreparationError::WorkerStart {
                 source_revision,
                 source,
-            })?;
+            }
+        })?;
         Ok(Self {
             source_revision,
             result_receiver,
             worker: Some(worker),
+            worker_pool: Some(worker_pool),
             cancellation,
             #[cfg(any(test, feature = "qualification"))]
             cancellation_barrier,
@@ -238,6 +254,7 @@ impl RasterArtifactPreparation {
                 source_revision: self.source_revision,
             });
         }
+        self.worker_pool.take();
         result
     }
 
@@ -255,10 +272,12 @@ impl RasterArtifactPreparation {
             });
         #[cfg(not(any(test, feature = "qualification")))]
         let barrier_result = Ok(());
-        let Some(worker) = self.worker.take() else {
-            return barrier_result;
-        };
-        if worker.join().is_err() {
+        let worker_failed = self
+            .worker
+            .take()
+            .is_some_and(|worker| worker.join().is_err());
+        self.worker_pool.take();
+        if worker_failed {
             return Err(RasterArtifactPreparationError::WorkerTerminated {
                 source_revision: self.source_revision,
             });

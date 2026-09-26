@@ -349,6 +349,8 @@ pub enum RasterArtifactBuildCause {
     ArithmeticOverflow,
     #[error("memory allocation failed")]
     AllocationFailed,
+    #[error("Raster Region worker terminated unexpectedly")]
+    WorkerTerminated,
     #[error("logical Voxel Region read failed: {0}")]
     VoxelRead(#[source] VoxelFrontendError),
     #[error("occupied coordinate references unknown Voxel Material {0:?}")]
@@ -527,20 +529,68 @@ fn assemble_derived_raster_regions(
     )
 }
 
+pub(super) fn worker_terminated_error(revision: VoxelSceneRevision) -> RasterArtifactBuildError {
+    build_error(
+        revision,
+        RasterArtifactBuildPhase::Geometry,
+        RasterArtifactBuildCause::WorkerTerminated,
+    )
+}
+
 pub(super) fn derive_raster_regions_until_cancelled(
     view: &VoxelSceneView,
     region_extent: VoxelExtent,
-    cancellation: &AtomicBool,
+    cancellation: Arc<AtomicBool>,
+    pool: &super::worker_pool::RasterWorkerPool,
 ) -> Result<Option<RasterArtifact>, RasterArtifactBuildError> {
-    let mut regions = Vec::new();
+    let mut cores = Vec::new();
     let completed = visit_raster_region_cores(view, region_extent, |metadata, core| {
-        if cancellation.load(Ordering::Acquire) {
-            return Ok(false);
-        }
-        regions.push(derive_raster_region(view, metadata, core)?);
+        cores.push((metadata.clone(), core));
         Ok(!cancellation.load(Ordering::Acquire))
     })?;
     if !completed {
+        return Ok(None);
+    }
+    let mut regions = Vec::new();
+    for batch in cores.chunks(pool.region_worker_count()) {
+        if cancellation.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let mut tasks = Vec::new();
+        for (metadata, core) in batch {
+            let view = view.clone();
+            let metadata = metadata.clone();
+            let core = *core;
+            let cancellation = cancellation.clone();
+            tasks.push(pool.execute(move || {
+                if cancellation.load(Ordering::Acquire) {
+                    return Ok(None);
+                }
+                derive_raster_region(&view, &metadata, core).map(Some)
+            }));
+        }
+        let mut failure = None;
+        for task in tasks {
+            let result = task
+                .map_err(|_| ())
+                .and_then(|task| task.join())
+                .map_err(|_| worker_terminated_error(view.revision()))
+                .and_then(|result| result);
+            match result {
+                Ok(Some(region)) => regions.push(region),
+                Ok(None) => {}
+                Err(error) => {
+                    if failure.is_none() {
+                        failure = Some(error);
+                    }
+                }
+            }
+        }
+        if let Some(error) = failure {
+            return Err(error);
+        }
+    }
+    if cancellation.load(Ordering::Acquire) {
         return Ok(None);
     }
     assemble_derived_raster_regions(view, region_extent, regions).map(Some)

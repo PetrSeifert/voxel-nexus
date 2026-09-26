@@ -172,6 +172,13 @@ impl RasterConvergenceCpuBarrierShared {
             .map_err(|_| RasterConvergenceCpuBarrierError)
     }
 
+    pub(super) fn is_armed(&self) -> Result<bool, RasterConvergenceCpuBarrierError> {
+        self.state
+            .lock()
+            .map(|state| state.reached_revision.is_none() && !state.released)
+            .map_err(|_| RasterConvergenceCpuBarrierError)
+    }
+
     pub(super) fn schedule_and_wait(
         &self,
         revision: VoxelSceneRevision,

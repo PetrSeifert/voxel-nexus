@@ -1,0 +1,247 @@
+{
+  "baseline_commit": "70d9b09f41bd9f770146ad12cc6f94af653b0fa0",
+  "date": "2026-09-26",
+  "profile": "dev, qualification feature, Vulkan validation enabled",
+  "cpu": "AMD Ryzen 5 7600, 12 logical processors",
+  "gpu": "NVIDIA GeForce RTX 4070",
+  "region_workers_after": 8,
+  "coordinator_workers_after": 1,
+  "samples_per_configuration": 1,
+  "scene_dimensions": [
+    128,
+    64,
+    128
+  ],
+  "first_frame_region_extent": 32,
+  "edit_burst_region_extent": 16,
+  "before": {
+    "first_frame_events": [
+      {
+        "event": "scene_revision_published",
+        "source_revision": "1",
+        "elapsed_ms": 0.0
+      },
+      {
+        "event": "artifact_derived",
+        "source_revision": "1",
+        "elapsed_ms": 1328.6709,
+        "resources": {
+          "occupied_voxels": 420864,
+          "exposed_quads": 168,
+          "vertices": 672,
+          "indices": 1008,
+          "draw_calls": 30,
+          "cpu_artifact_bytes": 10144,
+          "gpu_buffer_bytes": 10144
+        }
+      },
+      {
+        "event": "artifact_installed",
+        "source_revision": "1",
+        "elapsed_ms": 1337.9578999999999
+      },
+      {
+        "event": "matching_artifact_presented",
+        "source_revision": "1",
+        "elapsed_ms": 1338.7892
+      }
+    ],
+    "edit_burst_measurement": {
+      "KeypressToFinalVisibleMilliseconds": 95.2462,
+      "Phases": {
+        "SubmissionBookkeepingMilliseconds": 0.1993,
+        "QueuedWaitMilliseconds": 9.4188,
+        "CpuDerivationMilliseconds": 31.9264,
+        "UploadMilliseconds": 3.4198,
+        "FrameBoundaryCommitMilliseconds": 0.2301
+      },
+      "WorkDisposition": {
+        "ScheduledRegions": 7,
+        "CompletedRegions": 4,
+        "CancelledRegions": 1,
+        "StaleRegions": 2
+      },
+      "Resources": {
+        "Installed": {
+          "Bytes": 21968,
+          "Resources": 444
+        },
+        "Hidden": {
+          "Bytes": 1816,
+          "Resources": 12
+        },
+        "Retired": {
+          "Bytes": 1888,
+          "Resources": 18
+        },
+        "Peak": {
+          "Bytes": 22760,
+          "Resources": 456
+        }
+      },
+      "CancellationObservations": [
+        {
+          "Revision": 2,
+          "ScheduledRegions": 1,
+          "CompletedRegions": 1,
+          "CancelledRegions": 1
+        }
+      ],
+      "SafeRetirementEvents": [
+        {
+          "Revision": 3,
+          "Disposition": "stale-candidate",
+          "Bytes": 1096,
+          "Resources": 6
+        },
+        {
+          "Revision": 4,
+          "Disposition": "replaced-installation",
+          "Bytes": 792,
+          "Resources": 12
+        }
+      ],
+      "PeakLiveGpuBytes": 22760,
+      "PeakLiveGpuResources": 456
+    },
+    "edit_burst_validation": {
+      "Enabled": true,
+      "Warnings": 0,
+      "Errors": 0,
+      "Log": "desktop-demo.stderr.log"
+    },
+    "edit_burst_visibility": {
+      "InitialTitle": "Voxel Nexus Vulkan Demo | EditBurst=awaiting-key Required=1 Visible=1 Affected=0 Unaffected=256 Camera=initial",
+      "CpuHeldTitle": "Voxel Nexus Vulkan Demo | EditBurst=cpu-barrier-held Required=3 Visible=1 Affected=2 Unaffected=254 Camera=initial",
+      "PostUploadHeldTitle": "Voxel Nexus Vulkan Demo | EditBurst=post-upload-barrier-held Required=4 Visible=1 Affected=4 Unaffected=252 Camera=initial",
+      "FinalTitle": "Voxel Nexus Vulkan Demo | EditBurst=complete Required=4 Visible=4 Affected=4 Unaffected=252 Camera=initial",
+      "IntermediateRevisionVisible": false
+    },
+    "edit_burst_cpu_barrier": {
+      "ObsoleteRevision": 2,
+      "ScheduledBeforeHold": 1,
+      "ScheduledTotal": 1,
+      "Cancelled": true
+    },
+    "edit_burst_post_upload_barrier": {
+      "SupersededRevision": 3,
+      "RejectedAtCommit": true,
+      "RetiredGpuResourceCount": 2
+    }
+  },
+  "after": {
+    "first_frame_events": [
+      {
+        "event": "scene_revision_published",
+        "source_revision": "1",
+        "elapsed_ms": 0.0
+      },
+      {
+        "event": "artifact_derived",
+        "source_revision": "1",
+        "elapsed_ms": 578.1705000000001,
+        "resources": {
+          "occupied_voxels": 420864,
+          "exposed_quads": 168,
+          "vertices": 672,
+          "indices": 1008,
+          "draw_calls": 30,
+          "cpu_artifact_bytes": 10144,
+          "gpu_buffer_bytes": 10144
+        }
+      },
+      {
+        "event": "artifact_installed",
+        "source_revision": "1",
+        "elapsed_ms": 587.9853
+      },
+      {
+        "event": "matching_artifact_presented",
+        "source_revision": "1",
+        "elapsed_ms": 588.9259
+      }
+    ],
+    "edit_burst_measurement": {
+      "KeypressToFinalVisibleMilliseconds": 104.3955,
+      "Phases": {
+        "SubmissionBookkeepingMilliseconds": 0.2985,
+        "QueuedWaitMilliseconds": 9.282,
+        "CpuDerivationMilliseconds": 34.9884,
+        "UploadMilliseconds": 2.8013,
+        "FrameBoundaryCommitMilliseconds": 0.1785
+      },
+      "WorkDisposition": {
+        "ScheduledRegions": 7,
+        "CompletedRegions": 4,
+        "CancelledRegions": 1,
+        "StaleRegions": 2
+      },
+      "Resources": {
+        "Installed": {
+          "Bytes": 21968,
+          "Resources": 444
+        },
+        "Hidden": {
+          "Bytes": 1816,
+          "Resources": 12
+        },
+        "Retired": {
+          "Bytes": 1888,
+          "Resources": 18
+        },
+        "Peak": {
+          "Bytes": 22760,
+          "Resources": 456
+        }
+      },
+      "CancellationObservations": [
+        {
+          "Revision": 2,
+          "ScheduledRegions": 1,
+          "CompletedRegions": 1,
+          "CancelledRegions": 1
+        }
+      ],
+      "SafeRetirementEvents": [
+        {
+          "Revision": 3,
+          "Disposition": "stale-candidate",
+          "Bytes": 1096,
+          "Resources": 6
+        },
+        {
+          "Revision": 4,
+          "Disposition": "replaced-installation",
+          "Bytes": 792,
+          "Resources": 12
+        }
+      ],
+      "PeakLiveGpuBytes": 22760,
+      "PeakLiveGpuResources": 456
+    },
+    "edit_burst_validation": {
+      "Enabled": true,
+      "Warnings": 0,
+      "Errors": 0,
+      "Log": "desktop-demo.stderr.log"
+    },
+    "edit_burst_visibility": {
+      "InitialTitle": "Voxel Nexus Vulkan Demo | EditBurst=awaiting-key Required=1 Visible=1 Affected=0 Unaffected=256 Camera=initial",
+      "CpuHeldTitle": "Voxel Nexus Vulkan Demo | EditBurst=cpu-barrier-held Required=3 Visible=1 Affected=2 Unaffected=254 Camera=initial",
+      "PostUploadHeldTitle": "Voxel Nexus Vulkan Demo | EditBurst=post-upload-barrier-held Required=4 Visible=1 Affected=4 Unaffected=252 Camera=initial",
+      "FinalTitle": "Voxel Nexus Vulkan Demo | EditBurst=complete Required=4 Visible=4 Affected=4 Unaffected=252 Camera=initial",
+      "IntermediateRevisionVisible": false
+    },
+    "edit_burst_cpu_barrier": {
+      "ObsoleteRevision": 2,
+      "ScheduledBeforeHold": 1,
+      "ScheduledTotal": 1,
+      "Cancelled": true
+    },
+    "edit_burst_post_upload_barrier": {
+      "SupersededRevision": 3,
+      "RejectedAtCommit": true,
+      "RetiredGpuResourceCount": 2
+    }
+  }
+}

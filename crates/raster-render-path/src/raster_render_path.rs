@@ -1015,6 +1015,7 @@ pub use convergence::{
 };
 
 mod preparation;
+mod worker_pool;
 pub use preparation::{
     RasterArtifactPreparation, RasterArtifactPreparationError, RasterArtifactPreparationEvent,
 };

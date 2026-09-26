@@ -14,11 +14,11 @@ use super::meshing::{
     affected_raster_region_identities, assemble_raster_artifact, derive_raster_region,
     visit_raster_region_cores,
 };
+use super::worker_pool::{RasterTask, RasterWorkerPool};
 use render_backend::RenderPathDeviceContext;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
-use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use voxel_frontend::{
@@ -383,7 +383,7 @@ pub(super) struct RasterActivePreparation {
     target: RasterPreparationTarget,
     cancellation: Arc<AtomicBool>,
     pub(super) completion_receiver: mpsc::Receiver<RasterPreparationCompletion>,
-    pub(super) worker: Option<JoinHandle<()>>,
+    pub(super) worker: Option<RasterTask<()>>,
     pub(super) status: RasterActivePreparationStatus,
     counters: Arc<RasterPreparationCounters>,
 }
@@ -421,6 +421,7 @@ impl RasterConvergenceGeneration {
 }
 
 pub struct RasterConvergence {
+    pub(super) worker_pool: Option<Arc<RasterWorkerPool>>,
     scene_identity: VoxelSceneId,
     visible_revision: VoxelSceneRevision,
     required_revision: VoxelSceneRevision,
@@ -449,6 +450,7 @@ impl RasterConvergence {
         let scene_identity = artifact.scene_identity.clone();
         let visible_revision = artifact.source_revision();
         Ok(Self {
+            worker_pool: None,
             scene_identity,
             visible_revision,
             required_revision: visible_revision,
@@ -1042,6 +1044,7 @@ impl RasterConvergence {
                 worker_error = Some(RasterConvergenceError::PreparationTerminated { revision });
             }
         }
+        self.worker_pool.take();
         RasterConvergenceShutdown {
             retirement: RasterCandidateRetirement { resources },
             worker_error,
@@ -1067,6 +1070,7 @@ impl RasterConvergence {
             Ok(())
         } else {
             let preparation = Self::start_preparation(
+                &mut self.worker_pool,
                 generation,
                 target,
                 self.cpu_barrier.clone(),
@@ -1100,6 +1104,7 @@ impl RasterConvergence {
     ) -> Result<(), RasterConvergenceError> {
         let mut started_events = RasterConvergenceEvents::new();
         let replacement = Self::start_preparation(
+            &mut self.worker_pool,
             generation,
             target,
             self.cpu_barrier.clone(),
@@ -1112,6 +1117,7 @@ impl RasterConvergence {
     }
 
     fn start_preparation(
+        worker_pool: &mut Option<Arc<RasterWorkerPool>>,
         generation: RasterConvergenceGeneration,
         target: RasterPreparationTarget,
         cpu_barrier: Option<Arc<RasterConvergenceCpuBarrierShared>>,
@@ -1121,18 +1127,26 @@ impl RasterConvergence {
         let cancellation = Arc::new(AtomicBool::new(false));
         let counters = Arc::new(RasterPreparationCounters::default());
         let (completion_sender, completion_receiver) = mpsc::sync_channel(1);
-        let worker = thread::Builder::new()
-            .name(format!("raster-convergence-{revision}"))
-            .spawn({
+        if worker_pool.is_none() {
+            *worker_pool = Some(Arc::new(RasterWorkerPool::new().map_err(|source| {
+                RasterConvergenceError::PreparationStart { revision, source }
+            })?));
+        }
+        let pool = worker_pool
+            .as_ref()
+            .ok_or(RasterConvergenceError::PreparationTerminated { revision })?;
+        let worker = pool.execute({
+                let pool = pool.clone();
                 let target = target.clone();
                 let cancellation = cancellation.clone();
                 let counters = counters.clone();
                 move || {
                     let completion = derive_convergence_target(
                         &target,
-                        &cancellation,
+                        cancellation,
                         cpu_barrier.as_deref(),
-                        &counters,
+                        counters,
+                        &pool,
                     );
                     if completion_sender.send(completion).is_err() {
                         eprintln!(
@@ -1177,12 +1191,13 @@ impl RasterConvergence {
                     revision: self.required_revision,
                 })?;
         let revision = active.target.view.revision();
-        let worker = active
+        if active
             .worker
             .take()
-            .ok_or(RasterConvergenceError::PreparationTerminated { revision })?;
-        if worker.join().is_err() {
-            return Err(RasterConvergenceError::PreparationTerminated { revision });
+            .is_none_or(|worker| worker.join().is_err())
+        {
+            self.active = Some(active);
+            return self.retain_target_after_termination();
         }
         let scheduled_regions = active.counters.scheduled_regions.load(Ordering::Relaxed);
         let completed_regions = active.counters.completed_regions.load(Ordering::Relaxed);
@@ -1274,6 +1289,7 @@ impl RasterConvergence {
             return Ok(());
         };
         let preparation = Self::start_preparation(
+            &mut self.worker_pool,
             self.required_generation,
             target.clone(),
             self.cpu_barrier.clone(),
@@ -1336,18 +1352,16 @@ impl Drop for RasterConvergence {
 
 fn derive_convergence_target(
     target: &RasterPreparationTarget,
-    cancellation: &AtomicBool,
+    cancellation: Arc<AtomicBool>,
     cpu_barrier: Option<&RasterConvergenceCpuBarrierShared>,
-    counters: &RasterPreparationCounters,
+    counters: Arc<RasterPreparationCounters>,
+    pool: &RasterWorkerPool,
 ) -> RasterPreparationCompletion {
-    let mut regions = Vec::new();
-    let mut failed_region_identity = None;
-    #[cfg(any(test, feature = "qualification"))]
-    let mut synchronization_failed = false;
-    #[cfg(not(any(test, feature = "qualification")))]
-    let _cpu_barrier = cpu_barrier;
-    let traversal =
-        visit_raster_region_cores(&target.view, target.region_extent, |metadata, core| {
+    let mut cores = Vec::new();
+    let traversal = visit_raster_region_cores(
+        &target.view,
+        target.region_extent,
+        |metadata, core| {
             if cancellation.load(Ordering::Acquire) {
                 return Ok(false);
             }
@@ -1355,62 +1369,117 @@ fn derive_convergence_target(
                 volume_identity: metadata.identity().clone(),
                 core_origin: core.origin(),
             };
-            let should_derive = match &target.scope {
-                RasterPreparationTargetScope::Localized(affected) => affected.contains(&identity),
-                RasterPreparationTargetScope::FullRebuild => true,
-            };
-            if should_derive {
-                saturating_add_atomic(&counters.scheduled_regions, 1);
-                let derivation_started_at = Instant::now();
-                let derivation = derive_raster_region(&target.view, metadata, core);
-                let elapsed_nanoseconds = derivation_started_at
-                    .elapsed()
-                    .as_nanos()
-                    .min(u128::from(u64::MAX)) as u64;
-                saturating_add_atomic(&counters.cpu_derivation_nanoseconds, elapsed_nanoseconds);
-                match derivation {
-                    Ok(region) => {
-                        saturating_add_atomic(&counters.completed_regions, 1);
-                        regions.push(region);
-                        #[cfg(any(test, feature = "qualification"))]
-                        #[cfg(any(test, feature = "qualification"))]
-                        if cpu_barrier.is_some_and(|barrier| {
-                            barrier.schedule_and_wait(target.view.revision()).is_err()
-                        }) {
-                            synchronization_failed = true;
-                            return Ok(false);
+            if matches!(&target.scope, RasterPreparationTargetScope::FullRebuild)
+                || matches!(&target.scope, RasterPreparationTargetScope::Localized(affected) if affected.contains(&identity))
+            {
+                cores.push((metadata.clone(), core, identity));
+            }
+            Ok(true)
+        },
+    );
+    let mut regions = Vec::new();
+    let result = (|| {
+        if let Err(source) = traversal {
+            return RasterPreparationCompletion::Completed(Err(RasterDerivationFailure {
+                region_identity: None,
+                source,
+            }));
+        }
+        let batch_size = pool.region_worker_count();
+        #[cfg(any(test, feature = "qualification"))]
+        let batch_size = match cpu_barrier.map(|barrier| barrier.is_armed()).transpose() {
+            // An armed qualification hold stops dispatch at the exact requested region count.
+            Ok(Some(true)) => 1,
+            Ok(_) => batch_size,
+            Err(_) => return RasterPreparationCompletion::SynchronizationFailed,
+        };
+        #[cfg(not(any(test, feature = "qualification")))]
+        let _cpu_barrier = cpu_barrier;
+        for batch in cores.chunks(batch_size) {
+            if cancellation.load(Ordering::Acquire) {
+                return RasterPreparationCompletion::Cancelled;
+            }
+            let mut tasks = Vec::new();
+            for (metadata, core, identity) in batch {
+                let view = target.view.clone();
+                let metadata = metadata.clone();
+                let core = *core;
+                let cancellation = cancellation.clone();
+                let counters = counters.clone();
+                tasks.push((
+                    identity.clone(),
+                    pool.execute(move || {
+                        if cancellation.load(Ordering::Acquire) {
+                            return None;
+                        }
+                        saturating_add_atomic(&counters.scheduled_regions, 1);
+                        let started = Instant::now();
+                        let result = derive_raster_region(&view, &metadata, core);
+                        saturating_add_atomic(
+                            &counters.cpu_derivation_nanoseconds,
+                            started.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64,
+                        );
+                        if result.is_ok() {
+                            saturating_add_atomic(&counters.completed_regions, 1);
+                        }
+                        Some(result)
+                    }),
+                ));
+            }
+            let mut failure = None;
+            for (identity, task) in tasks {
+                let result = task.map_err(|_| ()).and_then(|task| task.join());
+                match result {
+                    Ok(Some(Ok(region))) => regions.push(region),
+                    Ok(Some(Err(source))) => {
+                        if failure.is_none() {
+                            failure = Some(RasterDerivationFailure {
+                                region_identity: Some(identity),
+                                source,
+                            });
                         }
                     }
-                    Err(source) => {
-                        failed_region_identity = Some(identity);
-                        return Err(source);
+                    Ok(None) => {}
+                    Err(()) => {
+                        if failure.is_none() {
+                            failure = Some(RasterDerivationFailure {
+                                region_identity: Some(identity),
+                                source: super::meshing::worker_terminated_error(
+                                    target.view.revision(),
+                                ),
+                            });
+                        }
                     }
                 }
             }
-            Ok(true)
-        });
-    let completion = match traversal {
-        #[cfg(any(test, feature = "qualification"))]
-        _ if synchronization_failed => RasterPreparationCompletion::SynchronizationFailed,
-        Ok(true) => RasterPreparationCompletion::Completed(Ok(regions)),
-        Ok(false) => RasterPreparationCompletion::Cancelled,
-        Err(source) => RasterPreparationCompletion::Completed(Err(RasterDerivationFailure {
-            region_identity: failed_region_identity,
-            source,
-        })),
-    };
+            if let Some(failure) = failure {
+                return RasterPreparationCompletion::Completed(Err(failure));
+            }
+            #[cfg(any(test, feature = "qualification"))]
+            if cpu_barrier
+                .is_some_and(|barrier| barrier.schedule_and_wait(target.view.revision()).is_err())
+            {
+                return RasterPreparationCompletion::SynchronizationFailed;
+            }
+        }
+        if cancellation.load(Ordering::Acquire) {
+            RasterPreparationCompletion::Cancelled
+        } else {
+            RasterPreparationCompletion::Completed(Ok(regions))
+        }
+    })();
     #[cfg(any(test, feature = "qualification"))]
     if cpu_barrier.is_some_and(|barrier| {
         barrier
             .finish(
                 target.view.revision(),
-                matches!(completion, RasterPreparationCompletion::Cancelled),
+                matches!(result, RasterPreparationCompletion::Cancelled),
             )
             .is_err()
     }) {
         return RasterPreparationCompletion::SynchronizationFailed;
     }
-    completion
+    result
 }
 
 fn saturating_add_atomic(value: &AtomicU64, addend: u64) {

@@ -755,7 +755,13 @@ fn failed_preparation_clears_dead_active_state_and_retry_progresses()
     )))?;
     active.status = RasterActivePreparationStatus::Running;
     active.completion_receiver = completion_receiver;
-    active.worker = Some(thread::spawn(|| {}));
+    active.worker = Some(
+        convergence
+            .worker_pool
+            .as_ref()
+            .ok_or("missing pool")?
+            .execute(|| {})?,
+    );
 
     let events = convergence.drain_events()?;
     assert!(events.iter().any(|event| matches!(
@@ -1150,7 +1156,13 @@ fn late_older_derivation_failure_is_observable_without_pausing_newer_convergence
     )))?;
     active.status = RasterActivePreparationStatus::Running;
     active.completion_receiver = completion_receiver;
-    active.worker = Some(thread::spawn(|| {}));
+    active.worker = Some(
+        convergence
+            .worker_pool
+            .as_ref()
+            .ok_or("missing pool")?
+            .execute(|| {})?,
+    );
     convergence.accept(changed(&frontend, 1)?)?;
 
     let events = convergence.drain_events()?;
@@ -1190,7 +1202,13 @@ fn newer_changed_outcome_resumes_after_the_older_requirement_was_paused()
     )))?;
     active.status = RasterActivePreparationStatus::Running;
     active.completion_receiver = completion_receiver;
-    active.worker = Some(thread::spawn(|| {}));
+    active.worker = Some(
+        convergence
+            .worker_pool
+            .as_ref()
+            .ok_or("missing pool")?
+            .execute(|| {})?,
+    );
     convergence.drain_events()?;
     assert!(convergence.paused.is_some());
 
@@ -1286,5 +1304,52 @@ fn newer_generation_rejects_a_same_revision_candidate() -> Result<(), Box<dyn st
         render_path.installed_source_revision(),
         Some(VoxelSceneRevision::new(300))
     );
+    Ok(())
+}
+
+#[test]
+fn convergence_reuses_pool_across_generations_and_shutdown_releases_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = frontend(500, 12)?;
+    let mut render_path = render_path(&frontend)?;
+    let mut convergence = RasterConvergence::from_visible(&render_path)?;
+    convergence.accept(changed(&frontend, 0)?)?;
+    wait_until_ready_without_draining(&mut convergence)?;
+    let pool = std::sync::Arc::downgrade(convergence.worker_pool.as_ref().ok_or("missing pool")?);
+    for coordinate in [3, 6, 9] {
+        convergence.accept(changed(&frontend, coordinate)?)?;
+        wait_until_ready_without_draining(&mut convergence)?;
+        assert!(std::ptr::eq(
+            pool.as_ptr(),
+            std::sync::Arc::as_ptr(
+                convergence
+                    .worker_pool
+                    .as_ref()
+                    .ok_or("missing reused pool")?
+            )
+        ));
+    }
+    convergence.upload_ready_with_optional_device(None, &render_path)?;
+    let RasterConvergenceCommit::Committed { retirement } =
+        convergence.commit_at_frame_boundary(&mut render_path)?
+    else {
+        return Err("candidate did not commit".into());
+    };
+    retirement.release_with(drop);
+    let expected = derive_raster_regions(&frontend.scene_view()?, VoxelExtent::new(1, 1, 1))?;
+    let installed = render_path
+        .installed_artifact()
+        .ok_or("missing installed artifact")?;
+    assert_eq!(installed.regions().len(), expected.regions().len());
+    for (actual, expected) in installed.regions().iter().zip(expected.regions()) {
+        assert_eq!(actual.identity(), expected.identity());
+        assert_eq!(actual.vertices(), expected.vertices());
+        assert_eq!(actual.indices(), expected.indices());
+        assert_eq!(actual.semantic_faces(), expected.semantic_faces());
+    }
+    let shutdown = convergence.shutdown();
+    assert!(shutdown.worker_error.is_none());
+    assert!(convergence.worker_pool.is_none());
+    assert!(pool.upgrade().is_none());
     Ok(())
 }

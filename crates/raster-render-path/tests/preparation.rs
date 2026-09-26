@@ -141,3 +141,46 @@ fn clean_close_releases_a_held_barrier_and_joins_the_worker_under_the_watchdog()
     assert!(started_at.elapsed() < Duration::from_secs(10));
     Ok(())
 }
+
+#[test]
+fn parallel_regions_match_sequential_artifacts_exactly() -> Result<(), Box<dyn std::error::Error>> {
+    use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
+    use raster_render_path::derive_raster_regions;
+    use std::time::Duration;
+    let view = VoxelFrontend::new()
+        .publish(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
+    for extent in [16, 32] {
+        let extent = VoxelExtent::new(extent, extent, extent);
+        let sequential = derive_raster_regions(&view, extent)?;
+        let (sender, receiver) = mpsc::channel();
+        let mut preparation =
+            RasterArtifactPreparation::start_regions(view.clone(), extent, move |event| {
+                if sender.send(event).is_err() {
+                    eprintln!("artifact comparison receiver closed");
+                }
+            })?;
+        receiver.recv_timeout(Duration::from_secs(30))?;
+        let parallel = preparation
+            .try_complete()?
+            .ok_or("missing parallel artifact")?;
+        assert_eq!(parallel.scene_identity(), sequential.scene_identity());
+        assert_eq!(parallel.source_revision(), sequential.source_revision());
+        assert_eq!(parallel.regions().len(), sequential.regions().len());
+        for (parallel, sequential) in parallel.regions().iter().zip(sequential.regions()) {
+            assert_eq!(parallel.identity(), sequential.identity());
+            assert_eq!(parallel.core(), sequential.core());
+            assert_eq!(parallel.source_revision(), sequential.source_revision());
+            assert_eq!(parallel.material_colors(), sequential.material_colors());
+            assert_eq!(parallel.vertices(), sequential.vertices());
+            assert_eq!(parallel.indices(), sequential.indices());
+            assert_eq!(parallel.semantic_faces(), sequential.semantic_faces());
+            for vertex in parallel.vertices() {
+                assert_eq!(
+                    parallel.decode_vertex(vertex),
+                    sequential.decode_vertex(vertex)
+                );
+            }
+        }
+    }
+    Ok(())
+}
