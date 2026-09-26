@@ -209,3 +209,26 @@ fn default_camera_remains_valid_and_zero_extents_are_rejected()
     }
     Ok(())
 }
+
+#[test]
+fn camera_move_rejects_a_degenerate_intermediate_pose() -> Result<(), Box<dyn std::error::Error>> {
+    use render_backend::DeterministicCameraMove;
+
+    let start = CameraState::new([0.0, 0.0, 5.0], [0.0; 3], [0.0, 1.0, 0.0], 60.0, 0.1, 100.0)?;
+    let end = CameraState::new(
+        [0.0, 0.0, -5.0],
+        [0.0; 3],
+        [0.0, 1.0, 0.0],
+        60.0,
+        0.1,
+        100.0,
+    )?;
+    let movement = DeterministicCameraMove::new(start, end, 2)?;
+    assert_eq!(movement.pose_at_step(0)?, start);
+    assert_eq!(
+        movement.pose_at_step(1),
+        Err(CameraConfigurationError::CoincidentEyeAndTarget)
+    );
+    assert_eq!(movement.pose_at_step(2)?, end);
+    Ok(())
+}

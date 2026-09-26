@@ -1,5 +1,4 @@
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
-use raster_render_path::RasterRenderPath;
 
 #[test]
 fn canonical_camera_poses_fix_every_scene_coordinate_parameter()
@@ -61,38 +60,5 @@ fn overview_to_cavity_move_has_fixed_step_outputs() -> Result<(), Box<dyn std::e
         CanonicalCameraPose::CavityMaterialCloseUp.pose()?
     );
     assert!(movement.pose_at_step(121).is_err());
-    Ok(())
-}
-
-#[test]
-fn raster_render_path_retains_the_selected_logical_camera_pose()
--> Result<(), Box<dyn std::error::Error>> {
-    let pose = CanonicalCameraPose::BoundaryCutaway.pose()?;
-    let render_path = RasterRenderPath::with_camera_pose(pose);
-
-    assert_eq!(render_path.camera_pose()?, pose);
-    Ok(())
-}
-
-#[test]
-fn camera_move_rejects_a_degenerate_intermediate_pose() -> Result<(), Box<dyn std::error::Error>> {
-    use raster_render_path::{CameraConfigurationError, CameraPose, DeterministicCameraMove};
-
-    let start = CameraPose::new([0.0, 0.0, 5.0], [0.0; 3], [0.0, 1.0, 0.0], 60.0, 0.1, 100.0)?;
-    let end = CameraPose::new(
-        [0.0, 0.0, -5.0],
-        [0.0; 3],
-        [0.0, 1.0, 0.0],
-        60.0,
-        0.1,
-        100.0,
-    )?;
-    let movement = DeterministicCameraMove::new(start, end, 2)?;
-    assert_eq!(movement.pose_at_step(0)?, start);
-    assert_eq!(
-        movement.pose_at_step(1),
-        Err(CameraConfigurationError::CoincidentEyeAndTarget)
-    );
-    assert_eq!(movement.pose_at_step(2)?, end);
     Ok(())
 }

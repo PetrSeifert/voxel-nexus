@@ -1,4 +1,4 @@
-use raster_render_path::{CameraConfigurationError, CameraPose, DeterministicCameraMove};
+use render_backend::{CameraConfigurationError, CameraState, DeterministicCameraMove};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CanonicalCameraPose {
@@ -8,9 +8,9 @@ pub enum CanonicalCameraPose {
 }
 
 impl CanonicalCameraPose {
-    pub fn pose(self) -> Result<CameraPose, CameraConfigurationError> {
+    pub fn pose(self) -> Result<CameraState, CameraConfigurationError> {
         match self {
-            Self::Overview => CameraPose::new(
+            Self::Overview => CameraState::new(
                 [20.0, 14.0, 22.0],
                 [0.0, 0.0, 0.0],
                 [0.0, 1.0, 0.0],
@@ -18,7 +18,7 @@ impl CanonicalCameraPose {
                 0.1,
                 100.0,
             ),
-            Self::CavityMaterialCloseUp => CameraPose::new(
+            Self::CavityMaterialCloseUp => CameraState::new(
                 [0.0, 1.0, 17.0],
                 [-0.75, -0.5, 0.0],
                 [0.0, 1.0, 0.0],
@@ -26,7 +26,7 @@ impl CanonicalCameraPose {
                 0.1,
                 100.0,
             ),
-            Self::BoundaryCutaway => CameraPose::new(
+            Self::BoundaryCutaway => CameraState::new(
                 [-14.0, 2.0, 8.0],
                 [-7.5, -1.0, 0.0],
                 [0.0, 1.0, 0.0],

@@ -184,7 +184,7 @@ dependencies = [
 name = "canonical-inspection"
 version = "0.1.0"
 dependencies = [
- "raster-render-path",
+ "render-backend",
 ]
 
 [[package]]

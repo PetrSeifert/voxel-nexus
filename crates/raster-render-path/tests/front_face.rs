@@ -123,3 +123,20 @@ fn project_to_positive_height_viewport(
         (clip_y / clip_w + 1.0) * height * 0.5,
     ])
 }
+
+#[test]
+fn raster_render_path_retains_the_selected_logical_camera_pose()
+-> Result<(), Box<dyn std::error::Error>> {
+    let pose = CameraPose::new(
+        [-14.0, 2.0, 8.0],
+        [-7.5, -1.0, 0.0],
+        [0.0, 1.0, 0.0],
+        45.0,
+        0.1,
+        100.0,
+    )?;
+    let render_path = RasterRenderPath::with_camera_pose(pose);
+
+    assert_eq!(render_path.camera_pose()?, pose);
+    Ok(())
+}

@@ -158,6 +158,70 @@ impl Default for CameraState {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeterministicCameraMove {
+    start: CameraState,
+    end: CameraState,
+    total_steps: u32,
+}
+
+impl DeterministicCameraMove {
+    pub fn new(
+        start: CameraState,
+        end: CameraState,
+        total_steps: u32,
+    ) -> Result<Self, CameraConfigurationError> {
+        if total_steps == 0 {
+            return Err(CameraConfigurationError::ZeroMoveSteps);
+        }
+        Ok(Self {
+            start,
+            end,
+            total_steps,
+        })
+    }
+
+    pub fn total_steps(self) -> u32 {
+        self.total_steps
+    }
+
+    pub fn pose_at_step(self, step: u32) -> Result<CameraState, CameraConfigurationError> {
+        if step > self.total_steps {
+            return Err(CameraConfigurationError::MoveStepOutOfRange {
+                step,
+                total_steps: self.total_steps,
+            });
+        }
+        let progress = step as f32 / self.total_steps as f32;
+        CameraState::new(
+            interpolate_vector(self.start.eye(), self.end.eye(), progress),
+            interpolate_vector(self.start.target(), self.end.target(), progress),
+            interpolate_vector(self.start.up(), self.end.up(), progress),
+            interpolate_scalar(
+                self.start.field_of_view_degrees(),
+                self.end.field_of_view_degrees(),
+                progress,
+            ),
+            interpolate_scalar(self.start.near_plane(), self.end.near_plane(), progress),
+            interpolate_scalar(self.start.far_plane(), self.end.far_plane(), progress),
+        )
+    }
+}
+
+fn interpolate_vector(start: [f32; 3], end: [f32; 3], progress: f32) -> [f32; 3] {
+    let [start_x, start_y, start_z] = start;
+    let [end_x, end_y, end_z] = end;
+    [
+        interpolate_scalar(start_x, end_x, progress),
+        interpolate_scalar(start_y, end_y, progress),
+        interpolate_scalar(start_z, end_z, progress),
+    ]
+}
+
+fn interpolate_scalar(start: f32, end: f32, progress: f32) -> f32 {
+    start + (end - start) * progress
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum CameraConfigurationError {
     #[error("camera {parameter} must contain only finite values")]
