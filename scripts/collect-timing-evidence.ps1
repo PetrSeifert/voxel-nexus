@@ -219,7 +219,7 @@ if (Test-Path -LiteralPath $outputPath) {
 [System.IO.Directory]::CreateDirectory($outputPath) | Out-Null
 
 $build = Invoke-CapturedProcess -FilePath "cargo" `
-    -Arguments @("build", "--locked", "--release", "--package", "desktop-demo", "--package", "measurement-evidence") `
+    -Arguments @("build", "--locked", "--features", "qualification", "--release", "--package", "desktop-demo", "--package", "measurement-evidence") `
     -StandardOutputPath (Join-Path $outputPath "build.stdout.log") `
     -StandardErrorPath (Join-Path $outputPath "build.stderr.log")
 if ($build.ExitCode -ne 0) {
@@ -228,7 +228,7 @@ if ($build.ExitCode -ne 0) {
 
 $diagnosticCommands = @(
     @{ Name = "canonical-generation"; Arguments = @("test", "--locked", "--release", "--package", "canonical-scene", "--test", "generation") },
-    @{ Name = "semantic-face-oracles"; Arguments = @("test", "--locked", "--release", "--package", "raster-render-path", "--test", "derivation") },
+    @{ Name = "semantic-face-oracles"; Arguments = @("test", "--locked", "--features", "qualification", "--release", "--package", "raster-render-path", "--test", "derivation") },
     @{ Name = "measurement-contract"; Arguments = @("test", "--locked", "--release", "--package", "measurement-evidence", "--test", "public_contract") }
 )
 $diagnostics = @()
@@ -391,7 +391,7 @@ $manifest = [ordered]@{
     RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
     RepositoryRevision = $revision
     BuildProfile = "release"
-    BuildCommand = "cargo build --locked --release --package desktop-demo --package measurement-evidence"
+    BuildCommand = "cargo build --locked --features qualification --release --package desktop-demo --package measurement-evidence"
     Machine = $machine
     VulkanRuntime = $runtimeContext
     Correctness = [ordered]@{

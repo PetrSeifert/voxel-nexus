@@ -21,7 +21,7 @@ These are single-run observations, not latency guarantees. Tree depth and cache 
 Reproduce the after measurement and its full-rebuild comparison:
 
 ```powershell
-cargo test --locked --release -p compute-ray-render-path measure_incremental_preparation -- --ignored --nocapture
+cargo test --locked --features qualification --release -p compute-ray-render-path measure_incremental_preparation -- --ignored --nocapture
 ```
 
 ## Verification
@@ -33,9 +33,9 @@ cargo test --locked --release -p compute-ray-render-path measure_incremental_pre
 Commands:
 
 ```powershell
-cargo test --locked --workspace --release
+cargo test --locked --features qualification --workspace --release
 cargo clippy --locked --workspace --all-targets -- -D warnings
-cargo test --locked -p desktop-demo --test compute_dda_gpu -- --ignored --nocapture
+cargo test --locked --features qualification -p desktop-demo --test compute_dda_gpu -- --ignored --nocapture
 pwsh -NoProfile -File scripts/verify-portable-compute-ray-milestone.ps1 -EvidenceDirectory artifacts/issue-89-validation
 ```
 

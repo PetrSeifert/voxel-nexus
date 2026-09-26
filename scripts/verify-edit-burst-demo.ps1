@@ -340,7 +340,7 @@ $standardOutputTask = $null
 $standardErrorTask = $null
 try {
     if (-not $SkipBuild) {
-        & cargo build --locked --package desktop-demo
+        & cargo build --locked --features qualification --package desktop-demo
         if ($LASTEXITCODE -ne 0) { throw "The desktop demo build failed with exit code $LASTEXITCODE." }
     }
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -573,7 +573,7 @@ try {
         Scope = "Descriptive uninterrupted edit-burst evidence for this recorded Windows development machine only."
         RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
         RepositoryRevision = ($repositoryRevision -join "`n").Trim()
-        BuildCommand = "cargo build --locked --package desktop-demo"
+        BuildCommand = "cargo build --locked --features qualification --package desktop-demo"
         RunArguments = @("--scene-scale", "$SceneScale", "--camera-pose", "overview", "--raster-region-extent", "$RasterRegionExtent", "--edit-burst-demo")
         TimingOnly = [bool]$TimingOnly
         Input = [ordered]@{ Key = "Space"; KeyDownMessage = "WM_KEYDOWN"; KeyUpMessage = "WM_KEYUP"; CommandPublicationOwner = "single Space keypress" }

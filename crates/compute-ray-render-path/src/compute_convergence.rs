@@ -38,20 +38,26 @@ impl ComputePreparationBarrierObservation {
 
 #[derive(Default)]
 struct ComputePreparationBarrierState {
+    #[cfg(any(test, feature = "qualification"))]
     reached_revision: Option<VoxelSceneRevision>,
+    #[cfg(any(test, feature = "qualification"))]
     completed_block_count: usize,
     released: bool,
+    #[cfg(any(test, feature = "qualification"))]
     finished: bool,
+    #[cfg(any(test, feature = "qualification"))]
     cancelled: bool,
 }
 
 struct ComputePreparationBarrierShared {
+    #[cfg(any(test, feature = "qualification"))]
     hold_after_completed_blocks: usize,
     state: Mutex<ComputePreparationBarrierState>,
     released: Condvar,
 }
 
 impl ComputePreparationBarrierShared {
+    #[cfg(any(test, feature = "qualification"))]
     fn observation(&self) -> Result<ComputePreparationBarrierObservation, ()> {
         self.state
             .lock()
@@ -64,6 +70,7 @@ impl ComputePreparationBarrierShared {
             .map_err(|_| ())
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     fn complete_block_and_wait(&self, revision: VoxelSceneRevision) -> Result<(), ()> {
         let mut state = self.state.lock().map_err(|_| ())?;
         if state.reached_revision.is_some() {
@@ -80,6 +87,7 @@ impl ComputePreparationBarrierShared {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     fn finish(&self, revision: VoxelSceneRevision, cancelled: bool) -> Result<(), ()> {
         let mut state = self.state.lock().map_err(|_| ())?;
         if state.reached_revision == Some(revision) {
@@ -119,12 +127,15 @@ pub enum ComputeConvergenceControlError {
     Unavailable,
     #[error("a compute edit outcome is already pending at the frame boundary")]
     PendingOutcome,
+    #[cfg(any(test, feature = "qualification"))]
     #[error("a compute convergence failure is already pending")]
     PendingFailure,
     #[error("a compute convergence retry is already pending")]
     PendingRetry,
+    #[cfg(any(test, feature = "qualification"))]
     #[error("the compute preparation barrier needs a positive completed-block count")]
     InvalidCompletedBlockCount,
+    #[cfg(any(test, feature = "qualification"))]
     #[error("the compute preparation barrier has not been configured")]
     PreparationBarrierUnavailable,
 }
@@ -192,6 +203,7 @@ impl ComputeConvergenceController {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn inject_next_failure(
         &self,
         phase: ComputeConvergenceFailurePhase,
@@ -207,6 +219,7 @@ impl ComputeConvergenceController {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn hold_next_preparation_after_blocks(
         &self,
         completed_block_count: usize,
@@ -226,6 +239,7 @@ impl ComputeConvergenceController {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn preparation_barrier_observation(
         &self,
     ) -> Result<Option<ComputePreparationBarrierObservation>, ComputeConvergenceControlError> {
@@ -244,6 +258,7 @@ impl ComputeConvergenceController {
             .transpose()
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn release_preparation_barrier(&self) -> Result<(), ComputeConvergenceControlError> {
         let barrier = self
             .state
@@ -266,6 +281,7 @@ impl ComputeConvergenceController {
             .map_err(|_| ComputeConvergenceControlError::Unavailable)
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn release_post_upload(&self) -> Result<(), ComputeConvergenceControlError> {
         self.state
             .lock()
@@ -942,6 +958,7 @@ impl ComputeConvergence {
         }
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub(crate) fn fail_hidden_if_injected(
         &mut self,
         phase: ComputeConvergenceFailurePhase,
@@ -1073,6 +1090,7 @@ impl ComputeConvergence {
                 let base = target.base.clone();
                 let changes = target.changes.clone();
                 let cancellation = Arc::clone(&cancellation);
+    #[cfg(any(test, feature = "qualification"))]
                 let preparation_barrier = preparation_barrier.clone();
                 move || {
                     let injected_failure = control
@@ -1083,31 +1101,40 @@ impl ComputeConvergence {
                             )
                         })
                         .transpose();
-                    let mut result = match injected_failure {
+                    let result = match injected_failure {
+                        #[cfg(any(test, feature = "qualification"))]
                         Ok(Some(true)) => Err(ComputeSceneBuildError::InjectedPreparationFailure),
                         Ok(_) => base.successor_with_block_completion(
                             &view,
                             &changes,
                             || cancellation.load(Ordering::Acquire),
                             || {
-                                preparation_barrier
+                                #[cfg(any(test, feature = "qualification"))]
+                                return preparation_barrier
                                     .as_ref()
                                     .map(|barrier| {
                                         barrier.complete_block_and_wait(view.revision()).map_err(
                                             |_| ComputeSceneBuildError::PreparationBarrier,
                                         )
                                     })
-                                    .unwrap_or(Ok(()))
+                                    .unwrap_or(Ok(()));
+                                #[cfg(not(any(test, feature = "qualification")))]
+                                Ok(())
                             },
                         ),
                         Err(_) => Err(ComputeSceneBuildError::PreparationControl),
                     };
+                    #[cfg(any(test, feature = "qualification"))]
+                    let result = {
+                    let mut result = result;
                     if let Some(barrier) = &preparation_barrier {
                         let cancelled = matches!(result, Err(ComputeSceneBuildError::Cancelled));
                         if barrier.finish(view.revision(), cancelled).is_err() {
                             result = Err(ComputeSceneBuildError::PreparationBarrier);
                         }
                     }
+                    result
+                    };
                     if completion_sender
                         .send(ComputePreparationCompletion::Completed(result))
                         .is_err()

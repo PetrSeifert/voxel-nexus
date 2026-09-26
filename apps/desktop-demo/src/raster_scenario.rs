@@ -714,10 +714,11 @@ impl ScenarioExecution<'_> {
             || self.desktop.render_configuration.edit_burst_demo
             || self.desktop.render_configuration.compute_switch_demo
         {
-            self.desktop.lifecycle_controller = Some(render_path.enable_lifecycle_control(
-                self.desktop.render_configuration.hold_post_upload_candidate
-                    || self.desktop.render_configuration.edit_burst_demo,
-            ));
+            self.desktop.lifecycle_controller =
+                Some(render_path.enable_lifecycle_control_with_hold(
+                    self.desktop.render_configuration.hold_post_upload_candidate
+                        || self.desktop.render_configuration.edit_burst_demo,
+                ));
         }
         if self.desktop.render_configuration.edit_burst_demo
             && let Some(controller) = &self.desktop.lifecycle_controller

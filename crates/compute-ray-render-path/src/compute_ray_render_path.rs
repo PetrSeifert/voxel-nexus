@@ -1,3 +1,38 @@
+#![cfg_attr(
+    not(feature = "qualification"),
+    doc = r"Failure injection and deterministic holds require the `qualification` feature.
+
+```compile_fail
+use compute_ray_render_path::ComputeConvergenceController;
+let hook = ComputeConvergenceController::inject_next_failure;
+```
+
+```compile_fail
+use compute_ray_render_path::ComputeConvergenceController;
+let hook = ComputeConvergenceController::hold_next_preparation_after_blocks;
+```
+
+```compile_fail
+use compute_ray_render_path::ComputeConvergenceController;
+let hook = ComputeConvergenceController::release_preparation_barrier;
+```
+
+```compile_fail
+use compute_ray_render_path::ComputeRayRenderPathAdapter;
+let hook = ComputeRayRenderPathAdapter::enable_convergence_control_with_hold;
+```
+
+```compile_fail
+use compute_ray_render_path::ComputeSceneBuildError;
+let failure = ComputeSceneBuildError::InjectedPreparationFailure;
+```
+```compile_fail
+use compute_ray_render_path::ComputeSceneBuildError;
+let failure = ComputeSceneBuildError::PreparationBarrier;
+```
+"
+)]
+
 use ash::vk;
 use render_backend::{
     CameraState, CameraStateRevision, PresentationConfigurationId, RenderPath,
@@ -582,6 +617,7 @@ enum ComputeRenderPathError {
     MissingFramebuffer,
     #[error("the compute convergence hidden candidate is unavailable")]
     MissingHiddenCandidate,
+    #[cfg(any(test, feature = "qualification"))]
     #[error("injected compute convergence {0:?} failure")]
     InjectedConvergenceFailure(ComputeConvergenceFailurePhase),
     #[error("compute shutdown failed: {0}")]
@@ -965,7 +1001,19 @@ impl ComputeRayRenderPathAdapter {
         self.render_path.convergence.drain_events()
     }
 
-    pub fn enable_convergence_control(
+    pub fn enable_convergence_control(&mut self) -> ComputeConvergenceController {
+        self.enable_convergence_control_inner(false)
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn enable_convergence_control_with_hold(
+        &mut self,
+        hold_post_upload: bool,
+    ) -> ComputeConvergenceController {
+        self.enable_convergence_control_inner(hold_post_upload)
+    }
+
+    fn enable_convergence_control_inner(
         &mut self,
         hold_post_upload: bool,
     ) -> ComputeConvergenceController {
@@ -1940,6 +1988,7 @@ impl ComputeRayRenderPath {
         };
         let candidate_stamp = hidden_stamp.ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
         if self.hidden_scene_gpu_resources.is_none() {
+            #[cfg(any(test, feature = "qualification"))]
             if self
                 .convergence
                 .fail_hidden_if_injected(ComputeConvergenceFailurePhase::Upload)?
@@ -1994,6 +2043,7 @@ impl ComputeRayRenderPath {
             return Ok(());
         }
         let installation_started_at = Instant::now();
+        #[cfg(any(test, feature = "qualification"))]
         if self
             .convergence
             .fail_hidden_if_injected(ComputeConvergenceFailurePhase::Installation)?

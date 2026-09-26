@@ -65,7 +65,7 @@ try {
     }
 
     $buildLog = Join-Path $evidencePath "build.log"
-    & cargo build --locked --package desktop-demo *> $buildLog
+    & cargo build --locked --features qualification --package desktop-demo *> $buildLog
     if ($LASTEXITCODE -ne 0) {
         throw "The shared desktop-demo build failed with exit code $LASTEXITCODE; see $buildLog"
     }
@@ -203,7 +203,7 @@ try {
             selected_extent = @($selectedExtent, $selectedExtent, $selectedExtent)
         }
         shared_build = [ordered]@{
-            command = "cargo build --locked --package desktop-demo"
+            command = "cargo build --locked --features qualification --package desktop-demo"
             log = "build.log"
             binary = "target/debug/desktop-demo.exe"
             binary_sha256 = $binarySha256

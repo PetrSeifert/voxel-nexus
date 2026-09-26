@@ -1,8 +1,10 @@
-use raster_render_path::{
-    RasterArtifactPreparation, RasterArtifactPreparationEvent, RasterPreparationBarrier,
-};
+#[cfg(feature = "qualification")]
+use raster_render_path::RasterPreparationBarrier;
+use raster_render_path::{RasterArtifactPreparation, RasterArtifactPreparationEvent};
 use std::sync::mpsc;
+#[cfg(feature = "qualification")]
 use std::thread;
+#[cfg(feature = "qualification")]
 use std::time::{Duration, Instant};
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
@@ -36,12 +38,13 @@ fn published_view() -> Result<voxel_frontend::VoxelSceneView, voxel_frontend::Vo
 }
 
 #[test]
+#[cfg(feature = "qualification")]
 fn retained_view_preparation_pauses_on_a_real_worker_until_released()
 -> Result<(), Box<dyn std::error::Error>> {
     let main_thread = thread::current().id();
     let (worker_barrier, barrier_release) = RasterPreparationBarrier::held();
     let (event_sender, event_receiver) = mpsc::channel();
-    let mut preparation = RasterArtifactPreparation::start(
+    let mut preparation = RasterArtifactPreparation::start_with_barrier(
         published_view()?,
         VoxelVolumeId::new("diagnostic"),
         Some(worker_barrier),
@@ -87,7 +90,6 @@ fn derivation_failure_keeps_phase_and_source_revision_at_the_worker_boundary()
     let mut preparation = RasterArtifactPreparation::start(
         published_view()?,
         VoxelVolumeId::new("missing"),
-        None,
         move |event| {
             if event_sender.send(event).is_err() {
                 eprintln!("preparation test event receiver closed");
@@ -112,11 +114,12 @@ fn derivation_failure_keeps_phase_and_source_revision_at_the_worker_boundary()
 }
 
 #[test]
+#[cfg(feature = "qualification")]
 fn clean_close_releases_a_held_barrier_and_joins_the_worker_under_the_watchdog()
 -> Result<(), Box<dyn std::error::Error>> {
     let (worker_barrier, _barrier_release) = RasterPreparationBarrier::held();
     let (event_sender, event_receiver) = mpsc::channel();
-    let mut preparation = RasterArtifactPreparation::start_regions(
+    let mut preparation = RasterArtifactPreparation::start_regions_with_barrier(
         published_view()?,
         VoxelExtent::new(1, 1, 1),
         Some(worker_barrier),

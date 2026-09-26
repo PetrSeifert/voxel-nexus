@@ -45,8 +45,8 @@ function Invoke-CheckedNativeText {
 
 Push-Location $repositoryRoot
 try {
-    Invoke-LoggedCargo -Arguments @("build", "--locked", "--package", "desktop-demo") -LogName "build.log"
-    Invoke-LoggedCargo -Arguments @("test", "--locked", "--package", "raster-render-path", "--all-targets") -LogName "raster-qualification-tests.log"
+    Invoke-LoggedCargo -Arguments @("build", "--locked", "--features", "qualification", "--package", "desktop-demo") -LogName "build.log"
+    Invoke-LoggedCargo -Arguments @("test", "--locked", "--features", "qualification", "--package", "raster-render-path", "--all-targets") -LogName "raster-qualification-tests.log"
 
     $candidateInputs = @()
     $candidateRuns = @()
@@ -168,8 +168,8 @@ try {
                 [ordered]@{ order = 3; coordinate = @(80, 0, 0); old = "empty"; requested = "occupied:canonical-warm" }
             )
         }
-        build = [ordered]@{ command = "cargo build --locked --package desktop-demo"; log = "build.log" }
-        common_qualification = [ordered]@{ command = "cargo test --locked --package raster-render-path --all-targets"; log = "raster-qualification-tests.log" }
+        build = [ordered]@{ command = "cargo build --locked --features qualification --package desktop-demo"; log = "build.log" }
+        common_qualification = [ordered]@{ command = "cargo test --locked --features qualification --package raster-render-path --all-targets"; log = "raster-qualification-tests.log" }
         sample_count_per_candidate = $SampleCount
         candidate_runs = $candidateRuns
         selection_input = "selection-input.json"

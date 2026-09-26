@@ -25,12 +25,12 @@ if (-not [System.IO.File]::Exists($selectionInput) -or -not [System.IO.File]::Ex
     throw "Extent selection input or retained report is missing under $extentPath"
 }
 
-$buildCommand = "cargo build --locked --package desktop-demo"
-& cargo build --locked --package desktop-demo *> (Join-Path $evidencePath "desktop-build.log")
+$buildCommand = "cargo build --locked --features qualification --package desktop-demo"
+& cargo build --locked --features qualification --package desktop-demo *> (Join-Path $evidencePath "desktop-build.log")
 $buildExitCode = $LASTEXITCODE
 
-$testCommand = "cargo test --locked --package raster-render-path --all-targets"
-& cargo test --locked --package raster-render-path --all-targets *> (Join-Path $evidencePath "raster-qualification-tests.log")
+$testCommand = "cargo test --locked --features qualification --package raster-render-path --all-targets"
+& cargo test --locked --features qualification --package raster-render-path --all-targets *> (Join-Path $evidencePath "raster-qualification-tests.log")
 $testExitCode = $LASTEXITCODE
 
 $reproducedSelection = Join-Path $evidencePath "selection-reproduced.json"

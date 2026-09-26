@@ -1033,6 +1033,7 @@ impl ScenarioExecution<'_> {
 
     pub(super) fn user_event(&mut self, event_loop: &ActiveEventLoop, event: DesktopEvent) {
         match event {
+            #[cfg(feature = "qualification")]
             DesktopEvent::Preparation(RasterArtifactPreparationEvent::PausedAtBarrier {
                 source_revision,
             }) => {

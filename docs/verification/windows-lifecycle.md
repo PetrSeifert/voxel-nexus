@@ -17,9 +17,11 @@ From a fresh checkout, run:
 ```powershell
 git clone https://github.com/PetrSeifert/voxel-nexus.git
 Set-Location voxel-nexus
-cargo build --locked --package desktop-demo
+cargo build --locked --features qualification --package desktop-demo
 pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory artifacts/windows-lifecycle
 ```
+
+The `qualification` Cargo feature enables deterministic holds, failure injection, and the demo's verification-only flags. The scripts enable it when building. When using `-SkipBuild`, build the executable with `--features qualification` first. Default builds reject these flags before opening a window.
 
 The explicit build command proves the clean checkout can produce the executable and generated shaders. The runner repeats that locked build, runs the deterministic failure integration tests, and then performs the runtime proof.
 

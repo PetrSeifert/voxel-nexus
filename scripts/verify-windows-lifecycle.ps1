@@ -837,9 +837,9 @@ $completionVideoRecording = $null
 
 Push-Location $repositoryRoot
 try {
-    Invoke-Cargo -Arguments @("build", "--locked", "--package", "desktop-demo")
-    Invoke-Cargo -Arguments @("test", "--locked", "--package", "desktop-demo", "--test", "unsupported_prerequisites")
-    Invoke-Cargo -Arguments @("test", "--locked", "--package", "desktop-demo", "--test", "render_path_failures")
+    Invoke-Cargo -Arguments @("build", "--locked", "--features", "qualification", "--package", "desktop-demo")
+    Invoke-Cargo -Arguments @("test", "--locked", "--features", "qualification", "--package", "desktop-demo", "--test", "unsupported_prerequisites")
+    Invoke-Cargo -Arguments @("test", "--locked", "--features", "qualification", "--package", "desktop-demo", "--test", "render_path_failures")
 
     $binaryPath = Join-Path $repositoryRoot "target\debug\desktop-demo.exe"
     $unsupportedCases = @()
@@ -1187,7 +1187,7 @@ try {
         RecordedAtUtc = [DateTime]::UtcNow.ToString("o")
         RepositoryRevision = $revision
         BuildProfile = "dev (unoptimized + debuginfo)"
-        BuildCommand = "cargo build --locked --package desktop-demo"
+        BuildCommand = "cargo build --locked --features qualification --package desktop-demo"
         ShaderArtifacts = "Generated from raster.vert and raster.frag by raster-render-path/build.rs during the Cargo build."
         ValidationContext = "VK_LAYER_KHRONOS_validation required and enabled by the application."
         ValidationWarnings = $validationWarnings

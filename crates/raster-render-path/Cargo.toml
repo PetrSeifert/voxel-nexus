@@ -6,6 +6,10 @@ edition = "2024"
 [lib]
 path = "src/raster_render_path.rs"
 
+[features]
+default = []
+qualification = []
+
 [dependencies]
 ash = "0.38.0"
 render-backend = { path = "../render-backend" }

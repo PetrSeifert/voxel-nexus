@@ -204,7 +204,7 @@ function Invoke-ComputeShutdownCase {
 Push-Location $repositoryRoot
 try {
     if (-not $SkipBuild) {
-        & cargo build --locked --package desktop-demo
+        & cargo build --locked --features qualification --package desktop-demo
         if ($LASTEXITCODE -ne 0) {
             throw "The desktop demo build failed."
         }

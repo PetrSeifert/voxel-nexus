@@ -7,6 +7,10 @@ edition = "2024"
 name = "desktop-demo"
 path = "src/main.rs"
 
+[features]
+default = []
+qualification = ["raster-render-path/qualification", "compute-ray-render-path/qualification"]
+
 [dependencies]
 ash = "0.38.0"
 ash-window = "0.13.0"

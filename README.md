@@ -18,7 +18,7 @@ Cargo compiles the shaders during the build. Run the commands below from the rep
 Launch the interactive Render Path switching demo with the small scene:
 
 ```powershell
-cargo run --locked --package desktop-demo -- --scene-scale 64 --compute-switch-demo
+cargo run --locked --features qualification --package desktop-demo -- --scene-scale 64 --compute-switch-demo
 ```
 
 Click the demo window to give it keyboard focus, then follow this sequence:
@@ -77,7 +77,7 @@ cargo run --locked --package desktop-demo -- --scene-scale 64 --report-canonical
 For example:
 
 ```powershell
-cargo run --locked --package desktop-demo -- --scene-scale 64 --portable-compute-ray-milestone-demo
+cargo run --locked --features qualification --package desktop-demo -- --scene-scale 64 --portable-compute-ray-milestone-demo
 ```
 
 Compute demo modes cannot be combined with raster edit-burst, raster hold/failure-injection, or measurement modes. Flags such as `--hold-background-preparation`, `--hold-post-upload-candidate`, and `--compute-shutdown-qualification` are intended for the verification scripts and can deliberately leave work paused.
@@ -106,24 +106,35 @@ Create the output directory first, then run either measurement mode:
 ```powershell
 New-Item -ItemType Directory -Force artifacts | Out-Null
 
-cargo run --locked --package desktop-demo -- --scene-scale 64 --measurement-mode first-correct-frame --measurement-output artifacts/first-frame.jsonl
+cargo run --locked --features qualification --package desktop-demo -- --scene-scale 64 --measurement-mode first-correct-frame --measurement-output artifacts/first-frame.jsonl
 
-cargo run --locked --package desktop-demo -- --scene-scale 64 --measurement-mode steady-state --measurement-output artifacts/steady-state.jsonl
+cargo run --locked --features qualification --package desktop-demo -- --scene-scale 64 --measurement-mode steady-state --measurement-output artifacts/steady-state.jsonl
 ```
 
 `first-correct-frame` exits after presenting the matching raster artifact. `steady-state` uses a 1920×1080 borderless window, warms up for five seconds, then collects CPU/GPU frame measurements for thirty seconds and exits. Keep that window visible at its required size. Output is JSON Lines; an existing output file is overwritten.
 
 For the repeatable timing workflow, see [timing evidence](docs/verification/timing-evidence.md).
 
+## Qualification builds
+
+Default Render Path builds omit failure-injection and barrier-hold controls. The desktop demo rejects verification-only modes with a `--features qualification` diagnostic. Enable the feature for interactive qualification sequences, failure tests, lifecycle checks, and measurements:
+
+```powershell
+cargo build --locked --package desktop-demo --features qualification
+cargo test --locked --workspace --features qualification
+```
+
+The feature forwards to both Render Path crates. Verification scripts enable it when building. With `-SkipBuild`, supply a binary built with this feature. Ordinary scene viewing does not require it.
+
 ## Build and check
 
 ```powershell
 cargo build --locked --package desktop-demo
-cargo test --locked --workspace
+cargo test --locked --features qualification --workspace
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 ```
 
-After building, you can launch the executable directly:
+After building with `--features qualification`, you can launch the interactive qualification directly:
 
 ```powershell
 .\target\debug\desktop-demo.exe --scene-scale 64 --compute-switch-demo

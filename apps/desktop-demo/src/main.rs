@@ -1,3 +1,10 @@
+#[cfg(feature = "qualification")]
+use raster_render_path::{RasterPreparationBarrier, RasterPreparationBarrierRelease};
+#[cfg(not(feature = "qualification"))]
+mod qualification_unavailable;
+#[cfg(not(feature = "qualification"))]
+use qualification_unavailable::*;
+
 #[cfg(target_os = "windows")]
 mod camera_scenario;
 #[cfg(target_os = "windows")]
@@ -35,7 +42,7 @@ use raster_render_path::{
     CameraPose, RasterArtifactInstallationError, RasterArtifactInstallationPhase,
     RasterArtifactInstaller, RasterArtifactPreparation, RasterArtifactPreparationEvent,
     RasterConvergenceCharacterization, RasterConvergenceStatus, RasterLifecycleController,
-    RasterPreparationBarrier, RasterPreparationBarrierRelease, RasterSafeRetirementDisposition,
+    RasterSafeRetirementDisposition,
 };
 #[cfg(target_os = "windows")]
 use raster_render_path::{
@@ -187,6 +194,33 @@ struct MeasurementConfiguration {
     output: PathBuf,
 }
 
+fn require_qualification_argument(argument: &str) -> Result<(), String> {
+    if !cfg!(feature = "qualification")
+        && matches!(
+            argument,
+            "--compute-switch-demo"
+                | "--hold-background-preparation"
+                | "--hold-post-upload-candidate"
+                | "--inject-raster-upload-failure"
+                | "--edit-burst-demo"
+                | "--compute-switch-lifecycle-demo"
+                | "--portable-compute-ray-milestone-demo"
+                | "--portable-compute-ray-milestone-timing"
+                | "--compute-shutdown-qualification"
+                | "--measurement-mode"
+                | "--measurement-output"
+                | "--verify-background-preparation-failure"
+                | "--verify-render-path-failure"
+                | "--verify-unsupported-prerequisite"
+        )
+    {
+        return Err(format!(
+            "{argument} requires a build with --features qualification"
+        ));
+    }
+    Ok(())
+}
+
 fn parse_render_configuration(
     mut arguments: impl Iterator<Item = String>,
 ) -> Result<(DesktopRenderConfiguration, bool), String> {
@@ -208,6 +242,7 @@ fn parse_render_configuration(
     let mut measurement_mode = None;
     let mut measurement_output = None;
     while let Some(argument) = arguments.next() {
+        require_qualification_argument(&argument)?;
         match argument.as_str() {
             "--report-canonical-configuration" => report_only = true,
             "--hold-background-preparation" => hold_background_preparation = true,
@@ -972,6 +1007,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.desktop.artifact_installer = Some(artifact_installer);
         self.desktop.render_path_handoff_control = Some(render_path_handoff_control);
         self.desktop.published_revision = Some(published_revision);
+        #[cfg(feature = "qualification")]
         let (barrier, preparation_release) = if self
             .desktop
             .render_configuration
@@ -982,14 +1018,21 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         } else {
             (None, None)
         };
+        #[cfg(not(feature = "qualification"))]
+        let preparation_release = None;
         let event_proxy = self.desktop.event_proxy.clone();
-        let preparation = match RasterArtifactPreparation::start_regions(
+        #[cfg(feature = "qualification")]
+        let start_preparation = RasterArtifactPreparation::start_regions_with_barrier;
+        #[cfg(not(feature = "qualification"))]
+        let start_preparation = RasterArtifactPreparation::start_regions;
+        let preparation = match start_preparation(
             view,
             VoxelExtent::new(
                 self.desktop.render_configuration.raster_region_extent,
                 self.desktop.render_configuration.raster_region_extent,
                 self.desktop.render_configuration.raster_region_extent,
             ),
+            #[cfg(feature = "qualification")]
             barrier,
             move |event| {
                 if event_proxy
@@ -1277,6 +1320,9 @@ fn desktop_event_for_windows_message(message: u32) -> Option<DesktopEvent> {
 #[cfg(target_os = "windows")]
 fn run() -> Result<(), String> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    for argument in &arguments {
+        require_qualification_argument(argument)?;
+    }
     if let Some(diagnostic_result) =
         background_preparation_failure_diagnostic(arguments.clone().into_iter())
     {
@@ -1367,7 +1413,6 @@ fn background_preparation_failure_diagnostic(
             let mut preparation = RasterArtifactPreparation::start(
                 view,
                 voxel_frontend::VoxelVolumeId::new("injected-missing-volume"),
-                None,
                 move |event| {
                     if matches!(event, RasterArtifactPreparationEvent::Completed { .. })
                         && completion_sender.send(()).is_err()
@@ -1505,15 +1550,20 @@ fn main() -> ExitCode {
 #[cfg(all(test, target_os = "windows"))]
 mod measurement_tests {
     use super::{
-        CanonicalCameraPose, ComputeShutdownQualification, CpuFrameMeasurement, MeasurementEvent,
-        SteadyFrameCollection, compute_edit_burst_admission, fixed_edit_burst,
-        format_convergence_characterization, format_convergence_overlay,
-        format_render_path_overlay, parse_render_configuration, render_path_switch_admission,
+        CanonicalCameraPose, CpuFrameMeasurement, MeasurementEvent, SteadyFrameCollection,
+        compute_edit_burst_admission, fixed_edit_burst, format_convergence_characterization,
+        format_convergence_overlay, format_render_path_overlay, render_path_switch_admission,
         should_request_compute_edit_burst, should_request_render_path_switch,
-        should_start_edit_burst, should_wait_for_initial_raster_artifact,
+        should_start_edit_burst,
+    };
+    #[cfg(feature = "qualification")]
+    use super::{
+        ComputeShutdownQualification, parse_render_configuration,
+        should_wait_for_initial_raster_artifact,
     };
 
     #[test]
+    #[cfg(feature = "qualification")]
     fn fixed_candidate_raster_region_extent_is_explicitly_configurable() -> Result<(), String> {
         let (configuration, report_only) = parse_render_configuration(
             [
@@ -1533,6 +1583,7 @@ mod measurement_tests {
     }
 
     #[test]
+    #[cfg(feature = "qualification")]
     fn compute_switch_demo_is_explicit_and_does_not_replace_raster_qualification_modes()
     -> Result<(), String> {
         let (configuration, _) =
@@ -1596,6 +1647,7 @@ mod measurement_tests {
     }
 
     #[test]
+    #[cfg(feature = "qualification")]
     fn every_compute_switch_mode_waits_for_the_initial_raster_artifact() -> Result<(), String> {
         for arguments in [
             vec!["--compute-switch-demo"],
@@ -1966,6 +2018,12 @@ fn application_exit_code(result: Result<(), String>) -> ExitCode {
 #[cfg(not(target_os = "windows"))]
 fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    for argument in &arguments {
+        if let Err(error) = require_qualification_argument(argument) {
+            eprintln!("{error}");
+            return ExitCode::FAILURE;
+        }
+    }
     if let Some(result) = background_preparation_failure_diagnostic(arguments.clone().into_iter()) {
         return application_exit_code(result);
     }

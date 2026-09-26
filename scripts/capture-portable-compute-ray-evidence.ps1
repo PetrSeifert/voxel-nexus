@@ -197,12 +197,12 @@ if ($LASTEXITCODE -ne 0) {
 $remote = Get-CanonicalRepositoryRemote -Remote $remoteValue
 
 [System.IO.Directory]::CreateDirectory($evidencePath) | Out-Null
-Invoke-RequiredCommand -Name "workspace-build" -FilePath "cargo" -Arguments @("build", "--locked", "--workspace", "--all-targets") | Out-Null
+Invoke-RequiredCommand -Name "workspace-build" -FilePath "cargo" -Arguments @("build", "--locked", "--features", "qualification", "--workspace", "--all-targets") | Out-Null
 Invoke-RequiredCommand -Name "formatting" -FilePath "cargo" -Arguments @("fmt", "--all", "--", "--check") | Out-Null
-Invoke-RequiredCommand -Name "clippy" -FilePath "cargo" -Arguments @("clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings") | Out-Null
-Invoke-RequiredCommand -Name "workspace-tests" -FilePath "cargo" -Arguments @("test", "--locked", "--workspace") | Out-Null
+Invoke-RequiredCommand -Name "clippy" -FilePath "cargo" -Arguments @("clippy", "--locked", "--features", "qualification", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings") | Out-Null
+Invoke-RequiredCommand -Name "workspace-tests" -FilePath "cargo" -Arguments @("test", "--locked", "--features", "qualification", "--workspace") | Out-Null
 Invoke-RequiredCommand -Name "oracle-self-tests" -FilePath "cargo" -Arguments @("test", "--locked", "--package", "semantic-ray-oracle") | Out-Null
-Invoke-RequiredCommand -Name "failure-qualification" -FilePath "cargo" -Arguments @("test", "--locked", "--package", "compute-ray-render-path", "--package", "render-backend") | Out-Null
+Invoke-RequiredCommand -Name "failure-qualification" -FilePath "cargo" -Arguments @("test", "--locked", "--features", "qualification", "--package", "compute-ray-render-path", "--package", "render-backend") | Out-Null
 
 [System.IO.Directory]::CreateDirectory((Join-Path $evidencePath "bin")) | Out-Null
 [System.IO.File]::Copy(

@@ -1,3 +1,44 @@
+#![cfg_attr(
+    not(feature = "qualification"),
+    doc = r"Failure injection and deterministic holds require the `qualification` feature.
+
+```compile_fail
+use raster_render_path::RasterLifecycleController;
+let hook = RasterLifecycleController::hold_next_cpu_generation_after_regions;
+```
+
+```compile_fail
+use raster_render_path::RasterLifecycleController;
+let hook = RasterLifecycleController::release_cpu_barrier;
+```
+
+```compile_fail
+use raster_render_path::RasterArtifactInstaller;
+let hook = RasterArtifactInstaller::inject_next_upload_failure;
+```
+
+```compile_fail
+use raster_render_path::RasterPreparationBarrier;
+let hook = RasterPreparationBarrier::held;
+```
+
+```compile_fail
+use raster_render_path::RasterRenderPathAdapter;
+let hook = RasterRenderPathAdapter::enable_lifecycle_control_with_hold;
+```
+```compile_fail
+use raster_render_path::RasterPreparationBarrierRelease;
+```
+"
+)]
+
+#[cfg(any(test, feature = "qualification"))]
+mod raster_preparation_barrier;
+#[cfg(any(test, feature = "qualification"))]
+pub use raster_preparation_barrier::{
+    RasterPreparationBarrier, RasterPreparationBarrierError, RasterPreparationBarrierRelease,
+};
+
 use ash::vk;
 pub use render_backend::{
     CameraConfigurationError, CameraState as CameraPose, DeterministicCameraMove,
@@ -16,8 +57,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::io::Cursor;
 use std::mem::size_of;
+#[cfg(any(test, feature = "qualification"))]
+use std::sync::Condvar;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -614,6 +657,7 @@ struct RasterArtifactInstallationState {
     staged_artifact: Option<RasterArtifact>,
     artifact_was_published: bool,
     installed_revision: Option<VoxelSceneRevision>,
+    #[cfg(any(test, feature = "qualification"))]
     inject_upload_failure: bool,
 }
 
@@ -741,25 +785,37 @@ pub struct RasterConvergenceCharacterization {
     pub safe_retirements: Vec<RasterSafeRetirementEvent>,
 }
 
+#[cfg(any(test, feature = "qualification"))]
 #[derive(Default)]
 struct RasterConvergenceCpuBarrierState {
+    #[cfg(any(test, feature = "qualification"))]
     reached_revision: Option<VoxelSceneRevision>,
+    #[cfg(any(test, feature = "qualification"))]
     scheduled_region_count: usize,
+    #[cfg(any(test, feature = "qualification"))]
     released: bool,
+    #[cfg(any(test, feature = "qualification"))]
     finished: bool,
+    #[cfg(any(test, feature = "qualification"))]
     cancelled: bool,
 }
 
 struct RasterConvergenceCpuBarrierShared {
+    #[cfg(any(test, feature = "qualification"))]
     hold_after_scheduled_regions: usize,
+    #[cfg(any(test, feature = "qualification"))]
     state: Mutex<RasterConvergenceCpuBarrierState>,
+    #[cfg(any(test, feature = "qualification"))]
     released: Condvar,
 }
 
+#[cfg(any(test, feature = "qualification"))]
 #[derive(Clone, Copy)]
 struct RasterConvergenceCpuBarrierError;
 
+#[cfg(any(test, feature = "qualification"))]
 impl RasterConvergenceCpuBarrierShared {
+    #[cfg(any(test, feature = "qualification"))]
     fn observation(
         &self,
     ) -> Result<RasterConvergenceCpuBarrierObservation, RasterConvergenceCpuBarrierError> {
@@ -897,12 +953,14 @@ impl RasterLifecycleController {
             .map_err(|_| RasterLifecycleControlError)
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn release_post_upload(&self) -> Result<(), RasterLifecycleControlError> {
         let mut state = self.state.lock().map_err(|_| RasterLifecycleControlError)?;
         state.post_upload_held = false;
         Ok(())
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn hold_next_cpu_generation_after_regions(
         &self,
         scheduled_region_count: usize,
@@ -919,6 +977,7 @@ impl RasterLifecycleController {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn cpu_barrier_observation(
         &self,
     ) -> Result<Option<RasterConvergenceCpuBarrierObservation>, RasterLifecycleControlError> {
@@ -937,6 +996,7 @@ impl RasterLifecycleController {
             .transpose()
     }
 
+    #[cfg(any(test, feature = "qualification"))]
     pub fn release_cpu_barrier(&self) -> Result<(), RasterLifecycleControlError> {
         let barrier = self
             .state
@@ -1076,6 +1136,7 @@ pub enum RasterArtifactInstallerError {
 }
 
 impl RasterArtifactInstaller {
+    #[cfg(any(test, feature = "qualification"))]
     pub fn inject_next_upload_failure(&self) -> Result<(), RasterArtifactInstallerError> {
         let mut state = self
             .state
@@ -1221,11 +1282,24 @@ impl RasterRenderPathAdapter {
         )
     }
 
-    pub fn enable_lifecycle_control(
+    pub fn enable_lifecycle_control(&mut self) -> RasterLifecycleController {
+        self.enable_lifecycle_control_inner(false)
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn enable_lifecycle_control_with_hold(
         &mut self,
         hold_post_upload: bool,
     ) -> RasterLifecycleController {
-        self.render_path.enable_lifecycle_control(hold_post_upload)
+        self.enable_lifecycle_control_inner(hold_post_upload)
+    }
+
+    fn enable_lifecycle_control_inner(
+        &mut self,
+        hold_post_upload: bool,
+    ) -> RasterLifecycleController {
+        self.render_path
+            .enable_lifecycle_control_inner(hold_post_upload)
     }
 
     pub fn enable_semantic_face_observation(&mut self) -> RasterSemanticFaceController {
@@ -1413,6 +1487,7 @@ impl RasterRenderPath {
                 staged_artifact: None,
                 artifact_was_published: false,
                 installed_revision: None,
+                #[cfg(any(test, feature = "qualification"))]
                 inject_upload_failure: false,
             })),
         };
@@ -1431,7 +1506,19 @@ impl RasterRenderPath {
         self.camera_control.pose()
     }
 
-    pub fn enable_lifecycle_control(
+    pub fn enable_lifecycle_control(&mut self) -> RasterLifecycleController {
+        self.enable_lifecycle_control_inner(false)
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn enable_lifecycle_control_with_hold(
+        &mut self,
+        hold_post_upload: bool,
+    ) -> RasterLifecycleController {
+        self.enable_lifecycle_control_inner(hold_post_upload)
+    }
+
+    fn enable_lifecycle_control_inner(
         &mut self,
         hold_post_upload: bool,
     ) -> RasterLifecycleController {
@@ -2942,6 +3029,7 @@ pub enum RasterConvergenceError {
     AlreadyStarted,
     #[error("Raster Convergence has not been started")]
     NotStarted,
+    #[cfg(any(test, feature = "qualification"))]
     #[error("Raster Convergence CPU barrier state is unavailable")]
     CpuBarrierSynchronization,
     #[error("Raster Convergence requires a complete visible installation")]
@@ -3024,6 +3112,7 @@ struct RasterPreparationTarget {
 enum RasterPreparationCompletion {
     Completed(Result<Vec<RasterRegionResult>, RasterDerivationFailure>),
     Cancelled,
+    #[cfg(any(test, feature = "qualification"))]
     SynchronizationFailed,
 }
 
@@ -3674,6 +3763,7 @@ impl RasterConvergence {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
+        #[cfg(any(test, feature = "qualification"))]
         let barrier_error = self.cpu_barrier.as_ref().and_then(|barrier| {
             barrier
                 .release()
@@ -3688,6 +3778,8 @@ impl RasterConvergence {
             .take()
             .map(|candidate| candidate.successor_gpu_resources)
             .unwrap_or_default();
+        #[cfg(not(any(test, feature = "qualification")))]
+        let barrier_error = None;
         let mut worker_error = barrier_error;
         if let Some(mut active) = active {
             let revision = active.target.view.revision();
@@ -3870,6 +3962,7 @@ impl RasterConvergence {
         }
         let is_current =
             active.generation == self.required_generation && revision == self.required_revision;
+        #[cfg(any(test, feature = "qualification"))]
         if matches!(
             completion,
             RasterPreparationCompletion::SynchronizationFailed
@@ -3971,6 +4064,7 @@ impl Drop for RasterConvergence {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
+        #[cfg(any(test, feature = "qualification"))]
         if let Some(barrier) = &self.cpu_barrier
             && barrier.release().is_err()
         {
@@ -3996,7 +4090,10 @@ fn derive_convergence_target(
 ) -> RasterPreparationCompletion {
     let mut regions = Vec::new();
     let mut failed_region_identity = None;
+    #[cfg(any(test, feature = "qualification"))]
     let mut synchronization_failed = false;
+    #[cfg(not(any(test, feature = "qualification")))]
+    let _cpu_barrier = cpu_barrier;
     let traversal =
         visit_raster_region_cores(&target.view, target.region_extent, |metadata, core| {
             if cancellation.load(Ordering::Acquire) {
@@ -4023,6 +4120,8 @@ fn derive_convergence_target(
                     Ok(region) => {
                         saturating_add_atomic(&counters.completed_regions, 1);
                         regions.push(region);
+                        #[cfg(any(test, feature = "qualification"))]
+                        #[cfg(any(test, feature = "qualification"))]
                         if cpu_barrier.is_some_and(|barrier| {
                             barrier.schedule_and_wait(target.view.revision()).is_err()
                         }) {
@@ -4039,6 +4138,7 @@ fn derive_convergence_target(
             Ok(true)
         });
     let completion = match traversal {
+        #[cfg(any(test, feature = "qualification"))]
         _ if synchronization_failed => RasterPreparationCompletion::SynchronizationFailed,
         Ok(true) => RasterPreparationCompletion::Completed(Ok(regions)),
         Ok(false) => RasterPreparationCompletion::Cancelled,
@@ -4047,6 +4147,7 @@ fn derive_convergence_target(
             source,
         })),
     };
+    #[cfg(any(test, feature = "qualification"))]
     if cpu_barrier.is_some_and(|barrier| {
         barrier
             .finish(
@@ -4086,8 +4187,13 @@ fn raster_region_origin(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RasterArtifactPreparationEvent {
-    PausedAtBarrier { source_revision: VoxelSceneRevision },
-    Completed { source_revision: VoxelSceneRevision },
+    #[cfg(any(test, feature = "qualification"))]
+    PausedAtBarrier {
+        source_revision: VoxelSceneRevision,
+    },
+    Completed {
+        source_revision: VoxelSceneRevision,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -4098,6 +4204,7 @@ pub enum RasterArtifactPreparationError {
         #[source]
         source: RasterArtifactBuildError,
     },
+    #[cfg(any(test, feature = "qualification"))]
     #[error(
         "background preparation synchronization failed for Voxel Scene Revision {source_revision:?}"
     )]
@@ -4119,10 +4226,11 @@ pub enum RasterArtifactPreparationError {
 impl RasterArtifactPreparationError {
     pub fn source_revision(&self) -> VoxelSceneRevision {
         match self {
+            #[cfg(any(test, feature = "qualification"))]
+            Self::Synchronization { source_revision } => *source_revision,
             Self::Derivation {
                 source_revision, ..
             }
-            | Self::Synchronization { source_revision }
             | Self::WorkerTerminated { source_revision }
             | Self::WorkerStart {
                 source_revision, ..
@@ -4131,111 +4239,35 @@ impl RasterArtifactPreparationError {
     }
 }
 
-#[derive(Default)]
-struct RasterPreparationBarrierState {
-    reached: bool,
-    released: bool,
-}
-
-struct RasterPreparationBarrierShared {
-    state: Mutex<RasterPreparationBarrierState>,
-    released: Condvar,
-}
-
-pub struct RasterPreparationBarrier {
-    shared: Arc<RasterPreparationBarrierShared>,
-}
-
-pub struct RasterPreparationBarrierRelease {
-    shared: Arc<RasterPreparationBarrierShared>,
-}
-
-#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
-#[error("the raster preparation barrier state is unavailable")]
-pub struct RasterPreparationBarrierError;
-
-impl RasterPreparationBarrier {
-    pub fn held() -> (Self, RasterPreparationBarrierRelease) {
-        let shared = Arc::new(RasterPreparationBarrierShared {
-            state: Mutex::new(RasterPreparationBarrierState::default()),
-            released: Condvar::new(),
-        });
-        (
-            Self {
-                shared: shared.clone(),
-            },
-            RasterPreparationBarrierRelease { shared },
-        )
-    }
-
-    fn reach_and_wait(
-        &self,
-        source_revision: VoxelSceneRevision,
-        notify: &impl Fn(RasterArtifactPreparationEvent),
-    ) -> Result<(), RasterArtifactPreparationError> {
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| RasterArtifactPreparationError::Synchronization { source_revision })?;
-        state.reached = true;
-        notify(RasterArtifactPreparationEvent::PausedAtBarrier { source_revision });
-        while !state.released {
-            state =
-                self.shared.released.wait(state).map_err(|_| {
-                    RasterArtifactPreparationError::Synchronization { source_revision }
-                })?;
-        }
-        Ok(())
-    }
-}
-
-impl RasterPreparationBarrierRelease {
-    pub fn release(&self) -> Result<(), RasterPreparationBarrierError> {
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| RasterPreparationBarrierError)?;
-        state.released = true;
-        self.shared.released.notify_one();
-        Ok(())
-    }
-
-    pub fn was_reached(&self) -> Result<bool, RasterPreparationBarrierError> {
-        let state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| RasterPreparationBarrierError)?;
-        Ok(state.reached)
-    }
-}
-
-impl Drop for RasterPreparationBarrierRelease {
-    fn drop(&mut self) {
-        let mut state = match self.shared.state.lock() {
-            Ok(state) => state,
-            Err(poisoned) => {
-                eprintln!("raster preparation barrier was poisoned during implicit release");
-                poisoned.into_inner()
-            }
-        };
-        state.released = true;
-        self.shared.released.notify_one();
-    }
-}
-
 pub struct RasterArtifactPreparation {
     source_revision: VoxelSceneRevision,
     result_receiver: mpsc::Receiver<Result<Option<RasterArtifact>, RasterArtifactPreparationError>>,
     worker: Option<JoinHandle<()>>,
     cancellation: Arc<AtomicBool>,
+    #[cfg(any(test, feature = "qualification"))]
     cancellation_barrier: Option<RasterPreparationBarrierRelease>,
 }
 
 impl RasterArtifactPreparation {
     pub fn start_regions(
+        view: VoxelSceneView,
+        region_extent: VoxelExtent,
+        notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
+    ) -> Result<Self, RasterArtifactPreparationError> {
+        let source_revision = view.revision();
+        Self::start_with_derivation(
+            source_revision,
+            #[cfg(any(test, feature = "qualification"))]
+            None,
+            notify,
+            move |cancellation| {
+                derive_raster_regions_until_cancelled(&view, region_extent, cancellation)
+            },
+        )
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn start_regions_with_barrier(
         view: VoxelSceneView,
         region_extent: VoxelExtent,
         barrier: Option<RasterPreparationBarrier>,
@@ -4250,6 +4282,22 @@ impl RasterArtifactPreparation {
     pub fn start(
         view: VoxelSceneView,
         volume_identity: VoxelVolumeId,
+        notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
+    ) -> Result<Self, RasterArtifactPreparationError> {
+        let source_revision = view.revision();
+        Self::start_with_derivation(
+            source_revision,
+            #[cfg(any(test, feature = "qualification"))]
+            None,
+            notify,
+            move |_| derive_raster_artifact(&view, &volume_identity).map(Some),
+        )
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn start_with_barrier(
+        view: VoxelSceneView,
+        volume_identity: VoxelVolumeId,
         barrier: Option<RasterPreparationBarrier>,
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
@@ -4261,7 +4309,7 @@ impl RasterArtifactPreparation {
 
     fn start_with_derivation(
         source_revision: VoxelSceneRevision,
-        barrier: Option<RasterPreparationBarrier>,
+        #[cfg(any(test, feature = "qualification"))] barrier: Option<RasterPreparationBarrier>,
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
         derive: impl FnOnce(&AtomicBool) -> Result<Option<RasterArtifact>, RasterArtifactBuildError>
         + Send
@@ -4269,6 +4317,7 @@ impl RasterArtifactPreparation {
     ) -> Result<Self, RasterArtifactPreparationError> {
         let (result_sender, result_receiver) = mpsc::sync_channel(1);
         let cancellation = Arc::new(AtomicBool::new(false));
+        #[cfg(any(test, feature = "qualification"))]
         let cancellation_barrier =
             barrier
                 .as_ref()
@@ -4279,6 +4328,7 @@ impl RasterArtifactPreparation {
             let cancellation = cancellation.clone();
             move || {
                 let result = (|| {
+                    #[cfg(any(test, feature = "qualification"))]
                     if let Some(barrier) = barrier {
                         barrier.reach_and_wait(source_revision, &notify)?;
                     }
@@ -4316,6 +4366,7 @@ impl RasterArtifactPreparation {
             result_receiver,
             worker: Some(worker),
             cancellation,
+            #[cfg(any(test, feature = "qualification"))]
             cancellation_barrier,
         })
     }
@@ -4352,6 +4403,7 @@ impl RasterArtifactPreparation {
 
     pub fn cancel_and_join(&mut self) -> Result<(), RasterArtifactPreparationError> {
         self.cancellation.store(true, Ordering::Release);
+        #[cfg(any(test, feature = "qualification"))]
         let barrier_result = self
             .cancellation_barrier
             .take()
@@ -4361,6 +4413,8 @@ impl RasterArtifactPreparation {
             .map_err(|_| RasterArtifactPreparationError::Synchronization {
                 source_revision: self.source_revision,
             });
+        #[cfg(not(any(test, feature = "qualification")))]
+        let barrier_result = Ok(());
         let Some(worker) = self.worker.take() else {
             return barrier_result;
         };
@@ -4376,6 +4430,7 @@ impl RasterArtifactPreparation {
 impl Drop for RasterArtifactPreparation {
     fn drop(&mut self) {
         self.cancellation.store(true, Ordering::Release);
+        #[cfg(any(test, feature = "qualification"))]
         if let Some(barrier) = self.cancellation_barrier.take()
             && barrier.release().is_err()
         {
@@ -4675,6 +4730,7 @@ enum RasterResourceError {
     CameraControl(#[from] RasterCameraControlError),
     #[error(transparent)]
     LifecycleControl(#[from] RasterLifecycleControlError),
+    #[cfg(any(test, feature = "qualification"))]
     #[error("injected GPU upload failure")]
     InjectedUploadFailure,
     #[error("the raster artifact index count cannot be represented for indexed drawing")]
@@ -4759,6 +4815,7 @@ impl RasterResourceError {
             | Self::BufferSize(_) => RasterArtifactInstallationPhase::Upload,
             Self::LifecycleControl(_) => RasterArtifactInstallationPhase::Upload,
             Self::ArtifactGate(_) => RasterArtifactInstallationPhase::Upload,
+            #[cfg(any(test, feature = "qualification"))]
             Self::InjectedUploadFailure => RasterArtifactInstallationPhase::Upload,
             Self::CameraControl(_) => RasterArtifactInstallationPhase::Record,
             _ => RasterArtifactInstallationPhase::PresentationConfiguration,
@@ -4770,7 +4827,7 @@ impl RenderPath for RasterRenderPath {
     fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
         let controller = match self.lifecycle_control.clone() {
             Some(controller) => controller,
-            None => self.enable_lifecycle_control(false),
+            None => self.enable_lifecycle_control(),
         };
         controller.submit(outcome)?;
         Ok(())
@@ -4813,9 +4870,10 @@ impl RenderPath for RasterRenderPath {
                 Box::new(RasterResourceError::MissingArtifact)
                     as Box<dyn std::error::Error + Send + Sync>
             })?;
-        let result = self
-            .accept_staged_artifact()
-            .and_then(|()| self.inject_upload_failure())
+        let result = self.accept_staged_artifact();
+        #[cfg(any(test, feature = "qualification"))]
+        let result = result.and_then(|()| self.inject_upload_failure());
+        let result = result
             .and_then(|()| self.configure_resources(&device, target))
             .and_then(|()| self.mark_artifact_installed());
         if let Err(error) = result {
@@ -4906,6 +4964,7 @@ fn finish_lifecycle_operation(
 }
 
 impl RasterRenderPath {
+    #[cfg(any(test, feature = "qualification"))]
     fn inject_upload_failure(&self) -> Result<(), RasterResourceError> {
         if self.artifact.is_none() || self.installed_source_revision.is_some() {
             return Ok(());
@@ -5681,7 +5740,7 @@ mod convergence_tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let frontend = frontend(1, 4)?;
         let mut render_path = render_path(&frontend)?;
-        let controller = render_path.enable_lifecycle_control(false);
+        let controller = render_path.enable_lifecycle_control();
         controller.hold_next_cpu_generation_after_regions(1)?;
         render_path
             .submit_edit_outcome(changed(&frontend, 0)?)
@@ -5746,7 +5805,7 @@ mod convergence_tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let frontend = frontend(1, 2)?;
         let mut render_path = render_path(&frontend)?;
-        let controller = render_path.enable_lifecycle_control(true);
+        let controller = render_path.enable_lifecycle_control_with_hold(true);
         controller.submit(changed(&frontend, 0)?)?;
         for _ in 0..10_000 {
             render_path.advance_convergence_at_frame_boundary(None)?;
@@ -5813,7 +5872,7 @@ mod convergence_tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let frontend = frontend(1, 4)?;
         let mut render_path = render_path(&frontend)?;
-        let controller = render_path.enable_lifecycle_control(false);
+        let controller = render_path.enable_lifecycle_control();
         controller.hold_next_cpu_generation_after_regions(1)?;
         controller.submit(changed(&frontend, 0)?)?;
         render_path.advance_convergence_at_frame_boundary(None)?;
@@ -5866,7 +5925,7 @@ mod convergence_tests {
             .identity()
             .clone();
         let mut render_path = RasterRenderPath::new();
-        let controller = render_path.enable_lifecycle_control(false);
+        let controller = render_path.enable_lifecycle_control();
         let mut resources = fake_resources(identity, 1);
         resources.vertex_buffer_bytes = 400;
         resources.index_buffer_bytes = 200;
@@ -5894,7 +5953,7 @@ mod convergence_tests {
             .identity()
             .clone();
         let mut render_path = RasterRenderPath::new();
-        let controller = render_path.enable_lifecycle_control(false);
+        let controller = render_path.enable_lifecycle_control();
         let mut resources = fake_resources(identity, 1);
         resources.vertex_buffer_bytes = 400;
         resources.index_buffer_bytes = 200;
@@ -5929,7 +5988,7 @@ mod convergence_tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let frontend = frontend(1, 1)?;
         let mut render_path = render_path(&frontend)?;
-        let controller = render_path.enable_lifecycle_control(false);
+        let controller = render_path.enable_lifecycle_control();
         controller.begin_characterization()?;
         let observation_started_at = Instant::now();
 

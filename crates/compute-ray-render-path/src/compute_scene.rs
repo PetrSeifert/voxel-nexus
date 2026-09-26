@@ -407,10 +407,12 @@ pub enum ComputeSceneBuildError {
     },
     #[error("could not read a bounded Voxel Region")]
     VoxelFrontend(#[from] VoxelFrontendError),
+    #[cfg(any(test, feature = "qualification"))]
     #[error("the compute convergence preparation barrier is unavailable")]
     PreparationBarrier,
     #[error("the compute convergence control state is unavailable during preparation")]
     PreparationControl,
+    #[cfg(any(test, feature = "qualification"))]
     #[error("injected preparation failure")]
     InjectedPreparationFailure,
 }

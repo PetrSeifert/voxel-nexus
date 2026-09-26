@@ -221,12 +221,12 @@ if ($timingCollector.ExitCode -ne 0) {
     throw "Timing evidence collection failed with exit code $($timingCollector.ExitCode)."
 }
 
-Invoke-RequiredCommand -Name "generated-artifacts" -FilePath "cargo" -Arguments @("build", "--locked", "--workspace", "--all-targets")
+Invoke-RequiredCommand -Name "generated-artifacts" -FilePath "cargo" -Arguments @("build", "--locked", "--features", "qualification", "--workspace", "--all-targets")
 Invoke-RequiredCommand -Name "formatting" -FilePath "cargo" -Arguments @("fmt", "--all", "--", "--check")
-Invoke-RequiredCommand -Name "strict-clippy" -FilePath "cargo" -Arguments @("clippy", "--locked", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings")
-Invoke-RequiredCommand -Name "workspace-tests" -FilePath "cargo" -Arguments @("test", "--locked", "--workspace")
+Invoke-RequiredCommand -Name "strict-clippy" -FilePath "cargo" -Arguments @("clippy", "--locked", "--features", "qualification", "--workspace", "--all-targets", "--all-features", "--", "-D", "warnings")
+Invoke-RequiredCommand -Name "workspace-tests" -FilePath "cargo" -Arguments @("test", "--locked", "--features", "qualification", "--workspace")
 Invoke-RequiredCommand -Name "voxel-frontend-read" -FilePath "cargo" -Arguments @("test", "--locked", "--package", "voxel-frontend")
-Invoke-RequiredCommand -Name "diagnostic-surface" -FilePath "cargo" -Arguments @("test", "--locked", "--package", "raster-render-path", "--test", "derivation")
+Invoke-RequiredCommand -Name "diagnostic-surface" -FilePath "cargo" -Arguments @("test", "--locked", "--features", "qualification", "--package", "raster-render-path", "--test", "derivation")
 
 $lifecycleResult = Invoke-CapturedProcess `
     -FilePath "pwsh" `
@@ -459,15 +459,15 @@ $manifest = [ordered]@{
     scope = "Runtime execution proven only on this recorded Windows development machine."
     repository_revision = $revision
     reproduction_commands = @(
-        [ordered]@{ category = "generated_artifacts"; command = "cargo build --locked --workspace --all-targets" },
+        [ordered]@{ category = "generated_artifacts"; command = "cargo build --locked --features qualification --workspace --all-targets" },
         [ordered]@{ category = "formatting"; command = "cargo fmt --all -- --check" },
-        [ordered]@{ category = "lint"; command = "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings" },
-        [ordered]@{ category = "unit_and_integration"; command = "cargo test --locked --workspace" },
+        [ordered]@{ category = "lint"; command = "cargo clippy --locked --features qualification --workspace --all-targets --all-features -- -D warnings" },
+        [ordered]@{ category = "unit_and_integration"; command = "cargo test --locked --features qualification --workspace" },
         [ordered]@{ category = "voxel_frontend_read"; command = "cargo test --locked --package voxel-frontend" },
-        [ordered]@{ category = "diagnostic_surface"; command = "cargo test --locked --package raster-render-path --test derivation" },
+        [ordered]@{ category = "diagnostic_surface"; command = "cargo test --locked --features qualification --package raster-render-path --test derivation" },
         [ordered]@{ category = "lifecycle"; command = "pwsh -NoProfile -File scripts/verify-windows-lifecycle.ps1 -EvidenceDirectory docs/evidence/milestone-completion/lifecycle-reproduction -CaptureCanonicalInspectionSet -VideoFile milestone-proof.mkv" },
-        [ordered]@{ category = "deterministic_failure"; command = "cargo test --locked --package desktop-demo --test render_path_failures" },
-        [ordered]@{ category = "prerequisite_regression"; command = "cargo test --locked --package desktop-demo --test unsupported_prerequisites" },
+        [ordered]@{ category = "deterministic_failure"; command = "cargo test --locked --features qualification --package desktop-demo --test render_path_failures" },
+        [ordered]@{ category = "prerequisite_regression"; command = "cargo test --locked --features qualification --package desktop-demo --test unsupported_prerequisites" },
         [ordered]@{ category = "bundle_verification"; command = "cargo run --locked --package completion-evidence --bin verify-completion-evidence -- <bundle-directory>" }
     )
     video = [ordered]@{

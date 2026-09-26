@@ -159,7 +159,7 @@ impl ScenarioExecution<'_> {
                     .semantic_qualification
                     .register_compute(&mut replacement_path, &view)?;
                 if let Some(plan) = burst_plan {
-                    let controller = replacement_path.enable_convergence_control(true);
+                    let controller = replacement_path.enable_convergence_control_with_hold(true);
                     compute_burst_setup = Some((controller, plan));
                 }
                 self.desktop
@@ -177,7 +177,7 @@ impl ScenarioExecution<'_> {
                         view.scene_id().clone(),
                         revision,
                     );
-                let lifecycle_controller = replacement_path.enable_lifecycle_control(false);
+                let lifecycle_controller = replacement_path.enable_lifecycle_control();
                 self.state
                     .evidence
                     .semantic_qualification
@@ -190,7 +190,6 @@ impl ScenarioExecution<'_> {
                         self.desktop.render_configuration.raster_region_extent,
                         self.desktop.render_configuration.raster_region_extent,
                     ),
-                    None,
                     move |event| {
                         if event_proxy
                             .send_event(DesktopEvent::Preparation(event))
@@ -447,8 +446,8 @@ impl ScenarioExecution<'_> {
             .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
         self.desktop.compute_measurement_controller = Some(measurement_controller);
         self.desktop.compute_lifecycle_controller = Some(replacement.enable_lifecycle_control());
-        let milestone_burst =
-            milestone_burst_plan.map(|plan| (replacement.enable_convergence_control(true), plan));
+        let milestone_burst = milestone_burst_plan
+            .map(|plan| (replacement.enable_convergence_control_with_hold(true), plan));
         self.state
             .evidence
             .semantic_qualification

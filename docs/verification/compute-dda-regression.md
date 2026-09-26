@@ -3,7 +3,7 @@
 Run the installed Render Path regression on Windows with a Vulkan 1.3 GPU and the Vulkan validation layer:
 
 ```powershell
-cargo test --locked -p desktop-demo --test compute_dda_gpu -- --ignored --nocapture
+cargo test --locked --features qualification -p desktop-demo --test compute_dda_gpu -- --ignored --nocapture
 ```
 
 The test creates a hidden presentation window, installs the compute Render Path, dispatches its production shader, and reads observations through `ComputeSemanticRayController`. It compares scene identity, revision, hit or miss, voxel coordinate, material, contact classification, normal, and distance with the independent Semantic Ray oracle. Vulkan validation errors fail the test. Ordinary workspace tests skip this hardware-dependent test.

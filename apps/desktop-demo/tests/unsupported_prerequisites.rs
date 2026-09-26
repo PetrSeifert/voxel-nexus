@@ -1,3 +1,5 @@
+#![cfg(feature = "qualification")]
+
 use std::process::{Command, ExitStatus, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
