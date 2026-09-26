@@ -373,6 +373,8 @@ pub enum VoxelFrontendError {
     InvalidVolumeMetadata { identity: VoxelVolumeId },
     #[error("Voxel Volume {identity:?} is too large to address")]
     VolumeTooLarge { identity: VoxelVolumeId },
+    #[error("dense storage for Voxel Volume {identity:?} could not be allocated")]
+    VolumeAllocation { identity: VoxelVolumeId },
     #[error("dense batch {batch_index} for Voxel Volume {identity:?} has an empty region")]
     EmptyBatchRegion {
         identity: VoxelVolumeId,
@@ -708,7 +710,12 @@ fn validate_volume_metadata(metadata: &VoxelVolumeMetadata) -> Result<(), VoxelF
             identity: metadata.identity.clone(),
         });
     }
-    if metadata.extent.value_count().is_none() {
+    if RegionBounds::new(VoxelRegion::new(
+        VoxelCoordinate::new(0, 0, 0),
+        metadata.extent,
+    ))
+    .is_none()
+    {
         return Err(VoxelFrontendError::VolumeTooLarge {
             identity: metadata.identity.clone(),
         });
@@ -740,47 +747,50 @@ impl DenseStorage {
                 identity: volume.metadata.identity.clone(),
             }
         })?;
-        let mut values = vec![None; value_count];
-        for (batch_index, batch) in volume.batches.iter().enumerate() {
-            let bounds = RegionBounds::new(batch.region).ok_or_else(|| {
-                if batch.region.extent.is_empty() {
-                    VoxelFrontendError::EmptyBatchRegion {
-                        identity: volume.metadata.identity.clone(),
-                        batch_index,
-                    }
-                } else {
-                    VoxelFrontendError::InvalidBatchBounds {
-                        identity: volume.metadata.identity.clone(),
-                        batch_index,
-                    }
-                }
-            })?;
-            if bounds.start_x < 0
-                || bounds.start_y < 0
-                || bounds.start_z < 0
-                || u32::try_from(bounds.end_x).ok() > Some(volume.metadata.extent.width)
-                || u32::try_from(bounds.end_y).ok() > Some(volume.metadata.extent.height)
-                || u32::try_from(bounds.end_z).ok() > Some(volume.metadata.extent.depth)
+        for element_size in [size_of::<Option<VoxelValue>>(), size_of::<VoxelValue>()] {
+            if value_count
+                .checked_mul(element_size)
+                .is_none_or(|bytes| bytes > isize::MAX as usize)
             {
-                return Err(VoxelFrontendError::BatchOutsideVolume {
+                return Err(VoxelFrontendError::VolumeTooLarge {
                     identity: volume.metadata.identity.clone(),
-                    batch_index,
                 });
             }
-            let expected = batch.region.extent.value_count().ok_or_else(|| {
-                VoxelFrontendError::InvalidBatchBounds {
+        }
+        let mut supplied_count = 0usize;
+        for (batch_index, batch) in volume.batches.iter().enumerate() {
+            validate_dense_batch(
+                batch,
+                batch_index,
+                &volume.metadata.identity,
+                volume.metadata.extent,
+            )?;
+            supplied_count = supplied_count
+                .checked_add(batch.values.len())
+                .ok_or_else(|| VoxelFrontendError::VolumeTooLarge {
                     identity: volume.metadata.identity.clone(),
-                    batch_index,
-                }
-            })?;
-            if batch.values.len() != expected {
-                return Err(VoxelFrontendError::BatchValueCount {
-                    identity: volume.metadata.identity.clone(),
-                    batch_index,
-                    expected,
-                    actual: batch.values.len(),
-                });
+                })?;
+        }
+        if supplied_count < value_count {
+            return Err(VoxelFrontendError::IncompleteVolume {
+                identity: volume.metadata.identity.clone(),
+            });
+        }
+        let mut values = Vec::new();
+        values.try_reserve_exact(value_count).map_err(|_| {
+            VoxelFrontendError::VolumeAllocation {
+                identity: volume.metadata.identity.clone(),
             }
+        })?;
+        values.resize(value_count, None);
+        for (batch_index, batch) in volume.batches.iter().enumerate() {
+            let bounds = validate_dense_batch(
+                batch,
+                batch_index,
+                &volume.metadata.identity,
+                volume.metadata.extent,
+            )?;
+            let expected = batch.values.len();
 
             for (batch_value_index, coordinate) in bounds.coordinates().enumerate() {
                 let value = batch.values.get(batch_value_index).ok_or_else(|| {
@@ -822,15 +832,20 @@ impl DenseStorage {
                 *destination = Some(value.clone());
             }
         }
-        let values = values
-            .into_iter()
-            .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| VoxelFrontendError::IncompleteVolume {
+        let mut dense_values = Vec::new();
+        dense_values.try_reserve_exact(value_count).map_err(|_| {
+            VoxelFrontendError::VolumeAllocation {
                 identity: volume.metadata.identity.clone(),
-            })?;
+            }
+        })?;
+        for value in values {
+            dense_values.push(value.ok_or_else(|| VoxelFrontendError::IncompleteVolume {
+                identity: volume.metadata.identity.clone(),
+            })?);
+        }
         Ok(Self {
             extent: volume.metadata.extent,
-            values,
+            values: dense_values,
         })
     }
 
@@ -840,6 +855,55 @@ impl DenseStorage {
             None => &VoxelValue::Empty,
         }
     }
+}
+
+fn validate_dense_batch(
+    batch: &DenseVoxelBatch,
+    batch_index: usize,
+    volume_identity: &VoxelVolumeId,
+    volume_extent: VoxelExtent,
+) -> Result<RegionBounds, VoxelFrontendError> {
+    let bounds = RegionBounds::new(batch.region).ok_or_else(|| {
+        if batch.region.extent.is_empty() {
+            VoxelFrontendError::EmptyBatchRegion {
+                identity: volume_identity.clone(),
+                batch_index,
+            }
+        } else {
+            VoxelFrontendError::InvalidBatchBounds {
+                identity: volume_identity.clone(),
+                batch_index,
+            }
+        }
+    })?;
+    if bounds.start_x < 0
+        || bounds.start_y < 0
+        || bounds.start_z < 0
+        || u32::try_from(bounds.end_x).ok() > Some(volume_extent.width)
+        || u32::try_from(bounds.end_y).ok() > Some(volume_extent.height)
+        || u32::try_from(bounds.end_z).ok() > Some(volume_extent.depth)
+    {
+        return Err(VoxelFrontendError::BatchOutsideVolume {
+            identity: volume_identity.clone(),
+            batch_index,
+        });
+    }
+    let expected = batch.region.extent.value_count().ok_or_else(|| {
+        VoxelFrontendError::InvalidBatchBounds {
+            identity: volume_identity.clone(),
+            batch_index,
+        }
+    })?;
+    if batch.values.len() != expected {
+        return Err(VoxelFrontendError::BatchValueCount {
+            identity: volume_identity.clone(),
+            batch_index,
+            expected,
+            actual: batch.values.len(),
+        });
+    }
+
+    Ok(bounds)
 }
 
 fn dense_index(extent: VoxelExtent, coordinate: VoxelCoordinate) -> Option<usize> {

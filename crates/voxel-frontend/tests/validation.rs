@@ -43,6 +43,57 @@ fn scene(materials: Vec<VoxelMaterial>, volumes: Vec<DenseVoxelVolume>) -> Dense
 }
 
 #[test]
+fn oversized_publication_returns_an_error_without_changing_state()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = VoxelFrontend::new();
+    let oversized_scene = || {
+        scene(
+            Vec::new(),
+            vec![DenseVoxelVolume::new(
+                VoxelVolumeMetadata::new(
+                    VoxelVolumeId::new("oversized"),
+                    VoxelExtent::new(u32::MAX, u32::MAX, 1),
+                    [0.0; 3],
+                    1.0,
+                ),
+                Vec::new(),
+            )],
+        )
+    };
+    let error = expected_error(
+        frontend.publish(oversized_scene()),
+        "oversized publication succeeded",
+    )?;
+    assert!(
+        matches!(error, VoxelFrontendError::VolumeTooLarge { identity } if identity == VoxelVolumeId::new("oversized"))
+    );
+    assert!(matches!(
+        frontend.scene_view(),
+        Err(VoxelFrontendError::SceneNotPublished)
+    ));
+
+    let retained = frontend.publish(scene(
+        Vec::new(),
+        vec![one_voxel_volume("terrain", VoxelValue::Empty)],
+    ))?;
+    expected_error(
+        frontend.publish(oversized_scene()),
+        "oversized replacement succeeded",
+    )?;
+    let current = frontend.scene_view()?;
+    assert_eq!(current.scene_id(), retained.scene_id());
+    assert_eq!(current.revision(), retained.revision());
+    assert_eq!(current.materials(), retained.materials());
+    assert_eq!(current.volumes(), retained.volumes());
+    let region = VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(1, 1, 1));
+    assert_eq!(
+        current.read_region(&VoxelVolumeId::new("terrain"), region)?,
+        retained.read_region(&VoxelVolumeId::new("terrain"), region)?
+    );
+    Ok(())
+}
+
+#[test]
 fn publication_rejects_duplicate_catalogue_identities() -> Result<(), Box<dyn std::error::Error>> {
     let frontend = VoxelFrontend::new();
     let duplicate_material_error = expected_error(
@@ -312,5 +363,125 @@ fn maximum_coordinate_is_a_valid_out_of_bounds_region() -> Result<(), Box<dyn st
         Some(&VoxelValue::Empty)
     );
 
+    Ok(())
+}
+
+#[test]
+fn publication_rejects_unaddressable_dimensions_counts_and_byte_capacities()
+-> Result<(), Box<dyn std::error::Error>> {
+    for extent in [
+        VoxelExtent::new((1 << 31) + 1, 1, 1),
+        VoxelExtent::new(1, (1 << 31) + 1, 1),
+        VoxelExtent::new(1, 1, (1 << 31) + 1),
+        VoxelExtent::new(1 << 31, 1 << 31, 1 << 31),
+        VoxelExtent::new(1 << 31, 1 << 31, 1),
+        VoxelExtent::new(1 << 29, 1 << 30, 1),
+    ] {
+        let frontend = VoxelFrontend::new();
+        let error = expected_error(
+            frontend.publish(scene(
+                Vec::new(),
+                vec![DenseVoxelVolume::new(
+                    VoxelVolumeMetadata::new(
+                        VoxelVolumeId::new("too-large"),
+                        extent,
+                        [0.0; 3],
+                        1.0,
+                    ),
+                    Vec::new(),
+                )],
+            )),
+            "unaddressable volume should fail",
+        )?;
+        assert!(
+            matches!(error, VoxelFrontendError::VolumeTooLarge { identity } if identity == VoxelVolumeId::new("too-large"))
+        );
+        assert!(matches!(
+            frontend.scene_view(),
+            Err(VoxelFrontendError::SceneNotPublished)
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn large_addressable_volume_validates_batches_before_allocating()
+-> Result<(), Box<dyn std::error::Error>> {
+    let extent = VoxelExtent::new(1 << 26, 1, 1);
+    for (batches, expected_context) in [
+        (Vec::new(), "does not provide every coordinate"),
+        (
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                Vec::new(),
+            )],
+            "contains 0 values",
+        ),
+        (
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(0, 1, 1)),
+                Vec::new(),
+            )],
+            "empty region",
+        ),
+        (
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(
+                    VoxelCoordinate::new(i32::MAX, 0, 0),
+                    VoxelExtent::new(2, 1, 1),
+                ),
+                Vec::new(),
+            )],
+            "invalid coordinate bounds",
+        ),
+        (
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(-1, 0, 0), VoxelExtent::new(1, 1, 1)),
+                vec![VoxelValue::Empty],
+            )],
+            "outside the volume extent",
+        ),
+    ] {
+        let frontend = VoxelFrontend::new();
+        let error = expected_error(
+            frontend.publish(scene(
+                Vec::new(),
+                vec![DenseVoxelVolume::new(
+                    VoxelVolumeMetadata::new(VoxelVolumeId::new("large"), extent, [0.0; 3], 1.0),
+                    batches,
+                )],
+            )),
+            "malformed large volume should fail",
+        )?;
+        assert!(error.to_string().contains(expected_context), "{error}");
+        assert!(error.to_string().contains("large"));
+        assert!(matches!(
+            frontend.scene_view(),
+            Err(VoxelFrontendError::SceneNotPublished)
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+#[cfg(target_pointer_width = "64")]
+fn maximum_addressable_dimension_reaches_batch_validation() -> Result<(), Box<dyn std::error::Error>>
+{
+    let error = expected_error(
+        VoxelFrontend::new().publish(scene(
+            Vec::new(),
+            vec![DenseVoxelVolume::new(
+                VoxelVolumeMetadata::new(
+                    VoxelVolumeId::new("boundary"),
+                    VoxelExtent::new(1 << 31, 1, 1),
+                    [0.0; 3],
+                    1.0,
+                ),
+                Vec::new(),
+            )],
+        )),
+        "missing batches should fail",
+    )?;
+    assert!(matches!(error, VoxelFrontendError::IncompleteVolume { .. }));
     Ok(())
 }
