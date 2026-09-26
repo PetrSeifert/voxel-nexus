@@ -5,6 +5,21 @@ use thiserror::Error;
 
 #[cfg(test)]
 mod sharing_tests;
+mod storage_tier;
+use storage_tier::{SparseStorage, Storage};
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum StorageTier {
+    #[default]
+    Dense,
+    SparsePages,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum VoxelRegionContent {
+    Uniform(VoxelValue),
+    Mixed,
+}
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct VoxelSceneId(Arc<str>);
@@ -210,11 +225,21 @@ impl DenseVoxelBatch {
 pub struct DenseVoxelVolume {
     metadata: VoxelVolumeMetadata,
     batches: Vec<DenseVoxelBatch>,
+    storage_tier: StorageTier,
 }
 
 impl DenseVoxelVolume {
     pub fn new(metadata: VoxelVolumeMetadata, batches: Vec<DenseVoxelBatch>) -> Self {
-        Self { metadata, batches }
+        Self {
+            metadata,
+            batches,
+            storage_tier: StorageTier::Dense,
+        }
+    }
+
+    pub fn with_storage_tier(mut self, storage_tier: StorageTier) -> Self {
+        self.storage_tier = storage_tier;
+        self
     }
 }
 
@@ -239,6 +264,12 @@ impl DenseVoxelScene {
             materials,
             volumes,
         }
+    }
+    pub fn with_storage_tier(mut self, storage_tier: StorageTier) -> Self {
+        for volume in &mut self.volumes {
+            volume.storage_tier = storage_tier;
+        }
+        self
     }
 }
 
@@ -515,7 +546,7 @@ impl VoxelFrontend {
             .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
                 identity: command.volume_identity.clone(),
             })?;
-        let storage_index = dense_index(volume.extent, command.coordinate).ok_or_else(|| {
+        dense_index(volume.extent(), command.coordinate).ok_or_else(|| {
             VoxelFrontendError::EditCoordinateOutsideVolume {
                 identity: command.volume_identity.clone(),
                 coordinate: command.coordinate,
@@ -532,13 +563,8 @@ impl VoxelFrontend {
                     material_identity: material_identity.clone(),
                 })?,
         };
-        let current_value = volume.get(storage_index).ok_or_else(|| {
-            VoxelFrontendError::EditCoordinateOutsideVolume {
-                identity: command.volume_identity.clone(),
-                coordinate: command.coordinate,
-            }
-        })?;
-        if current_value == &value_index {
+        let current_value = volume.value(command.coordinate);
+        if current_value == value_index {
             return Ok(VoxelEditOutcome::Unchanged(VoxelSceneView {
                 published: Arc::clone(published),
             }));
@@ -559,13 +585,7 @@ impl VoxelFrontend {
             .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
                 identity: command.volume_identity.clone(),
             })?;
-        let successor_value = successor_volume.get_mut(storage_index).ok_or_else(|| {
-            VoxelFrontendError::EditCoordinateOutsideVolume {
-                identity: command.volume_identity.clone(),
-                coordinate: command.coordinate,
-            }
-        })?;
-        *successor_value = value_index;
+        *successor_volume = volume.successor(command.coordinate, value_index);
 
         let change_set = VoxelChangeSet {
             scene_identity: successor.identity.clone(),
@@ -629,14 +649,7 @@ impl VoxelSceneView {
                 actual: values.len(),
             });
         }
-        for (destination, coordinate) in values.iter_mut().zip(bounds.coordinates()) {
-            *destination = self
-                .published
-                .palette_values
-                .get(volume.value(coordinate).0 as usize)
-                .cloned()
-                .unwrap_or(VoxelValue::Empty);
-        }
+        volume.read_region_into(&bounds, &self.published.palette_values, values);
         Ok(())
     }
 
@@ -666,11 +679,43 @@ impl VoxelSceneView {
         Ok(samples)
     }
 
+    pub fn region_content(
+        &self,
+        volume_identity: &VoxelVolumeId,
+        region: VoxelRegion,
+    ) -> Result<VoxelRegionContent, VoxelFrontendError> {
+        let (volume, bounds, _) = self.region_read(volume_identity, region)?;
+        Ok(match volume.uniform_region(&bounds) {
+            Some(index) => VoxelRegionContent::Uniform(
+                self.published
+                    .palette_values
+                    .get(index.0 as usize)
+                    .cloned()
+                    .unwrap_or(VoxelValue::Empty),
+            ),
+            None => VoxelRegionContent::Mixed,
+        })
+    }
+
+    /// Estimated owned storage bytes, excluding allocator overhead and shared scene metadata.
+    pub fn storage_bytes(
+        &self,
+        volume_identity: &VoxelVolumeId,
+    ) -> Result<usize, VoxelFrontendError> {
+        self.published
+            .volumes
+            .get(volume_identity)
+            .map(|volume| volume.storage_bytes())
+            .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
+                identity: volume_identity.clone(),
+            })
+    }
+
     fn region_read(
         &self,
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
-    ) -> Result<(&DenseStorage, RegionBounds, usize), VoxelFrontendError> {
+    ) -> Result<(&dyn Storage, RegionBounds, usize), VoxelFrontendError> {
         let volume = self.published.volumes.get(volume_identity).ok_or_else(|| {
             VoxelFrontendError::UnknownVolumeIdentity {
                 identity: volume_identity.clone(),
@@ -694,7 +739,7 @@ impl VoxelSceneView {
                 .ok_or_else(|| VoxelFrontendError::InvalidRegionBounds {
                     identity: volume_identity.clone(),
                 })?;
-        Ok((volume, bounds, capacity))
+        Ok((volume.as_ref(), bounds, capacity))
     }
 }
 
@@ -706,7 +751,7 @@ struct PublishedScene {
     material_indices: Arc<HashMap<VoxelMaterialId, MaterialIndex>>,
     palette_values: Arc<[VoxelValue]>,
     volume_metadata: Arc<[VoxelVolumeMetadata]>,
-    volumes: HashMap<VoxelVolumeId, DenseStorage>,
+    volumes: HashMap<VoxelVolumeId, Arc<dyn Storage>>,
 }
 
 impl TryFrom<DenseVoxelScene> for PublishedScene {
@@ -756,7 +801,11 @@ impl TryFrom<DenseVoxelScene> for PublishedScene {
                 return Err(VoxelFrontendError::DuplicateVolumeIdentity { identity });
             }
             validate_volume_metadata(&volume.metadata)?;
-            let storage = DenseStorage::from_batches(&volume, &material_identities)?;
+            let dense = DenseStorage::from_batches(&volume, &material_identities)?;
+            let storage: Arc<dyn Storage> = match volume.storage_tier {
+                StorageTier::Dense => Arc::new(dense),
+                StorageTier::SparsePages => Arc::new(SparseStorage::from_dense(dense)),
+            };
             volume_metadata.push(volume.metadata);
             volumes.insert(identity, storage);
         }

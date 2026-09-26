@@ -286,6 +286,7 @@ version = "0.1.0"
 dependencies = [
  "ash",
  "canonical-scene",
+ "raster-render-path",
  "render-backend",
  "semantic-ray-oracle",
  "shaderc",

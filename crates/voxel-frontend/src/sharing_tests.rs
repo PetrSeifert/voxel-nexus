@@ -39,12 +39,18 @@ fn revisions_share_all_but_the_edited_page() -> Result<(), Box<dyn std::error::E
             .published
             .volumes
             .get(&edited)
-            .ok_or("missing volume")?;
+            .ok_or("missing volume")?
+            .as_any()
+            .downcast_ref::<DenseStorage>()
+            .ok_or("expected dense storage")?;
         let next_storage = successor
             .published
             .volumes
             .get(&edited)
-            .ok_or("missing volume")?;
+            .ok_or("missing volume")?
+            .as_any()
+            .downcast_ref::<DenseStorage>()
+            .ok_or("expected dense storage")?;
         let edited_page = usize::try_from(coordinate)? / DenseStorage::PAGE_VALUES;
         assert_eq!(previous_storage.pages.len(), next_storage.pages.len());
         let mut copied_values = 0;
@@ -66,12 +72,18 @@ fn revisions_share_all_but_the_edited_page() -> Result<(), Box<dyn std::error::E
                 .volumes
                 .get(&unrelated)
                 .ok_or("missing volume")?
+                .as_any()
+                .downcast_ref::<DenseStorage>()
+                .ok_or("expected dense storage")?
                 .pages,
             &successor
                 .published
                 .volumes
                 .get(&unrelated)
                 .ok_or("missing volume")?
+                .as_any()
+                .downcast_ref::<DenseStorage>()
+                .ok_or("expected dense storage")?
                 .pages,
         ));
         assert!(Arc::ptr_eq(
@@ -167,7 +179,10 @@ fn palette_indices_are_compact_and_scene_local() -> Result<(), Box<dyn std::erro
             .published
             .volumes
             .get(&volume)
-            .ok_or("missing volume")?;
+            .ok_or("missing volume")?
+            .as_any()
+            .downcast_ref::<DenseStorage>()
+            .ok_or("expected dense storage")?;
         assert_eq!(
             storage
                 .pages
