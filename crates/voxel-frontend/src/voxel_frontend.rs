@@ -447,6 +447,14 @@ pub enum VoxelFrontendError {
         scene_identity: VoxelSceneId,
         revision: VoxelSceneRevision,
     },
+    #[error(
+        "Voxel Region buffer for Voxel Volume {identity:?} contains {actual} values but requires {expected}"
+    )]
+    RegionBufferSize {
+        identity: VoxelVolumeId,
+        expected: usize,
+        actual: usize,
+    },
     #[error("Voxel Region request for Voxel Volume {identity:?} has an empty extent")]
     EmptyRegionRequest { identity: VoxelVolumeId },
     #[error("Voxel Region request for Voxel Volume {identity:?} has invalid coordinate bounds")]
@@ -604,11 +612,65 @@ impl VoxelSceneView {
         &self.published.volume_metadata
     }
 
+    /// Writes values in x-fastest, then y, then z order, relative to the region origin.
+    /// The buffer must contain exactly width * height * depth values. Coordinates
+    /// outside the volume are empty. Invalid requests leave the buffer unchanged.
+    pub fn read_region_into(
+        &self,
+        volume_identity: &VoxelVolumeId,
+        region: VoxelRegion,
+        values: &mut [VoxelValue],
+    ) -> Result<(), VoxelFrontendError> {
+        let (volume, bounds, capacity) = self.region_read(volume_identity, region)?;
+        if values.len() != capacity {
+            return Err(VoxelFrontendError::RegionBufferSize {
+                identity: volume_identity.clone(),
+                expected: capacity,
+                actual: values.len(),
+            });
+        }
+        for (destination, coordinate) in values.iter_mut().zip(bounds.coordinates()) {
+            *destination = self
+                .published
+                .palette_values
+                .get(volume.value(coordinate).0 as usize)
+                .cloned()
+                .unwrap_or(VoxelValue::Empty);
+        }
+        Ok(())
+    }
+
     pub fn read_region(
         &self,
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
     ) -> Result<Vec<VoxelSample>, VoxelFrontendError> {
+        let (volume, bounds, capacity) = self.region_read(volume_identity, region)?;
+        let mut samples = Vec::new();
+        samples.try_reserve_exact(capacity).map_err(|_| {
+            VoxelFrontendError::RegionReadAllocation {
+                identity: volume_identity.clone(),
+            }
+        })?;
+        for coordinate in bounds.coordinates() {
+            samples.push(VoxelSample {
+                coordinate,
+                value: self
+                    .published
+                    .palette_values
+                    .get(volume.value(coordinate).0 as usize)
+                    .cloned()
+                    .unwrap_or(VoxelValue::Empty),
+            });
+        }
+        Ok(samples)
+    }
+
+    fn region_read(
+        &self,
+        volume_identity: &VoxelVolumeId,
+        region: VoxelRegion,
+    ) -> Result<(&DenseStorage, RegionBounds, usize), VoxelFrontendError> {
         let volume = self.published.volumes.get(volume_identity).ok_or_else(|| {
             VoxelFrontendError::UnknownVolumeIdentity {
                 identity: volume_identity.clone(),
@@ -632,24 +694,7 @@ impl VoxelSceneView {
                 .ok_or_else(|| VoxelFrontendError::InvalidRegionBounds {
                     identity: volume_identity.clone(),
                 })?;
-        let mut samples = Vec::new();
-        samples.try_reserve_exact(capacity).map_err(|_| {
-            VoxelFrontendError::RegionReadAllocation {
-                identity: volume_identity.clone(),
-            }
-        })?;
-        for coordinate in bounds.coordinates() {
-            samples.push(VoxelSample {
-                coordinate,
-                value: self
-                    .published
-                    .palette_values
-                    .get(volume.value(coordinate).0 as usize)
-                    .cloned()
-                    .unwrap_or(VoxelValue::Empty),
-            });
-        }
-        Ok(samples)
+        Ok((volume, bounds, capacity))
     }
 }
 

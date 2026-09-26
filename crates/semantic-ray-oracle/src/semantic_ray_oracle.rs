@@ -302,6 +302,10 @@ pub enum SemanticRayDistanceToleranceError {
 
 #[derive(Debug, Error)]
 pub enum SemanticRayOracleError {
+    #[error("Semantic Ray oracle volume dimensions overflowed")]
+    ArithmeticOverflow,
+    #[error("Semantic Ray oracle values could not be allocated")]
+    Allocation,
     #[error("could not read the pinned Voxel Scene View")]
     VoxelFrontend(#[from] VoxelFrontendError),
 }
@@ -312,20 +316,40 @@ pub fn observe(
 ) -> Result<SemanticRayObservation, SemanticRayOracleError> {
     let mut nearest_contact: Option<SemanticRayContact> = None;
     for volume in view.volumes() {
-        let samples = view.read_region(
+        let [width, height, depth] = volume.extent().dimensions();
+        let value_count = [width, height, depth]
+            .into_iter()
+            .try_fold(1_usize, |count, dimension| {
+                count.checked_mul(usize::try_from(dimension).ok()?)
+            })
+            .ok_or(SemanticRayOracleError::ArithmeticOverflow)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(value_count)
+            .map_err(|_| SemanticRayOracleError::Allocation)?;
+        values.resize(value_count, VoxelValue::Empty);
+        view.read_region_into(
             volume.identity(),
             VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), volume.extent()),
+            &mut values,
         )?;
-        for sample in samples {
-            let VoxelValue::Occupied(material_identity) = sample.value() else {
+        let coordinates = (0..depth)
+            .flat_map(|z| (0..height).flat_map(move |y| (0..width).map(move |x| (x, y, z))));
+        for (value, (x, y, z)) in values.iter().zip(coordinates) {
+            let VoxelValue::Occupied(material_identity) = value else {
                 continue;
             };
-            let Some(intersection) = intersect_cell(ray, volume, sample.coordinate()) else {
+            let coordinate = VoxelCoordinate::new(
+                i32::try_from(x).map_err(|_| SemanticRayOracleError::ArithmeticOverflow)?,
+                i32::try_from(y).map_err(|_| SemanticRayOracleError::ArithmeticOverflow)?,
+                i32::try_from(z).map_err(|_| SemanticRayOracleError::ArithmeticOverflow)?,
+            );
+            let Some(intersection) = intersect_cell(ray, volume, coordinate) else {
                 continue;
             };
             let contact = SemanticRayContact {
                 volume_identity: volume.identity().clone(),
-                coordinate: sample.coordinate(),
+                coordinate,
                 material_identity: material_identity.clone(),
                 distance: intersection.distance,
                 classification: intersection.classification,

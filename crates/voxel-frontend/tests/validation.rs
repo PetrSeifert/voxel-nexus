@@ -485,3 +485,119 @@ fn maximum_addressable_dimension_reaches_batch_validation() -> Result<(), Box<dy
     assert!(matches!(error, VoxelFrontendError::IncompleteVolume { .. }));
     Ok(())
 }
+
+#[test]
+fn dense_region_reads_preserve_order_overlap_and_reused_buffer_contents()
+-> Result<(), Box<dyn std::error::Error>> {
+    let extent = VoxelExtent::new(3, 2, 2);
+    let materials = (0..12)
+        .map(|index| material(&format!("material-{index}")))
+        .collect();
+    let expected: Vec<_> = (0..12)
+        .map(|index| VoxelValue::Occupied(VoxelMaterialId::new(format!("material-{index}"))))
+        .collect();
+    let identity = VoxelVolumeId::new("terrain");
+    let view = VoxelFrontend::new().publish(scene(
+        materials,
+        vec![DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(identity.clone(), extent, [0.0; 3], 1.0),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                expected.clone(),
+            )],
+        )],
+    ))?;
+    let mut values = vec![VoxelValue::Empty; 12];
+    view.read_region_into(
+        &identity,
+        VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+        &mut values,
+    )?;
+    assert_eq!(values, expected);
+
+    for origin in [
+        VoxelCoordinate::new(-1, -1, -1),
+        VoxelCoordinate::new(1, 1, 1),
+    ] {
+        let region = VoxelRegion::new(origin, extent);
+        view.read_region_into(&identity, region, &mut values)?;
+        let [origin_x, origin_y, origin_z] = origin.components();
+        let mut expected_overlap = Vec::new();
+        for z in origin_z..origin_z + 2 {
+            for y in origin_y..origin_y + 2 {
+                for x in origin_x..origin_x + 3 {
+                    expected_overlap.push(
+                        if (0..3).contains(&x) && (0..2).contains(&y) && (0..2).contains(&z) {
+                            VoxelValue::Occupied(VoxelMaterialId::new(format!(
+                                "material-{}",
+                                x + 3 * y + 6 * z
+                            )))
+                        } else {
+                            VoxelValue::Empty
+                        },
+                    );
+                }
+            }
+        }
+        assert_eq!(values, expected_overlap);
+    }
+    for origin in [
+        VoxelCoordinate::new(i32::MIN, 0, 0),
+        VoxelCoordinate::new(i32::MAX - 2, 0, 0),
+    ] {
+        view.read_region_into(&identity, VoxelRegion::new(origin, extent), &mut values)?;
+        assert_eq!(values, vec![VoxelValue::Empty; 12]);
+    }
+    Ok(())
+}
+
+#[test]
+fn dense_region_read_errors_leave_buffers_unchanged() -> Result<(), Box<dyn std::error::Error>> {
+    let view = VoxelFrontend::new().publish(scene(
+        Vec::new(),
+        vec![one_voxel_volume("terrain", VoxelValue::Empty)],
+    ))?;
+    let identity = VoxelVolumeId::new("terrain");
+    let region = VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(2, 2, 2));
+    for actual in [0, 7, 9] {
+        let mut values = vec![VoxelValue::Occupied(VoxelMaterialId::new("sentinel")); actual];
+        let unchanged = values.clone();
+        let error = expected_error(
+            view.read_region_into(&identity, region, &mut values),
+            "buffer mismatch accepted",
+        )?;
+        assert!(
+            matches!(error, VoxelFrontendError::RegionBufferSize { expected: 8, actual: count, .. } if count == actual)
+        );
+        assert_eq!(values, unchanged);
+    }
+    let mut values = vec![VoxelValue::Occupied(VoxelMaterialId::new("sentinel"))];
+    let unchanged = values.clone();
+    assert!(matches!(
+        view.read_region_into(&VoxelVolumeId::new("missing"), region, &mut values),
+        Err(VoxelFrontendError::UnknownVolumeIdentity { .. })
+    ));
+    assert_eq!(values, unchanged);
+    assert!(matches!(
+        view.read_region_into(
+            &identity,
+            VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(0, 1, 1)),
+            &mut values
+        ),
+        Err(VoxelFrontendError::EmptyRegionRequest { .. })
+    ));
+    assert_eq!(values, unchanged);
+    assert!(matches!(
+        view.read_region_into(
+            &identity,
+            VoxelRegion::new(
+                VoxelCoordinate::new(i32::MAX, 0, 0),
+                VoxelExtent::new(2, 1, 1)
+            ),
+            &mut values
+        ),
+        Err(VoxelFrontendError::InvalidRegionBounds { .. })
+    ));
+    assert_eq!(values, unchanged);
+    Ok(())
+}

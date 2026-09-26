@@ -2186,8 +2186,6 @@ pub enum RasterArtifactBuildCause {
     AllocationFailed,
     #[error("logical Voxel Region read failed: {0}")]
     VoxelRead(#[source] VoxelFrontendError),
-    #[error("logical Voxel Region read returned an invalid or incomplete volume")]
-    InvalidVoxelRead,
     #[error("occupied coordinate references unknown Voxel Material {0:?}")]
     UnknownMaterial(VoxelMaterialId),
     #[error("scene-space coordinate transform produced a non-finite value")]
@@ -2270,61 +2268,23 @@ pub fn derive_raster_artifact(
             RasterArtifactBuildCause::AllocationFailed,
         )
     })?;
-    values.resize(value_count, None);
-    let samples = view
-        .read_region(
-            volume_identity,
-            VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), metadata.extent()),
+    values.resize(value_count, VoxelValue::Empty);
+    view.read_region_into(
+        volume_identity,
+        VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), metadata.extent()),
+        &mut values,
+    )
+    .map_err(|error| {
+        build_error(
+            source_revision,
+            RasterArtifactBuildPhase::VoxelRead,
+            RasterArtifactBuildCause::VoxelRead(error),
         )
-        .map_err(|error| {
-            build_error(
-                source_revision,
-                RasterArtifactBuildPhase::VoxelRead,
-                RasterArtifactBuildCause::VoxelRead(error),
-            )
-        })?;
-    if samples.len() != value_count {
-        return Err(build_error(
-            source_revision,
-            RasterArtifactBuildPhase::VoxelRead,
-            RasterArtifactBuildCause::InvalidVoxelRead,
-        ));
-    }
-    for sample in samples {
-        let index = dense_index(dimensions, sample.coordinate()).ok_or_else(|| {
-            build_error(
-                source_revision,
-                RasterArtifactBuildPhase::VoxelRead,
-                RasterArtifactBuildCause::InvalidVoxelRead,
-            )
-        })?;
-        let destination = values.get_mut(index).ok_or_else(|| {
-            build_error(
-                source_revision,
-                RasterArtifactBuildPhase::VoxelRead,
-                RasterArtifactBuildCause::InvalidVoxelRead,
-            )
-        })?;
-        if destination.is_some() {
-            return Err(build_error(
-                source_revision,
-                RasterArtifactBuildPhase::VoxelRead,
-                RasterArtifactBuildCause::InvalidVoxelRead,
-            ));
-        }
-        *destination = Some(sample.value().clone());
-    }
-    if values.iter().any(Option::is_none) {
-        return Err(build_error(
-            source_revision,
-            RasterArtifactBuildPhase::VoxelRead,
-            RasterArtifactBuildCause::InvalidVoxelRead,
-        ));
-    }
+    })?;
 
     let mut pending_faces = Vec::new();
     for (index, value) in values.iter().enumerate() {
-        let Some(VoxelValue::Occupied(material_identity)) = value else {
+        let VoxelValue::Occupied(material_identity) = value else {
             continue;
         };
         let coordinate = coordinate_from_index(dimensions, index).ok_or_else(|| {
@@ -2601,65 +2561,47 @@ fn derive_raster_region(
     let source_revision = view.revision();
     let [core_x, core_y, core_z] = core.origin().components();
     let [core_width, core_height, core_depth] = core.extent().dimensions();
-    let core_end_x = core_x
-        .checked_add(
-            i32::try_from(core_width).map_err(|_| metadata_dimensions_error(source_revision))?,
-        )
+    let halo_extent = VoxelExtent::new(
+        core_width
+            .checked_add(2)
+            .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+        core_height
+            .checked_add(2)
+            .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+        core_depth
+            .checked_add(2)
+            .ok_or_else(|| metadata_dimensions_error(source_revision))?,
+    );
+    let dimensions = checked_dimensions(halo_extent)
         .ok_or_else(|| metadata_dimensions_error(source_revision))?;
-    let core_end_y = core_y
-        .checked_add(
-            i32::try_from(core_height).map_err(|_| metadata_dimensions_error(source_revision))?,
-        )
+    let value_count = dimensions
+        .iter()
+        .try_fold(1_usize, |count, dimension| count.checked_mul(*dimension))
         .ok_or_else(|| metadata_dimensions_error(source_revision))?;
-    let core_end_z = core_z
-        .checked_add(
-            i32::try_from(core_depth).map_err(|_| metadata_dimensions_error(source_revision))?,
+    let mut values = Vec::new();
+    values.try_reserve_exact(value_count).map_err(|_| {
+        build_error(
+            source_revision,
+            RasterArtifactBuildPhase::VoxelRead,
+            RasterArtifactBuildCause::AllocationFailed,
         )
-        .ok_or_else(|| metadata_dimensions_error(source_revision))?;
-    let face_neighbor_regions = [
-        core,
+    })?;
+    values.resize(value_count, VoxelValue::Empty);
+    view.read_region_into(
+        metadata.identity(),
         VoxelRegion::new(
-            VoxelCoordinate::new(core_x - 1, core_y, core_z),
-            VoxelExtent::new(1, core_height, core_depth),
+            VoxelCoordinate::new(core_x - 1, core_y - 1, core_z - 1),
+            halo_extent,
         ),
-        VoxelRegion::new(
-            VoxelCoordinate::new(core_end_x, core_y, core_z),
-            VoxelExtent::new(1, core_height, core_depth),
-        ),
-        VoxelRegion::new(
-            VoxelCoordinate::new(core_x, core_y - 1, core_z),
-            VoxelExtent::new(core_width, 1, core_depth),
-        ),
-        VoxelRegion::new(
-            VoxelCoordinate::new(core_x, core_end_y, core_z),
-            VoxelExtent::new(core_width, 1, core_depth),
-        ),
-        VoxelRegion::new(
-            VoxelCoordinate::new(core_x, core_y, core_z - 1),
-            VoxelExtent::new(core_width, core_height, 1),
-        ),
-        VoxelRegion::new(
-            VoxelCoordinate::new(core_x, core_y, core_end_z),
-            VoxelExtent::new(core_width, core_height, 1),
-        ),
-    ];
-    let mut values = HashMap::new();
-    for region in face_neighbor_regions {
-        let samples = view
-            .read_region(metadata.identity(), region)
-            .map_err(|error| {
-                build_error(
-                    source_revision,
-                    RasterArtifactBuildPhase::VoxelRead,
-                    RasterArtifactBuildCause::VoxelRead(error),
-                )
-            })?;
-        values.extend(
-            samples
-                .into_iter()
-                .map(|sample| (sample.coordinate(), sample.value().clone())),
-        );
-    }
+        &mut values,
+    )
+    .map_err(|error| {
+        build_error(
+            source_revision,
+            RasterArtifactBuildPhase::VoxelRead,
+            RasterArtifactBuildCause::VoxelRead(error),
+        )
+    })?;
     let mut pending_faces = Vec::new();
     for z_offset in 0..core_depth {
         for y_offset in 0..core_height {
@@ -2684,7 +2626,17 @@ fn derive_raster_region(
                         )
                         .ok_or_else(|| metadata_dimensions_error(source_revision))?,
                 );
-                let Some(VoxelValue::Occupied(material_identity)) = values.get(&coordinate) else {
+                let local_coordinate = VoxelCoordinate::new(
+                    i32::try_from(x_offset + 1)
+                        .map_err(|_| metadata_dimensions_error(source_revision))?,
+                    i32::try_from(y_offset + 1)
+                        .map_err(|_| metadata_dimensions_error(source_revision))?,
+                    i32::try_from(z_offset + 1)
+                        .map_err(|_| metadata_dimensions_error(source_revision))?,
+                );
+                let index = dense_index(dimensions, local_coordinate)
+                    .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+                let Some(VoxelValue::Occupied(material_identity)) = values.get(index) else {
                     continue;
                 };
                 let linear_base_color = view
@@ -2698,13 +2650,7 @@ fn derive_raster_region(
                         )
                     })?;
                 for normal in AXIS_NORMALS {
-                    let [offset_x, offset_y, offset_z] = normal.offset();
-                    let neighbor = VoxelCoordinate::new(
-                        coordinate.components()[0] + offset_x,
-                        coordinate.components()[1] + offset_y,
-                        coordinate.components()[2] + offset_z,
-                    );
-                    if !matches!(values.get(&neighbor), Some(VoxelValue::Occupied(_))) {
+                    if face_is_exposed(&values, dimensions, local_coordinate, normal) {
                         pending_faces.push(PendingFace {
                             coordinate,
                             normal,
@@ -4652,7 +4598,7 @@ fn offset_coordinate(coordinate: VoxelCoordinate, normal: AxisNormal) -> Option<
 }
 
 fn face_is_exposed(
-    values: &[Option<VoxelValue>],
+    values: &[VoxelValue],
     dimensions: [usize; 3],
     coordinate: VoxelCoordinate,
     normal: AxisNormal,
@@ -4660,7 +4606,7 @@ fn face_is_exposed(
     !offset_coordinate(coordinate, normal)
         .and_then(|neighbor| dense_index(dimensions, neighbor))
         .and_then(|neighbor_index| values.get(neighbor_index))
-        .is_some_and(|value| matches!(value, Some(VoxelValue::Occupied(_))))
+        .is_some_and(|value| matches!(value, VoxelValue::Occupied(_)))
 }
 
 fn face_positions(

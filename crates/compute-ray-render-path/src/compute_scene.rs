@@ -267,6 +267,11 @@ fn populate_volume_words(
     block_completed: &mut impl FnMut() -> Result<(), ComputeSceneBuildError>,
 ) -> Result<(), ComputeSceneBuildError> {
     let [width, height, depth] = volume.extent().dimensions();
+    let mut values = Vec::new();
+    let maximum_count = usize::try_from(REGION_READ_EDGE)?.pow(3);
+    values
+        .try_reserve_exact(maximum_count)
+        .map_err(|_| ComputeSceneBuildError::Allocation)?;
     for origin_z in (0..depth).step_by(REGION_READ_EDGE as usize) {
         for origin_y in (0..height).step_by(REGION_READ_EDGE as usize) {
             for origin_x in (0..width).step_by(REGION_READ_EDGE as usize) {
@@ -285,28 +290,43 @@ fn populate_volume_words(
                         REGION_READ_EDGE.min(depth - origin_z),
                     ),
                 );
-                for sample in view.read_region(volume.identity(), region)? {
-                    let local_index = dense_index(volume.extent(), sample.coordinate())
+                let [region_width, region_height, region_depth] = region.extent().dimensions();
+                let region_width = usize::try_from(region_width)?;
+                let region_height = usize::try_from(region_height)?;
+                let value_count = region_width * region_height * usize::try_from(region_depth)?;
+                values.resize(value_count, VoxelValue::Empty);
+                view.read_region_into(volume.identity(), region, &mut values)?;
+                for (row_index, row) in values.chunks_exact(region_width).enumerate() {
+                    let coordinate = VoxelCoordinate::new(
+                        i32::try_from(origin_x)?,
+                        i32::try_from(origin_y + u32::try_from(row_index % region_height)?)?,
+                        i32::try_from(origin_z + u32::try_from(row_index / region_height)?)?,
+                    );
+                    let local_index = dense_index(volume.extent(), coordinate)
                         .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
-                    let destination_index = usize::try_from(voxel_word_offset)?
+                    let destination_start = usize::try_from(voxel_word_offset)?
                         .checked_add(local_index)
                         .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
-                    let word = match sample.value() {
-                        VoxelValue::Empty => 0,
-                        VoxelValue::Occupied(material_identity) => material_indices
-                            .get(material_identity)
-                            .copied()
-                            .ok_or_else(|| ComputeSceneBuildError::UnknownMaterial {
-                                volume: volume.identity().clone(),
-                                material: material_identity.clone(),
-                            })?
-                            .checked_add(1)
-                            .ok_or(ComputeSceneBuildError::TooManyMaterials)?,
-                    };
-                    let destination = voxel_words
-                        .get_mut(destination_index)
+                    let destination_end = destination_start
+                        .checked_add(region_width)
                         .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
-                    *destination = word;
+                    let destinations = voxel_words
+                        .get_mut(destination_start..destination_end)
+                        .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+                    for (value, destination) in row.iter().zip(destinations) {
+                        *destination = match value {
+                            VoxelValue::Empty => 0,
+                            VoxelValue::Occupied(material_identity) => material_indices
+                                .get(material_identity)
+                                .copied()
+                                .ok_or_else(|| ComputeSceneBuildError::UnknownMaterial {
+                                    volume: volume.identity().clone(),
+                                    material: material_identity.clone(),
+                                })?
+                                .checked_add(1)
+                                .ok_or(ComputeSceneBuildError::TooManyMaterials)?,
+                        };
+                    }
                 }
                 block_completed()?;
             }

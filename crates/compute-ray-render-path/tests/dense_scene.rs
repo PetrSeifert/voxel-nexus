@@ -203,3 +203,49 @@ fn shared_camera_state_generates_pixel_center_rays_and_view_space_clipping()
     assert!(camera_semantic_ray(camera, extent, [101, 0]).is_err());
     Ok(())
 }
+
+#[test]
+fn dense_blocks_preserve_rows_across_all_axes_and_volume_offsets()
+-> Result<(), Box<dyn std::error::Error>> {
+    let material = VoxelMaterialId::new("stone");
+    let mut volumes = Vec::new();
+    let mut expected_words = Vec::new();
+    for (name, extent) in [
+        ("first", VoxelExtent::new(35, 34, 33)),
+        ("second", VoxelExtent::new(3, 2, 4)),
+    ] {
+        let [width, height, depth] = extent.dimensions();
+        let mut values = Vec::new();
+        for z in 0..depth {
+            for y in 0..height {
+                for x in 0..width {
+                    let occupied = (x + 2 * y + 3 * z) % 7 == 0;
+                    values.push(if occupied {
+                        VoxelValue::Occupied(material.clone())
+                    } else {
+                        VoxelValue::Empty
+                    });
+                    expected_words.push(u32::from(occupied));
+                }
+            }
+        }
+        volumes.push(DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(VoxelVolumeId::new(name), extent, [0.0; 3], 1.0),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                values,
+            )],
+        ));
+    }
+    let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("block-order"),
+        VoxelSceneRevision::new(1),
+        vec![VoxelMaterial::new(material, [0.5, 0.5, 0.5, 1.0])],
+        volumes,
+    ))?;
+    assert_eq!(
+        ComputeSceneBundle::from_view(&view)?.voxel_words(),
+        expected_words
+    );
+    Ok(())
+}
