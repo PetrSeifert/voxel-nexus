@@ -85,9 +85,18 @@ pub(super) enum RasterResourceError {
     StaleFrameTarget,
     #[error("the configured raster presentation target has no framebuffer for the acquired image")]
     MissingFramebuffer,
+    #[error("could not configure the raster material table: {0}")]
+    MaterialTable(vk::Result),
 }
 
 pub(super) struct RasterRegionGpuResources {
+    pub(super) material_buffer_bytes: u64,
+    pub(super) material_buffer: vk::Buffer,
+    pub(super) material_memory: vk::DeviceMemory,
+    pub(super) material_layout: vk::DescriptorSetLayout,
+    pub(super) material_pool: vk::DescriptorPool,
+    pub(super) material_set: vk::DescriptorSet,
+    pub(super) transform_constants: [u32; 8],
     pub(super) identity: RasterRegionIdentity,
     pub(super) vertex_buffer: vk::Buffer,
     pub(super) vertex_memory: vk::DeviceMemory,
@@ -108,7 +117,8 @@ impl RasterResourceError {
             | Self::UploadBuffer { .. }
             | Self::IndexCount
             | Self::VertexStride
-            | Self::BufferSize(_) => RasterArtifactInstallationPhase::Upload,
+            | Self::BufferSize(_)
+            | Self::MaterialTable(_) => RasterArtifactInstallationPhase::Upload,
             Self::LifecycleControl(_) => RasterArtifactInstallationPhase::Upload,
             Self::ArtifactGate(_) => RasterArtifactInstallationPhase::Upload,
             #[cfg(any(test, feature = "qualification"))]
@@ -534,26 +544,12 @@ impl RasterRenderPath {
                 .map_err(|_| RasterResourceError::VertexStride)?,
             input_rate: vk::VertexInputRate::VERTEX,
         }];
-        let attributes = [
-            vk::VertexInputAttributeDescription {
-                location: 0,
-                binding: 0,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 0,
-            },
-            vk::VertexInputAttributeDescription {
-                location: 1,
-                binding: 0,
-                format: vk::Format::R32G32B32_SFLOAT,
-                offset: 12,
-            },
-            vk::VertexInputAttributeDescription {
-                location: 2,
-                binding: 0,
-                format: vk::Format::R32G32B32A32_SFLOAT,
-                offset: 24,
-            },
-        ];
+        let attributes = [vk::VertexInputAttributeDescription {
+            location: 0,
+            binding: 0,
+            format: vk::Format::R16G16B16A16_UINT,
+            offset: 0,
+        }];
         let vertex_input = vk::PipelineVertexInputStateCreateInfo::default()
             .vertex_binding_descriptions(&binding)
             .vertex_attribute_descriptions(&attributes);
@@ -592,11 +588,16 @@ impl RasterRenderPath {
         let push_constant_range = [vk::PushConstantRange::default()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .offset(0)
-            .size(64)];
-        let layout_info =
-            vk::PipelineLayoutCreateInfo::default().push_constant_ranges(&push_constant_range);
-        self.pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info) }
-            .map_err(RasterResourceError::CreatePipelineLayout)?;
+            .size(96)];
+        let material_layout = create_material_layout(device)?;
+        let set_layouts = [material_layout];
+        let layout_info = vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(&set_layouts)
+            .push_constant_ranges(&push_constant_range);
+        let pipeline_layout = unsafe { device.create_pipeline_layout(&layout_info) };
+        unsafe { device.destroy_descriptor_set_layout(material_layout) };
+        self.pipeline_layout =
+            pipeline_layout.map_err(RasterResourceError::CreatePipelineLayout)?;
         let pipeline_info = vk::GraphicsPipelineCreateInfo::default()
             .stages(&stages)
             .vertex_input_state(&vertex_input)
@@ -686,8 +687,15 @@ impl RasterRenderPath {
                 }
                 frame.bind_vertex_buffer(resources.vertex_buffer);
                 frame.bind_index_buffer(resources.index_buffer);
-                frame
-                    .push_vertex_constants(self.pipeline_layout, f32_bytes(&self.camera_constants));
+                let mut constants = [0; 24];
+                constants[..16].copy_from_slice(&self.camera_constants.map(f32::to_bits));
+                constants[16..].copy_from_slice(&resources.transform_constants);
+                frame.bind_descriptor_sets(
+                    vk::PipelineBindPoint::GRAPHICS,
+                    self.pipeline_layout,
+                    &[resources.material_set],
+                );
+                frame.push_vertex_constants(self.pipeline_layout, u32_bytes(&constants));
                 frame.draw_indexed(resources.index_count);
             }
             frame.end_render_pass();
@@ -781,7 +789,14 @@ pub(super) fn upload_raster_region_resources(
             }
         }
     };
-    Ok(RasterRegionGpuResources {
+    let mut resources = RasterRegionGpuResources {
+        material_buffer_bytes: 0,
+        material_buffer: vk::Buffer::null(),
+        material_memory: vk::DeviceMemory::null(),
+        material_layout: vk::DescriptorSetLayout::null(),
+        material_pool: vk::DescriptorPool::null(),
+        material_set: vk::DescriptorSet::null(),
+        transform_constants: region.transform_constants(),
         identity: region.identity().clone(),
         vertex_buffer: vertex
             .as_ref()
@@ -798,7 +813,14 @@ pub(super) fn upload_raster_region_resources(
         index_count,
         vertex_buffer_bytes,
         index_buffer_bytes,
-    })
+    };
+    if index_count > 0
+        && let Err(error) = upload_material_table(device, region, &mut resources)
+    {
+        release_raster_region_resources(device, resources);
+        return Err(error);
+    }
+    Ok(resources)
 }
 
 pub(super) fn release_raster_region_resources(
@@ -806,6 +828,18 @@ pub(super) fn release_raster_region_resources(
     resources: RasterRegionGpuResources,
 ) {
     unsafe {
+        if resources.material_pool != vk::DescriptorPool::null() {
+            device.destroy_descriptor_pool(resources.material_pool);
+        }
+        if resources.material_layout != vk::DescriptorSetLayout::null() {
+            device.destroy_descriptor_set_layout(resources.material_layout);
+        }
+        if resources.material_buffer != vk::Buffer::null() {
+            device.destroy_buffer(resources.material_buffer);
+        }
+        if resources.material_memory != vk::DeviceMemory::null() {
+            device.free_memory(resources.material_memory);
+        }
         if resources.index_buffer != vk::Buffer::null() {
             device.destroy_buffer(resources.index_buffer);
         }
@@ -819,6 +853,78 @@ pub(super) fn release_raster_region_resources(
             device.free_memory(resources.vertex_memory);
         }
     }
+}
+
+fn create_material_layout(
+    device: &RenderPathDeviceContext<'_>,
+) -> Result<vk::DescriptorSetLayout, RasterResourceError> {
+    let bindings = [vk::DescriptorSetLayoutBinding::default()
+        .binding(0)
+        .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+        .descriptor_count(1)
+        .stage_flags(vk::ShaderStageFlags::VERTEX)];
+    unsafe {
+        device.create_descriptor_set_layout(
+            &vk::DescriptorSetLayoutCreateInfo::default().bindings(&bindings),
+        )
+    }
+    .map_err(RasterResourceError::MaterialTable)
+}
+
+fn upload_material_table(
+    device: &RenderPathDeviceContext<'_>,
+    region: &RasterRegionResult,
+    resources: &mut RasterRegionGpuResources,
+) -> Result<(), RasterResourceError> {
+    let material = create_static_buffer(
+        device,
+        f32_bytes(region.material_colors().as_flattened()),
+        vk::BufferUsageFlags::STORAGE_BUFFER,
+        "material",
+    )?;
+    resources.material_buffer = material.buffer;
+    resources.material_buffer_bytes = std::mem::size_of_val(region.material_colors()) as u64;
+    resources.material_memory = material.memory;
+    let sizes = [vk::DescriptorPoolSize {
+        ty: vk::DescriptorType::STORAGE_BUFFER,
+        descriptor_count: 1,
+    }];
+    resources.material_pool = unsafe {
+        device.create_descriptor_pool(
+            &vk::DescriptorPoolCreateInfo::default()
+                .max_sets(1)
+                .pool_sizes(&sizes),
+        )
+    }
+    .map_err(RasterResourceError::MaterialTable)?;
+    resources.material_layout = create_material_layout(device)?;
+    let layouts = [resources.material_layout];
+    let sets = unsafe {
+        device.allocate_descriptor_sets(
+            &vk::DescriptorSetAllocateInfo::default()
+                .descriptor_pool(resources.material_pool)
+                .set_layouts(&layouts),
+        )
+    };
+    resources.material_set = sets
+        .map_err(RasterResourceError::MaterialTable)?
+        .into_iter()
+        .next()
+        .ok_or(RasterResourceError::MaterialTable(
+            vk::Result::ERROR_UNKNOWN,
+        ))?;
+    let buffers = [vk::DescriptorBufferInfo::default()
+        .buffer(material.buffer)
+        .offset(0)
+        .range(vk::WHOLE_SIZE)];
+    unsafe {
+        device.update_descriptor_sets(&[vk::WriteDescriptorSet::default()
+            .dst_set(resources.material_set)
+            .dst_binding(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&buffers)])
+    };
+    Ok(())
 }
 
 fn create_static_buffer(
@@ -883,7 +989,7 @@ fn create_shader_module(
 
 fn raster_vertex_bytes(values: &[RasterVertex]) -> &[u8] {
     let byte_length = std::mem::size_of_val(values);
-    // RasterVertex is repr(C), contains only f32 arrays, and has no padding at its checked size.
+    // RasterVertex is repr(C), contains only u16 values, and has no padding at its checked size.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 

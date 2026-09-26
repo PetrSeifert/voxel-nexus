@@ -68,6 +68,7 @@ fn raster_gpu_resource_usage<'resources>(
             .bytes
             .checked_add(region_resources.vertex_buffer_bytes)
             .and_then(|bytes| bytes.checked_add(region_resources.index_buffer_bytes))
+            .and_then(|bytes| bytes.checked_add(region_resources.material_buffer_bytes))
             .ok_or(RasterLifecycleControlError)?;
         usage.resources = usage
             .resources
@@ -77,6 +78,11 @@ fn raster_gpu_resource_usage<'resources>(
             .and_then(|count| {
                 count.checked_add(usize::from(
                     region_resources.index_buffer != vk::Buffer::null(),
+                ))
+            })
+            .and_then(|count| {
+                count.checked_add(usize::from(
+                    region_resources.material_buffer != vk::Buffer::null(),
                 ))
             })
             .ok_or(RasterLifecycleControlError)?;
@@ -975,9 +981,9 @@ pub use semantic_faces::{
 mod meshing;
 use meshing::*;
 pub use meshing::{
-    RasterArtifact, RasterArtifactBuildCause, RasterArtifactBuildError, RasterArtifactBuildPhase,
-    RasterGeometry, RasterRegionIdentity, RasterRegionResult, RasterVertex, derive_raster_artifact,
-    derive_raster_regions,
+    DecodedRasterVertex, RasterArtifact, RasterArtifactBuildCause, RasterArtifactBuildError,
+    RasterArtifactBuildPhase, RasterGeometry, RasterInspectionGeometry, RasterRegionIdentity,
+    RasterRegionResult, RasterVertex, derive_raster_artifact, derive_raster_regions,
 };
 
 mod installation;

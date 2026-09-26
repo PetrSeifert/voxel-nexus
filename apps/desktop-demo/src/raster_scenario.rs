@@ -443,7 +443,7 @@ impl ScenarioExecution<'_> {
                 }
             };
             let resource_counts = (|| {
-                let exposed_quads = u64::try_from(artifact.semantic_face_count())
+                let exposed_quads = u64::try_from(artifact.vertex_count() / 4)
                     .map_err(|_| "exposed quad count cannot be represented".to_owned())?;
                 let vertices = u64::try_from(artifact.vertex_count())
                     .map_err(|_| "vertex count cannot be represented".to_owned())?;
@@ -453,15 +453,31 @@ impl ScenarioExecution<'_> {
                     .map_err(|_| "vertex byte count cannot be represented".to_owned())?;
                 let index_bytes = u64::try_from(artifact.index_byte_size())
                     .map_err(|_| "index byte count cannot be represented".to_owned())?;
+                let material_bytes =
+                    artifact.regions().iter().try_fold(0_u64, |total, region| {
+                        let bytes = u64::try_from(std::mem::size_of_val(region.material_colors()))
+                            .map_err(|_| "material byte count cannot be represented".to_owned())?;
+                        total
+                            .checked_add(bytes)
+                            .ok_or_else(|| "material byte count overflowed".to_owned())
+                    })?;
                 let geometry_bytes = vertex_bytes
                     .checked_add(index_bytes)
+                    .and_then(|bytes| bytes.checked_add(material_bytes))
                     .ok_or_else(|| "raster artifact byte count overflowed".to_owned())?;
                 Ok::<_, String>(ResourceCounts {
                     occupied_voxels: self.state.evidence.occupied_voxels,
                     exposed_quads,
                     vertices,
                     indices,
-                    draw_calls: u64::from(indices > 0),
+                    draw_calls: u64::try_from(
+                        artifact
+                            .regions()
+                            .iter()
+                            .filter(|region| !region.is_empty())
+                            .count(),
+                    )
+                    .map_err(|_| "draw call count cannot be represented".to_owned())?,
                     cpu_artifact_bytes: geometry_bytes,
                     gpu_buffer_bytes: geometry_bytes,
                 })

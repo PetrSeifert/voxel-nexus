@@ -115,7 +115,14 @@ fn explicit_flattening_rebases_indices_and_preserves_region_face_order()
             geometry
                 .vertices()
                 .get(vertex_offset..vertex_offset + region.vertices().len()),
-            Some(region.vertices())
+            Some(
+                region
+                    .vertices()
+                    .iter()
+                    .map(|vertex| region.decode_vertex(vertex).ok_or("invalid packed vertex"))
+                    .collect::<Result<Vec<_>, _>>()?
+                    .as_slice()
+            )
         );
         for (index, local_index) in region.indices().iter().enumerate() {
             assert_eq!(
@@ -130,7 +137,7 @@ fn explicit_flattening_rebases_indices_and_preserves_region_face_order()
                 .position(|candidate| candidate == face)
                 .ok_or("missing flattened face")?;
             assert_eq!(
-                artifact.quad_vertices(face),
+                artifact.quad_vertices(face).as_deref(),
                 geometry.vertices().get(face_index * 4..face_index * 4 + 4)
             );
         }
@@ -297,5 +304,32 @@ fn empty_complete_scene_derives_an_empty_revision_tagged_collection()
     assert!(artifact.regions().is_empty());
     assert!(artifact.vertex_count() == 0);
     assert!(artifact.index_count() == 0);
+    Ok(())
+}
+
+#[test]
+fn greedy_faces_stop_at_region_boundaries_and_decode_nonzero_origins()
+-> Result<(), Box<dyn std::error::Error>> {
+    let occupied = (0..4)
+        .map(|coordinate| (VoxelCoordinate::new(coordinate, 0, 0), "stone"))
+        .collect::<Vec<_>>();
+    let artifact = derive_raster_regions(
+        &view(1, VoxelExtent::new(4, 1, 1), &occupied)?,
+        VoxelExtent::new(2, 1, 1),
+    )?;
+    assert_eq!(artifact.vertex_count(), 40);
+    assert_eq!(artifact.semantic_face_count(), 18);
+    for region in artifact.regions() {
+        let origin = region.core().origin().components()[0];
+        assert_eq!(region.vertices().len(), 20);
+        for vertex in region.vertices() {
+            assert!(vertex.local_position()[0] <= 2);
+            let position = region
+                .decode_vertex(vertex)
+                .ok_or("invalid packed vertex")?
+                .position();
+            assert!((origin as f32..=(origin + 2) as f32).contains(&position[0]));
+        }
+    }
     Ok(())
 }

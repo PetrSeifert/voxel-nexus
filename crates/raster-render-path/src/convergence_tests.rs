@@ -304,6 +304,13 @@ fn dropping_convergence_releases_a_held_cpu_barrier_and_joins_the_worker()
 
 fn fake_resources(identity: RasterRegionIdentity, raw_identity: u64) -> RasterRegionGpuResources {
     RasterRegionGpuResources {
+        material_buffer_bytes: 0,
+        material_buffer: vk::Buffer::null(),
+        material_memory: vk::DeviceMemory::null(),
+        material_layout: vk::DescriptorSetLayout::null(),
+        material_pool: vk::DescriptorPool::null(),
+        material_set: vk::DescriptorSet::null(),
+        transform_constants: [0; 8],
         identity,
         vertex_buffer: vk::Buffer::from_raw(raw_identity),
         vertex_memory: vk::DeviceMemory::from_raw(raw_identity + 1_000),
@@ -331,13 +338,15 @@ fn lifecycle_controller_reports_peak_live_raster_gpu_bytes_and_buffers()
     resources.vertex_buffer_bytes = 400;
     resources.index_buffer_bytes = 200;
 
+    resources.material_buffer = vk::Buffer::from_raw(5000);
+    resources.material_buffer_bytes = 32;
     render_path.observe_live_gpu_resources([&resources])?;
 
     assert_eq!(
         controller.gpu_resource_peak()?,
         RasterGpuResourcePeak {
-            bytes: 600,
-            resources: 2,
+            bytes: 632,
+            resources: 3,
         }
     );
     Ok(())

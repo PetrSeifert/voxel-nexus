@@ -1,6 +1,6 @@
 use super::preparation::raster_region_origin;
 use super::semantic_faces::{AXIS_NORMALS, AxisNormal, SemanticFace};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::mem::size_of;
 use std::sync::Arc;
@@ -15,24 +15,69 @@ use voxel_frontend::{
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RasterVertex {
+    local_position: [u16; 3],
+    normal_and_material: u16,
+}
+
+const _: () = assert!(size_of::<RasterVertex>() == 8);
+
+impl RasterVertex {
+    pub fn local_position(&self) -> [u16; 3] {
+        self.local_position
+    }
+
+    pub fn material_index(&self) -> usize {
+        usize::from(self.normal_and_material >> 3)
+    }
+
+    pub fn normal(&self) -> [f32; 3] {
+        match self.normal_and_material & 7 {
+            0 => AxisNormal::NegativeX,
+            1 => AxisNormal::PositiveX,
+            2 => AxisNormal::NegativeY,
+            3 => AxisNormal::PositiveY,
+            4 => AxisNormal::NegativeZ,
+            _ => AxisNormal::PositiveZ,
+        }
+        .vector()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DecodedRasterVertex {
     position: [f32; 3],
     normal: [f32; 3],
     linear_base_color: [f32; 4],
 }
 
-const _: () = assert!(size_of::<RasterVertex>() == 10 * size_of::<f32>());
-
-impl RasterVertex {
+impl DecodedRasterVertex {
     pub fn position(&self) -> [f32; 3] {
         self.position
     }
-
     pub fn normal(&self) -> [f32; 3] {
         self.normal
     }
-
     pub fn linear_base_color(&self) -> [f32; 4] {
         self.linear_base_color
+    }
+}
+
+#[derive(Debug)]
+pub struct RasterInspectionGeometry {
+    vertices: Vec<DecodedRasterVertex>,
+    indices: Vec<u32>,
+    semantic_faces: Vec<SemanticFace>,
+}
+
+impl RasterInspectionGeometry {
+    pub fn vertices(&self) -> &[DecodedRasterVertex] {
+        &self.vertices
+    }
+    pub fn indices(&self) -> &[u32] {
+        &self.indices
+    }
+    pub fn semantic_faces(&self) -> &[SemanticFace] {
+        &self.semantic_faces
     }
 }
 
@@ -73,6 +118,11 @@ pub struct RasterRegionResult {
 
 #[derive(Debug)]
 pub struct RasterGeometry {
+    scene_origin: [f32; 3],
+    core_origin: [i32; 3],
+    voxel_size: f32,
+    material_colors: Vec<[f32; 4]>,
+    face_quads: Vec<usize>,
     vertices: Vec<RasterVertex>,
     indices: Vec<u32>,
     semantic_faces: Vec<SemanticFace>,
@@ -93,6 +143,43 @@ impl RasterGeometry {
 }
 
 impl RasterRegionResult {
+    pub fn material_colors(&self) -> &[[f32; 4]] {
+        &self.geometry.material_colors
+    }
+
+    pub fn decode_vertex(&self, vertex: &RasterVertex) -> Option<DecodedRasterVertex> {
+        let geometry = &self.geometry;
+        let mut position = [0.0; 3];
+        for (axis, component) in position.iter_mut().enumerate() {
+            *component = scene_component(
+                geometry.scene_origin[axis],
+                geometry.voxel_size,
+                geometry.core_origin[axis].checked_add(i32::from(vertex.local_position[axis]))?,
+            )?;
+        }
+        Some(DecodedRasterVertex {
+            position,
+            normal: vertex.normal(),
+            linear_base_color: *geometry.material_colors.get(vertex.material_index())?,
+        })
+    }
+
+    pub(super) fn transform_constants(&self) -> [u32; 8] {
+        let geometry = &self.geometry;
+        let [origin_x, origin_y, origin_z] = geometry.scene_origin;
+        let [core_x, core_y, core_z] = geometry.core_origin;
+        [
+            origin_x.to_bits(),
+            origin_y.to_bits(),
+            origin_z.to_bits(),
+            geometry.voxel_size.to_bits(),
+            core_x as u32,
+            core_y as u32,
+            core_z as u32,
+            0,
+        ]
+    }
+
     pub fn identity(&self) -> &RasterRegionIdentity {
         &self.identity
     }
@@ -144,7 +231,10 @@ impl RasterArtifact {
     }
 
     pub fn semantic_face_count(&self) -> usize {
-        self.vertex_count() / 4
+        self.regions
+            .iter()
+            .map(|region| region.semantic_faces().len())
+            .sum()
     }
 
     pub fn semantic_faces(&self) -> impl Iterator<Item = &SemanticFace> {
@@ -153,22 +243,27 @@ impl RasterArtifact {
             .flat_map(|region| region.semantic_faces())
     }
 
-    pub fn quad_vertices(&self, face: &SemanticFace) -> Option<&[RasterVertex]> {
+    pub fn quad_vertices(&self, face: &SemanticFace) -> Option<Vec<DecodedRasterVertex>> {
         self.regions.iter().find_map(|region| {
             let face_index = region
                 .semantic_faces()
                 .iter()
                 .position(|candidate| candidate == face)?;
-            let start = face_index.checked_mul(4)?;
+            let start = region.geometry.face_quads.get(face_index)?.checked_mul(4)?;
             let end = start.checked_add(4)?;
-            region.vertices().get(start..end)
+            region
+                .vertices()
+                .get(start..end)?
+                .iter()
+                .map(|vertex| region.decode_vertex(vertex))
+                .collect()
         })
     }
 
-    pub fn flatten_geometry(&self) -> Result<RasterGeometry, RasterArtifactBuildError> {
+    pub fn flatten_geometry(&self) -> Result<RasterInspectionGeometry, RasterArtifactBuildError> {
         let source_revision = self.source_revision;
         u32::try_from(self.vertex_count()).map_err(|_| geometry_overflow(source_revision))?;
-        let mut geometry = RasterGeometry {
+        let mut geometry = RasterInspectionGeometry {
             vertices: Vec::new(),
             indices: Vec::new(),
             semantic_faces: Vec::new(),
@@ -188,7 +283,13 @@ impl RasterArtifact {
         for region in &self.regions {
             let first_vertex = u32::try_from(geometry.vertices.len())
                 .map_err(|_| geometry_overflow(source_revision))?;
-            geometry.vertices.extend_from_slice(region.vertices());
+            for vertex in region.vertices() {
+                geometry.vertices.push(
+                    region
+                        .decode_vertex(vertex)
+                        .ok_or_else(|| geometry_overflow(source_revision))?,
+                );
+            }
             for index in region.indices() {
                 geometry.indices.push(
                     first_vertex
@@ -258,6 +359,10 @@ pub enum RasterArtifactBuildCause {
     IndexOverflow,
     #[error("Raster Region extent must be non-empty")]
     EmptyRasterRegionExtent,
+    #[error(
+        "packed raster geometry requires region-local coordinates <= 65535 and at most 8192 materials per region"
+    )]
+    PackedVertexRange,
 }
 
 #[derive(Debug, Error)]
@@ -392,6 +497,7 @@ pub fn derive_raster_artifact(
         source_revision,
         volume_identity,
         metadata,
+        VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), metadata.extent()),
         pending_faces,
     )
 }
@@ -731,6 +837,7 @@ pub(super) fn derive_raster_region(
         source_revision,
         metadata.identity(),
         metadata,
+        core,
         pending_faces,
     )?;
     let mut region = artifact.regions.into_iter().next().ok_or_else(|| {
@@ -799,93 +906,179 @@ fn build_geometry(
     source_revision: VoxelSceneRevision,
     volume_identity: &VoxelVolumeId,
     metadata: &VoxelVolumeMetadata,
+    core: VoxelRegion,
     pending_faces: Vec<PendingFace>,
 ) -> Result<RasterArtifact, RasterArtifactBuildError> {
-    let face_count = pending_faces.len();
-    let vertex_count = face_count
-        .checked_mul(4)
-        .ok_or_else(|| geometry_overflow(source_revision))?;
-    let index_count = face_count
-        .checked_mul(6)
-        .ok_or_else(|| geometry_overflow(source_revision))?;
-    let vertex_byte_size = vertex_count
-        .checked_mul(size_of::<RasterVertex>())
-        .ok_or_else(|| geometry_overflow(source_revision))?;
-    let index_byte_size = index_count
-        .checked_mul(size_of::<u32>())
-        .ok_or_else(|| geometry_overflow(source_revision))?;
-    u32::try_from(vertex_count).map_err(|_| {
+    let range_error = || {
         build_error(
             source_revision,
             RasterArtifactBuildPhase::Geometry,
-            RasterArtifactBuildCause::IndexOverflow,
+            RasterArtifactBuildCause::PackedVertexRange,
         )
-    })?;
-
+    };
+    let core_origin = core.origin().components();
+    let mut lookup = HashMap::new();
+    lookup
+        .try_reserve(pending_faces.len())
+        .map_err(|_| geometry_allocation(source_revision))?;
+    for (index, face) in pending_faces.iter().enumerate() {
+        lookup.insert((face.normal, face.coordinate.components()), index);
+    }
+    let mut face_quads = Vec::new();
+    face_quads
+        .try_reserve_exact(pending_faces.len())
+        .map_err(|_| geometry_allocation(source_revision))?;
+    face_quads.resize(pending_faces.len(), usize::MAX);
     let mut vertices = Vec::new();
-    vertices
-        .try_reserve_exact(vertex_count)
-        .map_err(|_| geometry_allocation(source_revision))?;
     let mut indices = Vec::new();
-    indices
-        .try_reserve_exact(index_count)
-        .map_err(|_| geometry_allocation(source_revision))?;
-    let mut semantic_faces = Vec::new();
-    semantic_faces
-        .try_reserve_exact(face_count)
-        .map_err(|_| geometry_allocation(source_revision))?;
-
-    for pending_face in pending_faces {
-        let first_vertex = u32::try_from(vertices.len()).map_err(|_| {
-            build_error(
-                source_revision,
-                RasterArtifactBuildPhase::Geometry,
-                RasterArtifactBuildCause::IndexOverflow,
-            )
-        })?;
-        let positions = face_positions(metadata, pending_face.coordinate, pending_face.normal)
-            .ok_or_else(|| {
-                build_error(
-                    source_revision,
-                    RasterArtifactBuildPhase::Geometry,
-                    RasterArtifactBuildCause::InvalidSceneTransform,
+    let mut material_indices = HashMap::new();
+    let mut material_colors = Vec::new();
+    for (face_index, face) in pending_faces.iter().enumerate() {
+        if face_quads[face_index] != usize::MAX {
+            continue;
+        }
+        let normal_index = face.normal as usize;
+        let normal_axis = normal_index / 2;
+        let width_axis = (normal_axis + 1) % 3;
+        let height_axis = (normal_axis + 2) % 3;
+        let minimum = face.coordinate.components();
+        let matches = |coordinate: [i32; 3]| {
+            lookup
+                .get(&(face.normal, coordinate))
+                .copied()
+                .filter(|index| {
+                    face_quads[*index] == usize::MAX
+                        && pending_faces[*index].material_identity == face.material_identity
+                })
+        };
+        let mut width = 1;
+        loop {
+            let mut coordinate = minimum;
+            coordinate[width_axis] += width;
+            if matches(coordinate).is_none() {
+                break;
+            }
+            width += 1;
+        }
+        let mut height = 1;
+        'rows: loop {
+            for offset in 0..width {
+                let mut coordinate = minimum;
+                coordinate[width_axis] += offset;
+                coordinate[height_axis] += height;
+                if matches(coordinate).is_none() {
+                    break 'rows;
+                }
+            }
+            height += 1;
+        }
+        let quad_index = vertices.len() / 4;
+        for row in 0..height {
+            for column in 0..width {
+                let mut coordinate = minimum;
+                coordinate[width_axis] += column;
+                coordinate[height_axis] += row;
+                let index = lookup
+                    .get(&(face.normal, coordinate))
+                    .ok_or_else(|| geometry_overflow(source_revision))?;
+                face_quads[*index] = quad_index;
+            }
+        }
+        let material_index = if let Some(index) = material_indices.get(&face.material_identity) {
+            *index
+        } else {
+            let index = u16::try_from(material_colors.len()).map_err(|_| range_error())?;
+            if index >= 8192 {
+                return Err(range_error());
+            }
+            material_indices
+                .try_reserve(1)
+                .map_err(|_| geometry_allocation(source_revision))?;
+            material_colors
+                .try_reserve(1)
+                .map_err(|_| geometry_allocation(source_revision))?;
+            material_indices.insert(face.material_identity.clone(), index);
+            material_colors.push(face.linear_base_color);
+            index
+        };
+        let mut maximum = minimum.map(|component| component + 1);
+        maximum[width_axis] = minimum[width_axis] + width;
+        maximum[height_axis] = minimum[height_axis] + height;
+        vertices
+            .try_reserve(4)
+            .map_err(|_| geometry_allocation(source_revision))?;
+        indices
+            .try_reserve(6)
+            .map_err(|_| geometry_allocation(source_revision))?;
+        let first_vertex =
+            u32::try_from(vertices.len()).map_err(|_| geometry_overflow(source_revision))?;
+        for coordinate in face_corners(minimum, maximum, face.normal) {
+            let mut local_position = [0; 3];
+            for axis in 0..3 {
+                local_position[axis] = u16::try_from(coordinate[axis] - core_origin[axis])
+                    .map_err(|_| range_error())?;
+                scene_component(
+                    metadata.scene_origin()[axis],
+                    metadata.voxel_size(),
+                    coordinate[axis],
                 )
-            })?;
-        for position in positions {
+                .ok_or_else(|| {
+                    build_error(
+                        source_revision,
+                        RasterArtifactBuildPhase::Geometry,
+                        RasterArtifactBuildCause::InvalidSceneTransform,
+                    )
+                })?;
+            }
             vertices.push(RasterVertex {
-                position,
-                normal: pending_face.normal.vector(),
-                linear_base_color: pending_face.linear_base_color,
+                local_position,
+                normal_and_material: (material_index << 3) | normal_index as u16,
             });
         }
-        for local_index in [0_u32, 1, 2, 0, 2, 3] {
-            indices.push(first_vertex.checked_add(local_index).ok_or_else(|| {
-                build_error(
-                    source_revision,
-                    RasterArtifactBuildPhase::Geometry,
-                    RasterArtifactBuildCause::IndexOverflow,
-                )
-            })?);
+        for offset in [0, 1, 2, 0, 2, 3] {
+            indices.push(
+                first_vertex
+                    .checked_add(offset)
+                    .ok_or_else(|| geometry_overflow(source_revision))?,
+            );
         }
-        semantic_faces.push(SemanticFace::new(
-            volume_identity.clone(),
-            pending_face.coordinate,
-            pending_face.normal,
-            pending_face.material_identity,
-        ));
     }
-
+    let vertex_byte_size = vertices
+        .len()
+        .checked_mul(size_of::<RasterVertex>())
+        .ok_or_else(|| geometry_overflow(source_revision))?;
+    let index_byte_size = indices
+        .len()
+        .checked_mul(size_of::<u32>())
+        .ok_or_else(|| geometry_overflow(source_revision))?;
+    let mut semantic_faces = Vec::new();
+    semantic_faces
+        .try_reserve_exact(pending_faces.len())
+        .map_err(|_| geometry_allocation(source_revision))?;
+    semantic_faces.extend(pending_faces.into_iter().map(|face| {
+        SemanticFace::new(
+            volume_identity.clone(),
+            face.coordinate,
+            face.normal,
+            face.material_identity,
+        )
+    }));
     let region = RasterRegionResult {
         identity: RasterRegionIdentity {
             volume_identity: volume_identity.clone(),
-            core_origin: VoxelCoordinate::new(0, 0, 0),
+            core_origin: core.origin(),
         },
-        core: VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), metadata.extent()),
+        core,
         source_revision,
         geometry: Arc::new(RasterGeometry {
             vertices,
             indices,
             semantic_faces,
+            face_quads,
+            material_colors,
+            scene_origin: metadata.scene_origin(),
+            core_origin,
+            voxel_size: metadata.voxel_size(),
         }),
     };
     Ok(RasterArtifact {
@@ -966,32 +1159,10 @@ fn face_is_exposed(
         .is_some_and(|value| matches!(value, VoxelValue::Occupied(_)))
 }
 
-fn face_positions(
-    metadata: &VoxelVolumeMetadata,
-    coordinate: VoxelCoordinate,
-    normal: AxisNormal,
-) -> Option<[[f32; 3]; 4]> {
-    let [coordinate_x, coordinate_y, coordinate_z] = coordinate.components();
-    let [origin_x, origin_y, origin_z] = metadata.scene_origin();
-    let minimum_x = scene_component(origin_x, metadata.voxel_size(), coordinate_x)?;
-    let minimum_y = scene_component(origin_y, metadata.voxel_size(), coordinate_y)?;
-    let minimum_z = scene_component(origin_z, metadata.voxel_size(), coordinate_z)?;
-    let maximum_x = scene_component(
-        origin_x,
-        metadata.voxel_size(),
-        coordinate_x.checked_add(1)?,
-    )?;
-    let maximum_y = scene_component(
-        origin_y,
-        metadata.voxel_size(),
-        coordinate_y.checked_add(1)?,
-    )?;
-    let maximum_z = scene_component(
-        origin_z,
-        metadata.voxel_size(),
-        coordinate_z.checked_add(1)?,
-    )?;
-    Some(match normal {
+fn face_corners(minimum: [i32; 3], maximum: [i32; 3], normal: AxisNormal) -> [[i32; 3]; 4] {
+    let [minimum_x, minimum_y, minimum_z] = minimum;
+    let [maximum_x, maximum_y, maximum_z] = maximum;
+    match normal {
         AxisNormal::NegativeX => [
             [minimum_x, minimum_y, minimum_z],
             [minimum_x, minimum_y, maximum_z],
@@ -1028,7 +1199,7 @@ fn face_positions(
             [maximum_x, maximum_y, maximum_z],
             [minimum_x, maximum_y, maximum_z],
         ],
-    })
+    }
 }
 
 fn scene_component(origin: f32, voxel_size: f32, coordinate: i32) -> Option<f32> {

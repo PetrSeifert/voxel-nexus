@@ -7,8 +7,19 @@ use voxel_frontend::VoxelFrontend;
 #[test]
 #[ignore = "manual release-mode timing"]
 fn region_read_timing() -> Result<(), Box<dyn std::error::Error>> {
-    for scale in [CanonicalSceneScale::Small, CanonicalSceneScale::Large] {
+    for scale in [
+        CanonicalSceneScale::Small,
+        CanonicalSceneScale::Medium,
+        CanonicalSceneScale::Large,
+    ] {
         let view = VoxelFrontend::new().publish(generate_canonical_scene(scale)?.into_scene())?;
+        let artifact = derive_raster_regions(&view, VoxelExtent::new(16, 16, 16))?;
+        println!(
+            "{scale:?}: vertex_bytes={}, index_bytes={}",
+            artifact.vertex_byte_size(),
+            artifact.index_byte_size()
+        );
+        drop(artifact);
         for _ in 0..3 {
             black_box(derive_raster_regions(&view, VoxelExtent::new(16, 16, 16))?);
         }

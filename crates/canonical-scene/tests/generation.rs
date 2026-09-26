@@ -128,8 +128,8 @@ fn every_canonical_scale_derives_the_recorded_bounded_surface()
             u64::try_from(artifact.semantic_face_count())?,
             expected_exposed_faces
         );
-        assert_eq!(artifact.vertex_count(), artifact.semantic_face_count() * 4);
-        assert_eq!(artifact.index_count(), artifact.semantic_face_count() * 6);
+        assert!(artifact.vertex_count() < artifact.semantic_face_count() * 4);
+        assert_eq!(artifact.index_count(), artifact.vertex_count() / 4 * 6);
     }
     Ok(())
 }

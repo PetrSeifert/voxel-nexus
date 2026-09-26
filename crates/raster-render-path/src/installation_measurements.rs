@@ -205,7 +205,12 @@ fn localized_installation_shares_geometry_and_allocates_independently_of_face_co
         let artifact = render_path.installed_artifact().ok_or("missing artifact")?;
         let geometry_bytes = artifact.vertex_byte_size()
             + artifact.index_byte_size()
-            + artifact.semantic_face_count() * size_of::<SemanticFace>();
+            + artifact.semantic_face_count() * (size_of::<SemanticFace>() + size_of::<usize>())
+            + artifact
+                .regions()
+                .iter()
+                .map(|region| std::mem::size_of_val(region.material_colors()))
+                .sum::<usize>();
         println!(
             "side={side} regions=8 affected=1 faces={} geometry_bytes={geometry_bytes} geometry_bytes_copied=0 allocated_bytes={} median_ns={} min_ns={} max_ns={}",
             artifact.semantic_face_count(),
