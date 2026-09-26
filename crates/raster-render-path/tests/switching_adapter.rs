@@ -1,10 +1,10 @@
 use canonical_scene::{CanonicalSceneScale, generate_canonical_scene};
+use raster_render_path::RASTER_STRATEGY;
 use raster_render_path::{
     CameraPose, RasterArtifactInstallerError, RasterRenderPathAdapter, derive_raster_artifact,
 };
 use render_backend::{
-    CameraStateRevision, RenderPathReadiness, RenderPathStrategy, RenderPathSwitchOwner,
-    SwitchableRenderPath,
+    CameraStateRevision, RenderPathReadiness, RenderPathSwitchOwner, SwitchableRenderPath,
 };
 use voxel_frontend::{VoxelFrontend, VoxelSceneId, VoxelSceneRevision};
 
@@ -25,7 +25,7 @@ fn awaiting_raster_adapter_is_the_initial_presenting_path_with_path_neutral_stam
     );
 
     let stamp = adapter.stamp();
-    assert_eq!(stamp.strategy(), RenderPathStrategy::Raster);
+    assert_eq!(stamp.strategy(), RASTER_STRATEGY);
     assert_eq!(stamp.scene_identity(), &scene_identity);
     assert_eq!(stamp.required_revision(), revision);
     assert_eq!(stamp.visible_revision(), revision);
@@ -34,7 +34,7 @@ fn awaiting_raster_adapter_is_the_initial_presenting_path_with_path_neutral_stam
     assert_eq!(stamp.readiness(), RenderPathReadiness::Preparing);
 
     let owner = RenderPathSwitchOwner::new(Box::new(adapter));
-    assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
+    assert_eq!(owner.role_status().presenting(), RASTER_STRATEGY);
     let diagnostics = owner.diagnostics();
     assert_eq!(diagnostics.roles(), owner.role_status());
     assert_eq!(diagnostics.presenting(), &stamp);

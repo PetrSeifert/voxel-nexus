@@ -1,4 +1,5 @@
 use super::*;
+use compute_ray_render_path::COMPUTE_RAY_STRATEGY;
 
 impl ScenarioExecution<'_> {
     pub(super) fn submit_compute_edit_burst_command(
@@ -26,10 +27,10 @@ impl ScenarioExecution<'_> {
             ));
         }
         self.desktop
-            .compute_convergence_controller
-            .as_ref()
-            .ok_or_else(|| "the compute convergence controller is unavailable".to_owned())?
-            .submit(outcome)
+            .backend
+            .as_mut()
+            .ok_or_else(|| "the Render Backend is unavailable".to_owned())?
+            .submit_edit_outcome(outcome)
             .map_err(|error| error.to_string())?;
         self.desktop.published_revision = Some(revision);
         println!("Compute edit requirement submitted: Required={revision}");
@@ -110,7 +111,7 @@ impl ScenarioExecution<'_> {
             .backend
             .as_ref()
             .and_then(RenderBackend::render_path_switch_diagnostics)
-            && diagnostics.roles().presenting() == RenderPathStrategy::ComputeRay
+            && diagnostics.roles().presenting() == COMPUTE_RAY_STRATEGY
         {
             self.state
                 .compute

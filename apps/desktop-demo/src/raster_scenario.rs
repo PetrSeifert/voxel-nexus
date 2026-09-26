@@ -33,7 +33,7 @@ impl ScenarioExecution<'_> {
     }
 
     pub(super) fn publish_next_burst_command(
-        &self,
+        &mut self,
         plan: &mut EditBurstPlan,
     ) -> Result<(), String> {
         let command = plan.take_next_owned_command()?;
@@ -51,10 +51,10 @@ impl ScenarioExecution<'_> {
             }
         };
         self.desktop
-            .lifecycle_controller
-            .as_ref()
-            .ok_or_else(|| "the edit burst lifecycle controller is unavailable".to_owned())?
-            .submit(outcome)
+            .backend
+            .as_mut()
+            .ok_or_else(|| "the Render Backend is unavailable".to_owned())?
+            .submit_edit_outcome(outcome)
             .map_err(|error| error.to_string())?;
         println!("Edit burst command published: revision={revision}");
         Ok(())
@@ -634,8 +634,16 @@ impl ScenarioExecution<'_> {
                     return;
                 }
             };
-            if let Some(controller) = &self.desktop.lifecycle_controller
-                && let Err(error) = controller.submit(outcome)
+            if let Err(error) = self
+                .desktop
+                .backend
+                .as_mut()
+                .ok_or_else(|| "the Render Backend is unavailable".to_owned())
+                .and_then(|backend| {
+                    backend
+                        .submit_edit_outcome(outcome)
+                        .map_err(|error| error.to_string())
+                })
             {
                 self.desktop.fail(event_loop, error);
                 return;

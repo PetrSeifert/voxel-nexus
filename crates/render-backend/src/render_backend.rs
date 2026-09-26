@@ -1203,6 +1203,13 @@ impl RenderPathFrameContext<'_> {
 }
 
 pub trait RenderPath {
+    fn submit_edit_outcome(
+        &mut self,
+        _outcome: voxel_frontend::VoxelEditOutcome,
+    ) -> RenderPathResult<()> {
+        Err(Box::new(RenderPathEditError::SubmissionUnavailable))
+    }
+
     fn publish_camera_state(
         &mut self,
         _camera_state: CameraState,
@@ -1243,6 +1250,12 @@ pub trait RenderPath {
     }
 
     fn record(&mut self, frame: RenderPathFrameContext<'_>) -> RenderPathResult<()>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub enum RenderPathEditError {
+    #[error("the presenting Render Path does not accept Voxel Edit outcomes")]
+    SubmissionUnavailable,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
@@ -1489,6 +1502,13 @@ impl RenderBackend {
 
     pub fn render_path_switch_diagnostics(&self) -> Option<RenderPathSwitchDiagnostics> {
         self.path.switch_diagnostics()
+    }
+
+    pub fn submit_edit_outcome(
+        &mut self,
+        outcome: voxel_frontend::VoxelEditOutcome,
+    ) -> RenderPathResult<()> {
+        self.path.submit_edit_outcome(outcome)
     }
 
     pub fn request_render_path_switch(

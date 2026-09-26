@@ -1,4 +1,6 @@
 use super::*;
+use compute_ray_render_path::COMPUTE_RAY_STRATEGY;
+use raster_render_path::RASTER_STRATEGY;
 
 impl ScenarioExecution<'_> {
     pub(super) fn interactive_compute_switch_demo_active(&self) -> bool {
@@ -76,7 +78,7 @@ impl ScenarioExecution<'_> {
         render_path_switch_admission(&diagnostics)?;
         let presenting = diagnostics.presenting();
         let source = presenting.strategy();
-        if source == RenderPathStrategy::ComputeRay
+        if source == COMPUTE_RAY_STRATEGY
             && !matches!(
                 self.state.compute.compute_edit_burst_stage,
                 Some(ComputeEditBurstStage::Complete)
@@ -85,8 +87,9 @@ impl ScenarioExecution<'_> {
             return Err("the fixed compute edit burst has not completed".to_owned());
         }
         let replacement = match source {
-            RenderPathStrategy::Raster => RenderPathStrategy::ComputeRay,
-            RenderPathStrategy::ComputeRay => RenderPathStrategy::Raster,
+            RASTER_STRATEGY => COMPUTE_RAY_STRATEGY,
+            COMPUTE_RAY_STRATEGY => RASTER_STRATEGY,
+            _ => return Err("the demo cannot switch this Render Path strategy".to_owned()),
         };
         let view = self
             .desktop
@@ -107,7 +110,7 @@ impl ScenarioExecution<'_> {
             ));
         }
         let revision = view.revision();
-        let retiring_raster = if source == RenderPathStrategy::Raster {
+        let retiring_raster = if source == RASTER_STRATEGY {
             Some(
                 self.desktop
                     .lifecycle_controller
@@ -122,7 +125,7 @@ impl ScenarioExecution<'_> {
         let switch_requested_at = Instant::now();
 
         match replacement {
-            RenderPathStrategy::ComputeRay => {
+            COMPUTE_RAY_STRATEGY => {
                 let prepare_compute_burst = self.state.compute.compute_edit_burst_stage.is_none()
                     && self.state.compute.completed_interactive_switches == 0;
                 let burst_plan = prepare_compute_burst
@@ -166,7 +169,7 @@ impl ScenarioExecution<'_> {
                     .request_render_path_switch(Box::new(replacement_path))
                     .map_err(|error| error.to_string())?;
             }
-            RenderPathStrategy::Raster => {
+            RASTER_STRATEGY => {
                 let (mut replacement_path, installer, _) =
                     RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
                         self.desktop.camera_state,
@@ -221,6 +224,7 @@ impl ScenarioExecution<'_> {
                 self.desktop.raster_replacement_installer = Some(installer);
                 self.desktop.raster_replacement_lifecycle_controller = Some(lifecycle_controller);
             }
+            _ => return Err("the demo cannot construct this Render Path strategy".to_owned()),
         }
 
         if let Some((controller, plan)) = compute_burst_setup {
@@ -242,7 +246,8 @@ impl ScenarioExecution<'_> {
             retiring_raster,
             requested_at: switch_requested_at,
         });
-        self.state.compute.render_path_control_feedback = format!("Tab-accepted-{replacement:?}");
+        self.state.compute.render_path_control_feedback =
+            format!("Tab-accepted-{}", replacement.identifier());
         println!(
             "Tab switch accepted: Presenting={source:?} Replacement={replacement:?} revision={revision}"
         );
@@ -281,7 +286,7 @@ impl ScenarioExecution<'_> {
                         .to_owned(),
                 );
             }
-            if active_switch.replacement == RenderPathStrategy::Raster {
+            if active_switch.replacement == RASTER_STRATEGY {
                 self.desktop.artifact_installer = Some(
                     self.desktop
                         .raster_replacement_installer
@@ -357,11 +362,11 @@ impl ScenarioExecution<'_> {
                 .completed_interactive_switches
                 .checked_add(1)
                 .ok_or_else(|| "the completed Render Path switch count overflowed".to_owned())?;
-            if active_switch.source == RenderPathStrategy::ComputeRay {
+            if active_switch.source == COMPUTE_RAY_STRATEGY {
                 self.desktop.compute_convergence_controller = None;
             }
             self.state.compute.render_path_control_feedback = if active_switch.replacement
-                == RenderPathStrategy::ComputeRay
+                == COMPUTE_RAY_STRATEGY
                 && matches!(
                     self.state.compute.compute_edit_burst_stage,
                     Some(ComputeEditBurstStage::AwaitingSpace(_))
@@ -520,14 +525,14 @@ impl ScenarioExecution<'_> {
                 self.state.compute.last_held_replacement_stamp = Some(held_stamp);
             }
         }
-        if roles.presenting() == RenderPathStrategy::ComputeRay
+        if roles.presenting() == COMPUTE_RAY_STRATEGY
             && !self.state.compute.compute_first_frame_presented
         {
             let compute = diagnostics.presenting();
             let raster = diagnostics.retiring().ok_or_else(|| {
                 "the first compute frame has no explicitly owned retiring raster path".to_owned()
             })?;
-            if raster.strategy() != RenderPathStrategy::Raster
+            if raster.strategy() != RASTER_STRATEGY
                 || raster.scene_identity() != compute.scene_identity()
                 || raster.visible_revision() != compute.visible_revision()
                 || raster.camera_state_revision() != compute.camera_state_revision()
@@ -607,7 +612,7 @@ impl ScenarioExecution<'_> {
             .replacement()
             .ok_or_else(|| "there is no held compute replacement to release".to_owned())?;
         let presenting = diagnostics.presenting();
-        if replacement.strategy() != RenderPathStrategy::ComputeRay
+        if replacement.strategy() != COMPUTE_RAY_STRATEGY
             || replacement.readiness() != RenderPathReadiness::Recordable
             || replacement.camera_state_revision() != self.desktop.camera_state_revision
             || replacement.camera_state_revision() != presenting.camera_state_revision()
@@ -820,8 +825,8 @@ impl ScenarioExecution<'_> {
         if qualification == ComputeShutdownQualification::Replacement {
             let replacement = diagnostics.roles().replacement();
             let replacement_stamp = diagnostics.replacement();
-            if diagnostics.roles().presenting() != RenderPathStrategy::Raster
-                || replacement != Some(RenderPathStrategy::ComputeRay)
+            if diagnostics.roles().presenting() != RASTER_STRATEGY
+                || replacement != Some(COMPUTE_RAY_STRATEGY)
                 || diagnostics.roles().retiring().is_some()
                 || self.state.compute.completed_interactive_switches != 0
                 || replacement_stamp
@@ -842,7 +847,7 @@ impl ScenarioExecution<'_> {
             }
             return Ok("Closing with compute replacement owned before handoff".to_owned());
         }
-        if diagnostics.roles().presenting() != RenderPathStrategy::ComputeRay
+        if diagnostics.roles().presenting() != COMPUTE_RAY_STRATEGY
             || diagnostics.roles().replacement().is_some()
             || diagnostics.roles().retiring().is_some()
             || self.state.compute.completed_interactive_switches < 1

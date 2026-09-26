@@ -30,6 +30,9 @@ pub use compute_convergence::{
 };
 pub use compute_scene::{ComputeSceneBuildError, ComputeSceneBundle, ComputeVolumeHeader};
 
+pub const COMPUTE_RAY_STRATEGY: RenderPathStrategy =
+    RenderPathStrategy::new("voxel-nexus.compute-ray");
+
 #[derive(Debug, Error)]
 pub enum ComputeCameraRayError {
     #[error("compute camera rays require a nonzero drawable extent")]
@@ -990,6 +993,10 @@ impl ComputeRayRenderPathAdapter {
 }
 
 impl RenderPath for ComputeRayRenderPathAdapter {
+    fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
+        self.render_path.submit_edit_outcome(outcome)
+    }
+
     fn publish_camera_state(
         &mut self,
         camera_state: CameraState,
@@ -1044,7 +1051,7 @@ impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
     fn stamp(&self) -> RenderPathStamp {
         let convergence = self.render_path.convergence.status();
         RenderPathStamp::new(
-            RenderPathStrategy::ComputeRay,
+            COMPUTE_RAY_STRATEGY,
             self.render_path
                 .convergence
                 .installed_bundle()
@@ -2295,6 +2302,19 @@ impl ComputeRayRenderPath {
 }
 
 impl RenderPath for ComputeRayRenderPath {
+    fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
+        let controller = match self.convergence_control.clone() {
+            Some(controller) => controller,
+            None => {
+                let controller = self.convergence.enable_control(false);
+                self.convergence_control = Some(controller.clone());
+                controller
+            }
+        };
+        controller.submit(outcome)?;
+        Ok(())
+    }
+
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         self.release_presentation_resources(&device);
         self.record_resource_observation(ComputeResourceObservationPoint::Released)?;
@@ -2794,6 +2814,66 @@ fn create_shader_module(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_neutral_edit_submission_starts_convergence_without_external_control()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use voxel_frontend::{
+            DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelEditCommand, VoxelExtent,
+            VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelValue, VoxelVolumeId,
+            VoxelVolumeMetadata,
+        };
+        let frontend = VoxelFrontend::new();
+        let extent = VoxelExtent::new(1, 1, 1);
+        let view = frontend.publish(DenseVoxelScene::new(
+            VoxelSceneId::new("compute-convergence"),
+            VoxelSceneRevision::new(7),
+            vec![VoxelMaterial::new(
+                VoxelMaterialId::new("stone"),
+                [0.2, 0.3, 0.4, 1.0],
+            )],
+            vec![DenseVoxelVolume::new(
+                VoxelVolumeMetadata::new(VoxelVolumeId::new("terrain"), extent, [0.0; 3], 1.0),
+                vec![DenseVoxelBatch::new(
+                    VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                    vec![VoxelValue::Empty],
+                )],
+            )],
+        ))?;
+        let camera = CameraState::new(
+            [2.0, 2.0, 2.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            50.0,
+            0.1,
+            100.0,
+        )?;
+        let mut adapter =
+            ComputeRayRenderPathAdapter::new(view, camera, CameraStateRevision::new(3))?;
+        let outcome = frontend.edit(VoxelEditCommand::new(
+            VoxelVolumeId::new("terrain"),
+            VoxelCoordinate::new(0, 0, 0),
+            VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+        ))?;
+
+        let path: &mut dyn RenderPath = &mut adapter;
+        path.submit_edit_outcome(outcome)
+            .map_err(|error| -> Box<dyn std::error::Error> { error })?;
+        adapter
+            .render_path
+            .convergence
+            .apply_controlled_request_at_frame_boundary()?;
+        assert_eq!(
+            adapter.stamp().required_revision(),
+            VoxelSceneRevision::new(8)
+        );
+        assert_eq!(
+            adapter.stamp().visible_revision(),
+            VoxelSceneRevision::new(7)
+        );
+        assert_eq!(adapter.convergence_status().worker_count(), 1);
+        Ok(())
+    }
 
     #[test]
     fn hidden_gpu_candidate_release_clears_control_and_owned_resources()

@@ -1866,7 +1866,7 @@ mod measurement_tests {
                 "overview",
                 "Tab-rejected-presenter-not-ready",
             ),
-            "Presenter=Raster Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=inactive Camera=overview Control=Tab-rejected-presenter-not-ready"
+            "Presenter=voxel-nexus.raster Switch=idle ReplacementRevision=none Required=4 Visible=4 Burst=inactive Camera=overview Control=Tab-rejected-presenter-not-ready"
         );
         Ok(())
     }

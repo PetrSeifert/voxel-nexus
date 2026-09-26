@@ -1,9 +1,9 @@
+use compute_ray_render_path::COMPUTE_RAY_STRATEGY;
 use compute_ray_render_path::{
     ComputeConvergenceAcceptance, ComputeRayRenderPathAdapter, ComputeTimingPhase,
 };
 use render_backend::{
-    CameraState, CameraStateRevision, RenderPath, RenderPathReadiness, RenderPathStrategy,
-    SwitchableRenderPath,
+    CameraState, CameraStateRevision, RenderPath, RenderPathReadiness, SwitchableRenderPath,
 };
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelEditCommand,
@@ -32,7 +32,7 @@ fn an_unconfigured_compute_adapter_reports_only_path_neutral_preparation_state()
 
     let stamp = adapter.stamp();
 
-    assert_eq!(stamp.strategy(), RenderPathStrategy::ComputeRay);
+    assert_eq!(stamp.strategy(), COMPUTE_RAY_STRATEGY);
     assert_eq!(stamp.scene_identity(), &VoxelSceneId::new("compute-proof"));
     assert_eq!(stamp.required_revision(), VoxelSceneRevision::new(7));
     assert_eq!(stamp.visible_revision(), VoxelSceneRevision::new(7));

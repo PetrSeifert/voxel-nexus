@@ -1,4 +1,5 @@
 use super::*;
+use compute_ray_render_path::COMPUTE_RAY_STRATEGY;
 
 pub(super) struct ScenarioState {
     pub(super) raster: RasterScenarioState,
@@ -328,7 +329,7 @@ pub(super) fn compute_edit_burst_admission(
     awaiting_space: bool,
 ) -> Result<(), String> {
     let roles = diagnostics.roles();
-    if roles.presenting() != RenderPathStrategy::ComputeRay {
+    if roles.presenting() != COMPUTE_RAY_STRATEGY {
         return Err("the compute Render Path is not presenting".to_owned());
     }
     if roles.replacement().is_some() || roles.retiring().is_some() {
@@ -381,8 +382,8 @@ pub(super) fn format_render_path_overlay(
         .unwrap_or_else(|| "none".to_owned());
     let presenting = diagnostics.presenting();
     format!(
-        "Presenter={:?} Switch={switch_phase} ReplacementRevision={replacement_revision} Required={} Visible={} Burst={burst_stage} Camera={camera} Control={control_feedback}",
-        presenting.strategy(),
+        "Presenter={} Switch={switch_phase} ReplacementRevision={replacement_revision} Required={} Visible={} Burst={burst_stage} Camera={camera} Control={control_feedback}",
+        presenting.strategy().identifier(),
         presenting.required_revision(),
         presenting.visible_revision(),
     )
@@ -898,7 +899,7 @@ impl ScenarioExecution<'_> {
                 {
                     Some(diagnostics)
                         if diagnostics.roles().presenting()
-                            == RenderPathStrategy::ComputeRay
+                            == COMPUTE_RAY_STRATEGY
                             && diagnostics.roles().replacement().is_none()
                             && diagnostics.roles().retiring().is_none()
                             && self.state.compute.completed_interactive_switches >= 3

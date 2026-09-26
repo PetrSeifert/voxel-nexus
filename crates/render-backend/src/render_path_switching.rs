@@ -22,9 +22,17 @@ impl CameraStateRevision {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RenderPathStrategy {
-    Raster,
-    ComputeRay,
+pub struct RenderPathStrategy(&'static str);
+
+impl RenderPathStrategy {
+    /// Use a namespaced identifier owned by the Render Path implementation.
+    pub const fn new(identifier: &'static str) -> Self {
+        Self(identifier)
+    }
+
+    pub const fn identifier(self) -> &'static str {
+        self.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -352,8 +360,10 @@ impl fmt::Display for RenderPathLifecycleError {
             }
             write!(
                 formatter,
-                "{} {:?}: {}",
-                failure.role, failure.strategy, failure.source
+                "{} {}: {}",
+                failure.role,
+                failure.strategy.identifier(),
+                failure.source
             )?;
         }
         Ok(())
@@ -600,6 +610,13 @@ impl RenderPathSwitchOwner {
 }
 
 impl RenderPath for RenderPathSwitchOwner {
+    fn submit_edit_outcome(
+        &mut self,
+        outcome: voxel_frontend::VoxelEditOutcome,
+    ) -> RenderPathResult<()> {
+        self.presenting.submit_edit_outcome(outcome)
+    }
+
     fn publish_camera_state(
         &mut self,
         camera_state: CameraState,
@@ -815,6 +832,8 @@ impl RenderPath for RenderPathSwitchOwner {
 
 #[cfg(test)]
 mod tests {
+    const FIRST_STRATEGY: RenderPathStrategy = RenderPathStrategy::new("test.first");
+    const SECOND_STRATEGY: RenderPathStrategy = RenderPathStrategy::new("test.second");
     use super::*;
     use crate::{
         RenderPathAttachment, RenderPathAttachmentIdentity, RenderPathFrameContext,
@@ -846,6 +865,19 @@ mod tests {
     }
 
     impl RenderPath for ProofRenderPath {
+        fn submit_edit_outcome(
+            &mut self,
+            outcome: voxel_frontend::VoxelEditOutcome,
+        ) -> RenderPathResult<()> {
+            if matches!(self.failure_point, Some(ProofFailurePoint::Publication)) {
+                return Err(std::io::Error::other("proof edit submission failure").into());
+            }
+            if let voxel_frontend::VoxelEditOutcome::Changed { view, .. } = outcome {
+                self.stamp.required_revision = view.revision();
+            }
+            Ok(())
+        }
+
         fn publish_camera_state(
             &mut self,
             _camera_state: CameraState,
@@ -1252,13 +1284,106 @@ mod tests {
         )
     }
 
+    fn edit_outcome() -> RenderPathResult<voxel_frontend::VoxelEditOutcome> {
+        use voxel_frontend::{
+            DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelEditCommand,
+            VoxelExtent, VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelValue,
+            VoxelVolumeId, VoxelVolumeMetadata,
+        };
+        let frontend = VoxelFrontend::new();
+        let extent = VoxelExtent::new(1, 1, 1);
+        frontend.publish(DenseVoxelScene::new(
+            VoxelSceneId::new("canonical"),
+            VoxelSceneRevision::new(1),
+            vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
+            vec![DenseVoxelVolume::new(
+                VoxelVolumeMetadata::new(VoxelVolumeId::new("volume"), extent, [0.0; 3], 1.0),
+                vec![DenseVoxelBatch::new(
+                    VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                    vec![VoxelValue::Empty],
+                )],
+            )],
+        ))?;
+        Ok(frontend.edit(VoxelEditCommand::new(
+            VoxelVolumeId::new("volume"),
+            VoxelCoordinate::new(0, 0, 0),
+            VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+        ))?)
+    }
+
+    #[test]
+    fn edit_during_switch_reaches_only_presenter_and_blocks_stale_handoff() -> RenderPathResult<()>
+    {
+        let third_strategy = RenderPathStrategy::new("external.third-path");
+        let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(third_strategy, 1, 1)));
+        owner.request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))?;
+        let path: &mut dyn RenderPath = &mut owner;
+        path.submit_edit_outcome(edit_outcome()?)?;
+        let device = proof_device();
+        owner.advance_frame_boundary(proof_device_context(&device), proof_target(1, 800, 600))?;
+        assert_eq!(
+            owner.diagnostics().presenting().required_revision(),
+            VoxelSceneRevision::new(2)
+        );
+        assert_eq!(
+            owner
+                .diagnostics()
+                .replacement()
+                .map(RenderPathStamp::required_revision),
+            Some(VoxelSceneRevision::new(1))
+        );
+        assert_eq!(owner.role_status().presenting(), third_strategy);
+        assert!(matches!(
+            owner.events().last(),
+            Some(RenderPathSwitchEvent::HandoffDeferred {
+                mismatch: RenderPathHandoffMismatch::VoxelSceneRevision,
+                ..
+            })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn edit_after_handoff_reaches_new_presenter_only() -> RenderPathResult<()> {
+        let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 1, 1)));
+        owner.request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))?;
+        let device = proof_device();
+        owner.advance_frame_boundary(proof_device_context(&device), proof_target(1, 800, 600))?;
+        owner.submit_edit_outcome(edit_outcome()?)?;
+        assert_eq!(owner.diagnostics().presenting().strategy(), SECOND_STRATEGY);
+        assert_eq!(
+            owner.diagnostics().presenting().required_revision(),
+            VoxelSceneRevision::new(2)
+        );
+        assert_eq!(
+            owner
+                .retiring
+                .as_ref()
+                .map(|path| path.stamp().required_revision()),
+            Some(VoxelSceneRevision::new(1))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn presenter_edit_errors_reach_the_caller() -> RenderPathResult<()> {
+        let (presenting, _) =
+            failing_path(stamp(FIRST_STRATEGY, 1, 1), ProofFailurePoint::Publication);
+        let mut owner = RenderPathSwitchOwner::new(presenting);
+        let result = owner.submit_edit_outcome(edit_outcome()?);
+        match result {
+            Err(error) => assert_eq!(error.to_string(), "proof edit submission failure"),
+            Ok(()) => return Err("edit failure was discarded".into()),
+        }
+        Ok(())
+    }
+
     #[test]
     fn rejected_switch_is_not_queued_when_the_presenting_path_is_not_converged() {
-        let mut owner =
-            RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 2, 1)));
+        let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 2, 1)));
 
         let rejection = owner
-            .request_switch(proof_path(stamp(RenderPathStrategy::ComputeRay, 1, 1)))
+            .request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))
             .expect_err("a non-converged Presenting Render Path must reject switching");
 
         assert_eq!(
@@ -1269,13 +1394,13 @@ mod tests {
                 readiness: RenderPathReadiness::Recordable,
             }
         );
-        assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
+        assert_eq!(owner.role_status().presenting(), FIRST_STRATEGY);
         assert_eq!(owner.role_status().replacement(), None);
         assert_eq!(owner.role_status().retiring(), None);
         assert_eq!(
             owner.events(),
             &[RenderPathSwitchEvent::Rejected {
-                presenting: RenderPathStrategy::Raster,
+                presenting: FIRST_STRATEGY,
                 reason: rejection,
             }]
         );
@@ -1283,12 +1408,12 @@ mod tests {
 
     #[test]
     fn rejected_switch_is_not_queued_when_the_presenting_path_is_not_recordable() {
-        let mut presenting_stamp = stamp(RenderPathStrategy::Raster, 1, 1);
+        let mut presenting_stamp = stamp(FIRST_STRATEGY, 1, 1);
         presenting_stamp.readiness = RenderPathReadiness::Preparing;
         let mut owner = RenderPathSwitchOwner::new(proof_path(presenting_stamp));
 
         let rejection = owner
-            .request_switch(proof_path(stamp(RenderPathStrategy::ComputeRay, 1, 1)))
+            .request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))
             .expect_err("a Preparing Presenting Render Path must reject switching");
 
         assert_eq!(
@@ -1299,13 +1424,13 @@ mod tests {
                 readiness: RenderPathReadiness::Preparing,
             }
         );
-        assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
+        assert_eq!(owner.role_status().presenting(), FIRST_STRATEGY);
         assert_eq!(owner.role_status().replacement(), None);
         assert_eq!(owner.role_status().retiring(), None);
         assert_eq!(
             owner.events(),
             &[RenderPathSwitchEvent::Rejected {
-                presenting: RenderPathStrategy::Raster,
+                presenting: FIRST_STRATEGY,
                 reason: rejection,
             }]
         );
@@ -1313,30 +1438,26 @@ mod tests {
 
     #[test]
     fn rejected_switch_is_not_queued_while_another_switch_is_in_progress() {
-        let mut owner =
-            RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 1, 1)));
+        let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 1, 1)));
         owner
-            .request_switch(proof_path(stamp(RenderPathStrategy::ComputeRay, 1, 1)))
+            .request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))
             .expect("the first request should be admitted");
 
         let rejection = owner
-            .request_switch(proof_path(stamp(RenderPathStrategy::Raster, 1, 1)))
+            .request_switch(proof_path(stamp(FIRST_STRATEGY, 1, 1)))
             .expect_err("a request during switching must be rejected");
 
         assert_eq!(rejection, RenderPathSwitchRequestError::SwitchInProgress);
-        assert_eq!(
-            owner.role_status().replacement(),
-            Some(RenderPathStrategy::ComputeRay)
-        );
+        assert_eq!(owner.role_status().replacement(), Some(SECOND_STRATEGY));
         assert_eq!(
             owner.events(),
             &[
                 RenderPathSwitchEvent::Requested {
-                    presenting: RenderPathStrategy::Raster,
-                    replacement: RenderPathStrategy::ComputeRay,
+                    presenting: FIRST_STRATEGY,
+                    replacement: SECOND_STRATEGY,
                 },
                 RenderPathSwitchEvent::Rejected {
-                    presenting: RenderPathStrategy::Raster,
+                    presenting: FIRST_STRATEGY,
                     reason: rejection,
                 },
             ]
@@ -1346,10 +1467,9 @@ mod tests {
     #[test]
     fn replacement_prepares_without_presenting_then_hands_off_matching_stamps_atomically()
     -> RenderPathResult<()> {
-        let mut owner =
-            RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 1, 1)));
+        let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 1, 1)));
         let (replacement, become_recordable, configure_count) =
-            controllable_path(stamp(RenderPathStrategy::ComputeRay, 1, 1));
+            controllable_path(stamp(SECOND_STRATEGY, 1, 1));
         owner
             .request_switch(replacement)
             .expect("the converged idle Presenting Render Path should admit switching");
@@ -1357,41 +1477,32 @@ mod tests {
 
         advance_owner(&mut owner, &device)?;
         assert_eq!(configure_count.load(Ordering::SeqCst), 1);
-        assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
-        assert_eq!(
-            owner.role_status().replacement(),
-            Some(RenderPathStrategy::ComputeRay)
-        );
+        assert_eq!(owner.role_status().presenting(), FIRST_STRATEGY);
+        assert_eq!(owner.role_status().replacement(), Some(SECOND_STRATEGY));
         assert_eq!(owner.role_status().retiring(), None);
 
         become_recordable.store(true, Ordering::SeqCst);
         advance_owner(&mut owner, &device)?;
         assert_eq!(configure_count.load(Ordering::SeqCst), 1);
 
-        assert_eq!(
-            owner.role_status().presenting(),
-            RenderPathStrategy::ComputeRay
-        );
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
         assert_eq!(owner.role_status().replacement(), None);
-        assert_eq!(
-            owner.role_status().retiring(),
-            Some(RenderPathStrategy::Raster)
-        );
+        assert_eq!(owner.role_status().retiring(), Some(FIRST_STRATEGY));
         assert_eq!(
             owner.events(),
             &[
                 RenderPathSwitchEvent::Requested {
-                    presenting: RenderPathStrategy::Raster,
-                    replacement: RenderPathStrategy::ComputeRay,
+                    presenting: FIRST_STRATEGY,
+                    replacement: SECOND_STRATEGY,
                 },
                 RenderPathSwitchEvent::HandoffDeferred {
-                    presenting: RenderPathStrategy::Raster,
-                    replacement: RenderPathStrategy::ComputeRay,
+                    presenting: FIRST_STRATEGY,
+                    replacement: SECOND_STRATEGY,
                     mismatch: RenderPathHandoffMismatch::Readiness,
                 },
                 RenderPathSwitchEvent::HandedOff {
-                    presenting: RenderPathStrategy::ComputeRay,
-                    retiring: RenderPathStrategy::Raster,
+                    presenting: SECOND_STRATEGY,
+                    retiring: FIRST_STRATEGY,
                 },
             ]
         );
@@ -1402,9 +1513,9 @@ mod tests {
     fn held_replacement_tracks_camera_and_presentation_recreation_before_handoff()
     -> RenderPathResult<()> {
         let (presenting, presenting_configures, presenting_records) =
-            lifecycle_path(stamp(RenderPathStrategy::Raster, 1, 1));
+            lifecycle_path(stamp(FIRST_STRATEGY, 1, 1));
         let (replacement, replacement_configures, replacement_records) =
-            lifecycle_path(stamp(RenderPathStrategy::ComputeRay, 1, 1));
+            lifecycle_path(stamp(SECOND_STRATEGY, 1, 1));
         let mut owner = RenderPathSwitchOwner::new(presenting);
         let handoff_control = owner.handoff_control();
         handoff_control.hold();
@@ -1459,11 +1570,8 @@ mod tests {
                 proof_device_context(&device),
                 proof_target(configuration_id, width, height),
             )?;
-            assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
-            assert_eq!(
-                owner.role_status().replacement(),
-                Some(RenderPathStrategy::ComputeRay)
-            );
+            assert_eq!(owner.role_status().presenting(), FIRST_STRATEGY);
+            assert_eq!(owner.role_status().replacement(), Some(SECOND_STRATEGY));
             assert_eq!(owner.role_status().retiring(), None);
         }
 
@@ -1472,18 +1580,15 @@ mod tests {
         assert_eq!(
             owner.events().last(),
             Some(&RenderPathSwitchEvent::HandoffHeld {
-                presenting: RenderPathStrategy::Raster,
-                replacement: RenderPathStrategy::ComputeRay,
+                presenting: FIRST_STRATEGY,
+                replacement: SECOND_STRATEGY,
             })
         );
         handoff_control.release();
         owner.advance_frame_boundary(proof_device_context(&device), proof_target(5, 1000, 700))?;
         record_owner(&mut owner, &device)?;
 
-        assert_eq!(
-            owner.role_status().presenting(),
-            RenderPathStrategy::ComputeRay
-        );
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
         assert_eq!(owner.role_status().replacement(), None);
         assert_eq!(presenting_records.load(Ordering::SeqCst), 1);
         assert_eq!(replacement_records.load(Ordering::SeqCst), 1);
@@ -1496,23 +1601,23 @@ mod tests {
         let mut mismatched_replacements = [
             (
                 RenderPathHandoffMismatch::SceneIdentity,
-                stamp(RenderPathStrategy::ComputeRay, 1, 1),
+                stamp(SECOND_STRATEGY, 1, 1),
             ),
             (
                 RenderPathHandoffMismatch::VoxelSceneRevision,
-                stamp(RenderPathStrategy::ComputeRay, 2, 2),
+                stamp(SECOND_STRATEGY, 2, 2),
             ),
             (
                 RenderPathHandoffMismatch::CameraStateRevision,
-                stamp(RenderPathStrategy::ComputeRay, 1, 1),
+                stamp(SECOND_STRATEGY, 1, 1),
             ),
             (
                 RenderPathHandoffMismatch::PresentationConfiguration,
-                stamp(RenderPathStrategy::ComputeRay, 1, 1),
+                stamp(SECOND_STRATEGY, 1, 1),
             ),
             (
                 RenderPathHandoffMismatch::Readiness,
-                stamp(RenderPathStrategy::ComputeRay, 1, 1),
+                stamp(SECOND_STRATEGY, 1, 1),
             ),
         ];
         mismatched_replacements[0].1.scene_identity = VoxelSceneId::new("other");
@@ -1522,25 +1627,21 @@ mod tests {
         mismatched_replacements[4].1.readiness = RenderPathReadiness::Preparing;
 
         for (mismatch, replacement_stamp) in mismatched_replacements {
-            let mut owner =
-                RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 1, 1)));
+            let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 1, 1)));
             owner
                 .request_switch(proof_path(replacement_stamp))
                 .expect("the converged idle Presenting Render Path should admit switching");
 
             advance_owner(&mut owner, &device)?;
 
-            assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
-            assert_eq!(
-                owner.role_status().replacement(),
-                Some(RenderPathStrategy::ComputeRay)
-            );
+            assert_eq!(owner.role_status().presenting(), FIRST_STRATEGY);
+            assert_eq!(owner.role_status().replacement(), Some(SECOND_STRATEGY));
             assert_eq!(owner.role_status().retiring(), None);
             assert_eq!(
                 owner.events().last(),
                 Some(&RenderPathSwitchEvent::HandoffDeferred {
-                    presenting: RenderPathStrategy::Raster,
-                    replacement: RenderPathStrategy::ComputeRay,
+                    presenting: FIRST_STRATEGY,
+                    replacement: SECOND_STRATEGY,
                     mismatch,
                 })
             );
@@ -1557,10 +1658,9 @@ mod tests {
             ProofFailurePoint::Configure,
             ProofFailurePoint::AdvanceFrameBoundary,
         ] {
-            let mut owner =
-                RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 1, 1)));
+            let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 1, 1)));
             let (failed_replacement, shutdown_count) =
-                failing_path(stamp(RenderPathStrategy::ComputeRay, 1, 1), failure_point);
+                failing_path(stamp(SECOND_STRATEGY, 1, 1), failure_point);
             owner.request_switch(failed_replacement)?;
 
             let failure = match failure_point {
@@ -1578,10 +1678,10 @@ mod tests {
             };
             let expected_error = match failure_point {
                 ProofFailurePoint::Release => {
-                    "owned Render Path release failures: Replacement ComputeRay: proof replacement failure"
+                    "owned Render Path release failures: Replacement test.second: proof replacement failure"
                 }
                 ProofFailurePoint::Configure => {
-                    "owned Render Path configure failures: Replacement ComputeRay: proof replacement failure"
+                    "owned Render Path configure failures: Replacement test.second: proof replacement failure"
                 }
                 ProofFailurePoint::Publication | ProofFailurePoint::AdvanceFrameBoundary => {
                     "proof replacement failure"
@@ -1590,37 +1690,31 @@ mod tests {
             assert_eq!(error.to_string(), expected_error);
             if matches!(failure_point, ProofFailurePoint::Publication) {
                 assert_eq!(shutdown_count.load(Ordering::SeqCst), 0);
-                assert_eq!(
-                    owner.role_status().replacement(),
-                    Some(RenderPathStrategy::ComputeRay)
-                );
+                assert_eq!(owner.role_status().replacement(), Some(SECOND_STRATEGY));
                 advance_owner(&mut owner, &device)?;
             }
 
             assert_eq!(shutdown_count.load(Ordering::SeqCst), 1);
-            assert_eq!(owner.role_status().presenting(), RenderPathStrategy::Raster);
+            assert_eq!(owner.role_status().presenting(), FIRST_STRATEGY);
             assert_eq!(owner.role_status().replacement(), None);
             assert_eq!(owner.role_status().retiring(), None);
             assert!(owner.events().ends_with(&[
                 RenderPathSwitchEvent::ReplacementFailed {
-                    replacement: RenderPathStrategy::ComputeRay,
+                    replacement: SECOND_STRATEGY,
                     message: "proof replacement failure".to_owned(),
                 },
                 RenderPathSwitchEvent::ReplacementCleaned {
-                    replacement: RenderPathStrategy::ComputeRay,
+                    replacement: SECOND_STRATEGY,
                 },
             ]));
 
-            let mut fresh_stamp = stamp(RenderPathStrategy::ComputeRay, 1, 1);
+            let mut fresh_stamp = stamp(SECOND_STRATEGY, 1, 1);
             if matches!(failure_point, ProofFailurePoint::Publication) {
                 fresh_stamp.camera_state_revision = CameraStateRevision::new(2);
             }
             owner.request_switch(proof_path(fresh_stamp))?;
             advance_owner(&mut owner, &device)?;
-            assert_eq!(
-                owner.role_status().presenting(),
-                RenderPathStrategy::ComputeRay
-            );
+            assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
         }
         Ok(())
     }
@@ -1629,13 +1723,13 @@ mod tests {
     fn release_aggregates_presenting_and_replacement_failures() -> RenderPathResult<()> {
         let device = proof_device();
         let (presenting, presenting_release_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::Raster, 1, 1),
+            stamp(FIRST_STRATEGY, 1, 1),
             "presenting release failure",
             LifecycleFailurePoint::Release,
             true,
         );
         let (replacement, replacement_release_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            stamp(SECOND_STRATEGY, 1, 1),
             "replacement release failure",
             LifecycleFailurePoint::Release,
             true,
@@ -1654,7 +1748,7 @@ mod tests {
         assert_eq!(replacement_release_count.load(Ordering::SeqCst), 1);
         assert_eq!(
             error.to_string(),
-            "Render Path release failed: owned Render Path release failures: Presenting Raster: presenting release failure; Replacement ComputeRay: replacement release failure"
+            "Render Path release failed: owned Render Path release failures: Presenting test.first: presenting release failure; Replacement test.second: replacement release failure"
         );
         Ok(())
     }
@@ -1663,13 +1757,13 @@ mod tests {
     fn configure_aggregates_presenting_and_replacement_failures() -> RenderPathResult<()> {
         let device = proof_device();
         let (presenting, presenting_configure_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::Raster, 1, 1),
+            stamp(FIRST_STRATEGY, 1, 1),
             "presenting configure failure",
             LifecycleFailurePoint::Configure,
             true,
         );
         let (replacement, replacement_configure_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            stamp(SECOND_STRATEGY, 1, 1),
             "replacement configure failure",
             LifecycleFailurePoint::Configure,
             true,
@@ -1688,7 +1782,7 @@ mod tests {
         assert_eq!(replacement_configure_count.load(Ordering::SeqCst), 1);
         assert_eq!(
             error.to_string(),
-            "Render Path configure failed: owned Render Path configure failures: Presenting Raster: presenting configure failure; Replacement ComputeRay: replacement configure failure"
+            "Render Path configure failed: owned Render Path configure failures: Presenting test.first: presenting configure failure; Replacement test.second: replacement configure failure"
         );
         Ok(())
     }
@@ -1697,13 +1791,13 @@ mod tests {
     fn release_aggregates_presenting_and_retiring_failures() -> RenderPathResult<()> {
         let device = proof_device();
         let (retiring, retiring_release_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::Raster, 1, 1),
+            stamp(FIRST_STRATEGY, 1, 1),
             "retiring release failure",
             LifecycleFailurePoint::Release,
             true,
         );
         let (presenting, presenting_release_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            stamp(SECOND_STRATEGY, 1, 1),
             "presenting release failure",
             LifecycleFailurePoint::Release,
             true,
@@ -1723,7 +1817,7 @@ mod tests {
         assert_eq!(retiring_release_count.load(Ordering::SeqCst), 1);
         assert_eq!(
             error.to_string(),
-            "Render Path release failed: owned Render Path release failures: Presenting ComputeRay: presenting release failure; Retiring Raster: retiring release failure"
+            "Render Path release failed: owned Render Path release failures: Presenting test.second: presenting release failure; Retiring test.first: retiring release failure"
         );
         Ok(())
     }
@@ -1732,14 +1826,14 @@ mod tests {
     fn configure_aggregates_presenting_and_retiring_failures() -> RenderPathResult<()> {
         let device = proof_device();
         let (retiring, retiring_configure_count, retiring_failure_enabled) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::Raster, 1, 1),
+            stamp(FIRST_STRATEGY, 1, 1),
             "retiring configure failure",
             LifecycleFailurePoint::Configure,
             false,
         );
         let (presenting, presenting_configure_count, presenting_failure_enabled) =
             lifecycle_failing_path(
-                stamp(RenderPathStrategy::ComputeRay, 1, 1),
+                stamp(SECOND_STRATEGY, 1, 1),
                 "presenting configure failure",
                 LifecycleFailurePoint::Configure,
                 false,
@@ -1761,7 +1855,7 @@ mod tests {
         assert_eq!(retiring_configure_count.load(Ordering::SeqCst), 1);
         assert_eq!(
             error.to_string(),
-            "Render Path configure failed: owned Render Path configure failures: Presenting ComputeRay: presenting configure failure; Retiring Raster: retiring configure failure"
+            "Render Path configure failed: owned Render Path configure failures: Presenting test.second: presenting configure failure; Retiring test.first: retiring configure failure"
         );
         Ok(())
     }
@@ -1770,13 +1864,13 @@ mod tests {
     fn shutdown_aggregates_presenting_and_replacement_failures() -> RenderPathResult<()> {
         let device = proof_device();
         let (presenting, presenting_shutdown_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::Raster, 1, 1),
+            stamp(FIRST_STRATEGY, 1, 1),
             "presenting shutdown failure",
             LifecycleFailurePoint::Shutdown,
             true,
         );
         let (replacement, replacement_shutdown_count, _) = lifecycle_failing_path(
-            stamp(RenderPathStrategy::ComputeRay, 1, 1),
+            stamp(SECOND_STRATEGY, 1, 1),
             "replacement shutdown failure",
             LifecycleFailurePoint::Shutdown,
             true,
@@ -1795,7 +1889,7 @@ mod tests {
         assert_eq!(owner.role_status().retiring(), None);
         assert_eq!(
             error.to_string(),
-            "owned Render Path shutdown failures: Presenting Raster: presenting shutdown failure; Replacement ComputeRay: replacement shutdown failure"
+            "owned Render Path shutdown failures: Presenting test.first: presenting shutdown failure; Replacement test.second: replacement shutdown failure"
         );
         Ok(())
     }
@@ -1803,13 +1897,10 @@ mod tests {
     #[test]
     fn post_handoff_retirement_failure_retains_the_new_presenting_path_without_rollback()
     -> RenderPathResult<()> {
-        let mut owner = RenderPathSwitchOwner::new(retirement_failing_path(stamp(
-            RenderPathStrategy::Raster,
-            1,
-            1,
-        )));
+        let mut owner =
+            RenderPathSwitchOwner::new(retirement_failing_path(stamp(FIRST_STRATEGY, 1, 1)));
         owner
-            .request_switch(proof_path(stamp(RenderPathStrategy::ComputeRay, 1, 1)))
+            .request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))
             .expect("the converged idle Presenting Render Path should admit switching");
         let device = proof_device();
         advance_owner(&mut owner, &device)?;
@@ -1818,37 +1909,28 @@ mod tests {
             .expect_err("the injected retirement failure should reach the caller");
 
         assert_eq!(error.to_string(), "proof retirement failure");
-        assert_eq!(
-            owner.role_status().presenting(),
-            RenderPathStrategy::ComputeRay
-        );
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
         assert_eq!(owner.role_status().replacement(), None);
-        assert_eq!(
-            owner.role_status().retiring(),
-            Some(RenderPathStrategy::Raster)
-        );
+        assert_eq!(owner.role_status().retiring(), Some(FIRST_STRATEGY));
         assert_eq!(
             owner.events().last(),
             Some(&RenderPathSwitchEvent::RetirementFailed {
-                retiring: RenderPathStrategy::Raster,
+                retiring: FIRST_STRATEGY,
                 message: "proof retirement failure".to_owned(),
             })
         );
         let diagnostics = owner.diagnostics();
-        assert_eq!(
-            diagnostics.presenting().strategy(),
-            RenderPathStrategy::ComputeRay
-        );
+        assert_eq!(diagnostics.presenting().strategy(), SECOND_STRATEGY);
         assert_eq!(diagnostics.replacement(), None);
         assert_eq!(
             diagnostics.retiring().map(RenderPathStamp::strategy),
-            Some(RenderPathStrategy::Raster)
+            Some(FIRST_STRATEGY)
         );
         assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             RenderPathSwitchEvent::HandedOff {
-                presenting: RenderPathStrategy::ComputeRay,
-                retiring: RenderPathStrategy::Raster,
+                presenting: SECOND_STRATEGY,
+                retiring: FIRST_STRATEGY,
             }
         )));
         Ok(())
@@ -1858,9 +1940,9 @@ mod tests {
     fn exactly_one_presenting_path_records_and_retirement_completion_returns_switching_to_idle()
     -> RenderPathResult<()> {
         let (presenting, _, presenting_record_count) =
-            observable_path(stamp(RenderPathStrategy::Raster, 1, 1), false);
+            observable_path(stamp(FIRST_STRATEGY, 1, 1), false);
         let (replacement, become_recordable, replacement_record_count) =
-            observable_path(stamp(RenderPathStrategy::ComputeRay, 1, 1), true);
+            observable_path(stamp(SECOND_STRATEGY, 1, 1), true);
         let mut owner = RenderPathSwitchOwner::new(presenting);
         owner
             .request_switch(replacement)
@@ -1881,16 +1963,13 @@ mod tests {
 
         assert_eq!(presenting_record_count.load(Ordering::SeqCst), 2);
         assert_eq!(replacement_record_count.load(Ordering::SeqCst), 2);
-        assert_eq!(
-            owner.role_status().presenting(),
-            RenderPathStrategy::ComputeRay
-        );
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
         assert_eq!(owner.role_status().replacement(), None);
         assert_eq!(owner.role_status().retiring(), None);
         assert_eq!(
             owner.events().last(),
             Some(&RenderPathSwitchEvent::Retired {
-                retired: RenderPathStrategy::Raster,
+                retired: FIRST_STRATEGY,
             })
         );
         Ok(())
@@ -1899,14 +1978,13 @@ mod tests {
     #[test]
     fn revision_four_paths_complete_the_raster_compute_raster_compute_round_trip()
     -> RenderPathResult<()> {
-        let mut owner =
-            RenderPathSwitchOwner::new(proof_path(stamp(RenderPathStrategy::Raster, 4, 4)));
+        let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 4, 4)));
         let device = proof_device();
 
         for (replacement, retired) in [
-            (RenderPathStrategy::ComputeRay, RenderPathStrategy::Raster),
-            (RenderPathStrategy::Raster, RenderPathStrategy::ComputeRay),
-            (RenderPathStrategy::ComputeRay, RenderPathStrategy::Raster),
+            (SECOND_STRATEGY, FIRST_STRATEGY),
+            (FIRST_STRATEGY, SECOND_STRATEGY),
+            (SECOND_STRATEGY, FIRST_STRATEGY),
         ] {
             owner
                 .request_switch(proof_path(stamp(replacement, 4, 4)))
@@ -1926,10 +2004,7 @@ mod tests {
             );
         }
 
-        assert_eq!(
-            owner.role_status().presenting(),
-            RenderPathStrategy::ComputeRay
-        );
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
         Ok(())
     }
 }

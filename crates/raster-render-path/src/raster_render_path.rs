@@ -26,6 +26,8 @@ use voxel_frontend::{
     VoxelVolumeId, VoxelVolumeMetadata,
 };
 
+pub const RASTER_STRATEGY: RenderPathStrategy = RenderPathStrategy::new("voxel-nexus.raster");
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AxisNormal {
     NegativeX,
@@ -1298,6 +1300,10 @@ impl RasterRenderPathAdapter {
 }
 
 impl RenderPath for RasterRenderPathAdapter {
+    fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
+        self.render_path.submit_edit_outcome(outcome)
+    }
+
     fn publish_camera_state(
         &mut self,
         camera_state: CameraPose,
@@ -1357,7 +1363,7 @@ impl SwitchableRenderPath for RasterRenderPathAdapter {
             RenderPathReadiness::Preparing
         };
         RenderPathStamp::new(
-            RenderPathStrategy::Raster,
+            RASTER_STRATEGY,
             self.scene_identity.clone(),
             self.required_revision(),
             self.visible_revision(),
@@ -4809,6 +4815,15 @@ impl RasterResourceError {
 }
 
 impl RenderPath for RasterRenderPath {
+    fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
+        let controller = match self.lifecycle_control.clone() {
+            Some(controller) => controller,
+            None => self.enable_lifecycle_control(false),
+        };
+        controller.submit(outcome)?;
+        Ok(())
+    }
+
     fn release(&mut self, device: RenderPathDeviceContext<'_>) -> RenderPathResult<()> {
         let mut restart_error = None;
         if let Some(convergence) = &mut self.convergence {
@@ -5690,13 +5705,35 @@ mod convergence_tests {
     }
 
     #[test]
+    fn path_neutral_edit_submission_starts_convergence_without_external_control()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend(1, 4)?;
+        let mut render_path = render_path(&frontend)?;
+        let path: &mut dyn RenderPath = &mut render_path;
+        path.submit_edit_outcome(changed(&frontend, 0)?)
+            .map_err(|error| -> Box<dyn std::error::Error> { error })?;
+        render_path.advance_convergence_at_frame_boundary(None)?;
+        assert_eq!(
+            render_path.required_revision(),
+            Some(VoxelSceneRevision::new(2))
+        );
+        assert_eq!(
+            render_path.visible_revision(),
+            Some(VoxelSceneRevision::new(1))
+        );
+        Ok(())
+    }
+
+    #[test]
     fn controller_barrier_proves_cancelled_generation_schedules_no_later_region()
     -> Result<(), Box<dyn std::error::Error>> {
         let frontend = frontend(1, 4)?;
         let mut render_path = render_path(&frontend)?;
         let controller = render_path.enable_lifecycle_control(false);
         controller.hold_next_cpu_generation_after_regions(1)?;
-        controller.submit(changed(&frontend, 0)?)?;
+        render_path
+            .submit_edit_outcome(changed(&frontend, 0)?)
+            .map_err(|error| -> Box<dyn std::error::Error> { error })?;
         render_path.advance_convergence_at_frame_boundary(None)?;
 
         for _ in 0..10_000 {

@@ -1,4 +1,6 @@
 #![cfg(windows)]
+use compute_ray_render_path::COMPUTE_RAY_STRATEGY;
+use raster_render_path::RASTER_STRATEGY;
 
 #[allow(dead_code)]
 #[path = "../src/windows_adapter.rs"]
@@ -210,7 +212,7 @@ fn run_fixtures(event_loop: &ActiveEventLoop) -> TestResult {
                 check_presenter(
                     window,
                     &mut backend,
-                    RenderPathStrategy::Raster,
+                    RASTER_STRATEGY,
                     contact.material_identity(),
                 )?;
                 backend.request_render_path_switch(Box::new(ComputeRayRenderPathAdapter::new(
@@ -221,14 +223,14 @@ fn run_fixtures(event_loop: &ActiveEventLoop) -> TestResult {
                 check_presenter(
                     window,
                     &mut backend,
-                    RenderPathStrategy::ComputeRay,
+                    COMPUTE_RAY_STRATEGY,
                     contact.material_identity(),
                 )?;
                 backend.request_render_path_switch(Box::new(raster(&view, camera)?))?;
                 check_presenter(
                     window,
                     &mut backend,
-                    RenderPathStrategy::Raster,
+                    RASTER_STRATEGY,
                     contact.material_identity(),
                 )?;
                 Ok(())
