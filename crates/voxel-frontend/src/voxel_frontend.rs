@@ -3,9 +3,11 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
+mod page_table;
 #[cfg(test)]
 mod sharing_tests;
 mod storage_tier;
+use page_table::PageTable;
 use storage_tier::{SparseStorage, Storage};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -290,13 +292,13 @@ impl VoxelSample {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct VoxelEditCommand {
+pub struct VoxelEdit {
     volume_identity: VoxelVolumeId,
     coordinate: VoxelCoordinate,
     value: VoxelValue,
 }
 
-impl VoxelEditCommand {
+impl VoxelEdit {
     pub fn new(
         volume_identity: VoxelVolumeId,
         coordinate: VoxelCoordinate,
@@ -319,6 +321,29 @@ impl VoxelEditCommand {
 
     pub fn value(&self) -> &VoxelValue {
         &self.value
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct VoxelEditCommand {
+    edits: Vec<VoxelEdit>,
+}
+
+impl VoxelEditCommand {
+    pub fn new(
+        volume_identity: VoxelVolumeId,
+        coordinate: VoxelCoordinate,
+        value: VoxelValue,
+    ) -> Self {
+        Self::from_edits(vec![VoxelEdit::new(volume_identity, coordinate, value)])
+    }
+
+    pub fn from_edits(edits: Vec<VoxelEdit>) -> Self {
+        Self { edits }
+    }
+
+    pub fn edits(&self) -> &[VoxelEdit] {
+        &self.edits
     }
 }
 
@@ -540,61 +565,84 @@ impl VoxelFrontend {
         let published = publication
             .as_ref()
             .ok_or(VoxelFrontendError::SceneNotPublished)?;
-        let volume = published
-            .volumes
-            .get(&command.volume_identity)
-            .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
-                identity: command.volume_identity.clone(),
+        let mut validated = HashMap::new();
+        for edit in command.edits {
+            let volume = published
+                .volumes
+                .get(&edit.volume_identity)
+                .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
+                    identity: edit.volume_identity.clone(),
+                })?;
+            dense_index(volume.extent(), edit.coordinate).ok_or_else(|| {
+                VoxelFrontendError::EditCoordinateOutsideVolume {
+                    identity: edit.volume_identity.clone(),
+                    coordinate: edit.coordinate,
+                }
             })?;
-        dense_index(volume.extent(), command.coordinate).ok_or_else(|| {
-            VoxelFrontendError::EditCoordinateOutsideVolume {
-                identity: command.volume_identity.clone(),
-                coordinate: command.coordinate,
+            let value_index = match &edit.value {
+                VoxelValue::Empty => MaterialIndex::EMPTY,
+                VoxelValue::Occupied(material_identity) => *published
+                    .material_indices
+                    .get(material_identity)
+                    .ok_or_else(|| VoxelFrontendError::UnknownEditMaterial {
+                        volume_identity: edit.volume_identity.clone(),
+                        coordinate: edit.coordinate,
+                        material_identity: material_identity.clone(),
+                    })?,
+            };
+            // Validate even entries overwritten later so invalid input always rejects the command.
+            validated.insert((edit.volume_identity, edit.coordinate), value_index);
+        }
+        let mut changes_by_volume: HashMap<VoxelVolumeId, Vec<(VoxelCoordinate, MaterialIndex)>> =
+            HashMap::new();
+        for ((identity, coordinate), value) in validated {
+            let volume = published.volumes.get(&identity).ok_or_else(|| {
+                VoxelFrontendError::UnknownVolumeIdentity {
+                    identity: identity.clone(),
+                }
+            })?;
+            if volume.value(coordinate) != value {
+                changes_by_volume
+                    .entry(identity)
+                    .or_default()
+                    .push((coordinate, value));
             }
-        })?;
-        let value_index = match &command.value {
-            VoxelValue::Empty => MaterialIndex::EMPTY,
-            VoxelValue::Occupied(material_identity) => *published
-                .material_indices
-                .get(material_identity)
-                .ok_or_else(|| VoxelFrontendError::UnknownEditMaterial {
-                    volume_identity: command.volume_identity.clone(),
-                    coordinate: command.coordinate,
-                    material_identity: material_identity.clone(),
-                })?,
-        };
-        let current_value = volume.value(command.coordinate);
-        if current_value == value_index {
+        }
+        if changes_by_volume.is_empty() {
             return Ok(VoxelEditOutcome::Unchanged(VoxelSceneView {
                 published: Arc::clone(published),
             }));
         }
-        let successor_revision =
-            VoxelSceneRevision(published.revision.0.checked_add(1).ok_or_else(|| {
-                VoxelFrontendError::RevisionOverflow {
-                    scene_identity: published.identity.clone(),
-                    revision: published.revision,
-                }
-            })?);
-        let predecessor_revision = published.revision;
+        let successor_revision = published.revision.checked_successor().ok_or_else(|| {
+            VoxelFrontendError::RevisionOverflow {
+                scene_identity: published.identity.clone(),
+                revision: published.revision,
+            }
+        })?;
         let mut successor = PublishedScene::clone(published);
         successor.revision = successor_revision;
-        let successor_volume = successor
-            .volumes
-            .get_mut(&command.volume_identity)
-            .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
-                identity: command.volume_identity.clone(),
+        let mut changed_regions = Vec::new();
+        for (identity, changes) in changes_by_volume {
+            let volume = successor.volumes.get_mut(&identity).ok_or_else(|| {
+                VoxelFrontendError::UnknownVolumeIdentity {
+                    identity: identity.clone(),
+                }
             })?;
-        *successor_volume = volume.successor(command.coordinate, value_index);
-
+            *volume = volume.successor(&changes);
+            changed_regions.extend(
+                changes
+                    .into_iter()
+                    .map(|(coordinate, _)| VoxelChangedRegion {
+                        volume_identity: identity.clone(),
+                        region: VoxelRegion::new(coordinate, VoxelExtent::new(1, 1, 1)),
+                    }),
+            );
+        }
         let change_set = VoxelChangeSet {
             scene_identity: successor.identity.clone(),
-            predecessor_revision,
+            predecessor_revision: published.revision,
             successor_revision,
-            changed_regions: vec![VoxelChangedRegion {
-                volume_identity: command.volume_identity,
-                region: VoxelRegion::new(command.coordinate, VoxelExtent::new(1, 1, 1)),
-            }],
+            changed_regions,
         };
         let published = Arc::new(successor);
         *publication = Some(Arc::clone(&published));
@@ -860,7 +908,7 @@ impl MaterialIndex {
 #[derive(Clone)]
 struct DenseStorage {
     extent: VoxelExtent,
-    pages: Arc<Vec<Arc<Vec<MaterialIndex>>>>,
+    pages: Arc<PageTable<Arc<Vec<MaterialIndex>>>>,
 }
 
 impl DenseStorage {
@@ -869,12 +917,12 @@ impl DenseStorage {
 
     fn get(&self, index: usize) -> Option<&MaterialIndex> {
         self.pages
-            .get(index / Self::PAGE_VALUES)?
+            .get(&(index / Self::PAGE_VALUES))?
             .get(index % Self::PAGE_VALUES)
     }
 
     fn get_mut(&mut self, index: usize) -> Option<&mut MaterialIndex> {
-        let page = Arc::make_mut(&mut self.pages).get_mut(index / Self::PAGE_VALUES)?;
+        let page = Arc::make_mut(&mut self.pages).get_mut(&(index / Self::PAGE_VALUES))?;
         Arc::make_mut(page).get_mut(index % Self::PAGE_VALUES)
     }
 
@@ -917,12 +965,7 @@ impl DenseStorage {
                 identity: volume.metadata.identity.clone(),
             });
         }
-        let mut pages = Vec::new();
-        pages
-            .try_reserve_exact(value_count.div_ceil(Self::PAGE_VALUES))
-            .map_err(|_| VoxelFrontendError::VolumeAllocation {
-                identity: volume.metadata.identity.clone(),
-            })?;
+        let mut pages = PageTable::new(value_count.div_ceil(Self::PAGE_VALUES));
         for start in (0..value_count).step_by(Self::PAGE_VALUES) {
             let count = (value_count - start).min(Self::PAGE_VALUES);
             let mut page = Vec::new();
@@ -931,7 +974,7 @@ impl DenseStorage {
                     identity: volume.metadata.identity.clone(),
                 })?;
             page.resize(count, MaterialIndex::UNSUPPLIED);
-            pages.push(Arc::new(page));
+            pages.insert(start / Self::PAGE_VALUES, Arc::new(page));
         }
         let mut storage = Self {
             extent: volume.metadata.extent,
@@ -989,7 +1032,7 @@ impl DenseStorage {
         }
         if storage
             .pages
-            .iter()
+            .values()
             .any(|page| page.contains(&MaterialIndex::UNSUPPLIED))
         {
             return Err(VoxelFrontendError::IncompleteVolume {

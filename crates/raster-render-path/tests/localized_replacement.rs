@@ -357,3 +357,41 @@ fn an_edit_in_one_volume_retains_every_installation_in_other_volumes()
     );
     Ok(())
 }
+
+#[test]
+fn atomic_changes_across_region_boundaries_match_complete_derivation()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = frontend("atomic", 0, VoxelExtent::new(64, 1, 1), &HashSet::new())?;
+    let extent = VoxelExtent::new(16, 1, 1);
+    let mut path = RasterRenderPath::new();
+    path.install_artifact(derive_raster_regions(&frontend.scene_view()?, extent)?);
+    let outcome = frontend.edit(VoxelEditCommand::from_edits(
+        [0, 15, 16, 63]
+            .map(|coordinate| {
+                voxel_frontend::VoxelEdit::new(
+                    VoxelVolumeId::new("terrain"),
+                    VoxelCoordinate::new(coordinate, 0, 0),
+                    VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+                )
+            })
+            .to_vec(),
+    ))?;
+    path.apply_adjacent_change(
+        outcome.view(),
+        outcome.change_set().ok_or("missing changes")?,
+    )?;
+    let complete = derive_raster_regions(outcome.view(), extent)?;
+    assert_eq!(
+        path.installed_source_revision(),
+        Some(VoxelSceneRevision::new(1))
+    );
+    assert_eq!(
+        path.installed_artifact()
+            .ok_or("missing artifact")?
+            .semantic_faces()
+            .cloned()
+            .collect::<HashSet<_>>(),
+        complete.semantic_faces().cloned().collect::<HashSet<_>>()
+    );
+    Ok(())
+}

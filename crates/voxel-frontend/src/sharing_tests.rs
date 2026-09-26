@@ -52,12 +52,15 @@ fn revisions_share_all_but_the_edited_page() -> Result<(), Box<dyn std::error::E
             .downcast_ref::<DenseStorage>()
             .ok_or("expected dense storage")?;
         let edited_page = usize::try_from(coordinate)? / DenseStorage::PAGE_VALUES;
-        assert_eq!(previous_storage.pages.len(), next_storage.pages.len());
+        assert_eq!(
+            previous_storage.pages.iter().count(),
+            next_storage.pages.iter().count()
+        );
         let mut copied_values = 0;
         for (page_index, (previous, next)) in previous_storage
             .pages
-            .iter()
-            .zip(next_storage.pages.iter())
+            .values()
+            .zip(next_storage.pages.values())
             .enumerate()
         {
             assert_eq!(Arc::ptr_eq(previous, next), page_index != edited_page);
@@ -186,7 +189,7 @@ fn palette_indices_are_compact_and_scene_local() -> Result<(), Box<dyn std::erro
         assert_eq!(
             storage
                 .pages
-                .iter()
+                .values()
                 .map(|page| page.len() * size_of::<MaterialIndex>())
                 .sum::<usize>(),
             12

@@ -29,7 +29,7 @@ The owner of voxel-scene state, storage-independent access, and edit semantics p
 _Avoid_: Data backend
 
 **Voxel Edit Command**:
-An atomic request to set one coordinate in one identified Voxel Volume to one Voxel Value. Each value-changing command publishes exactly one new Voxel Scene Revision; a command that preserves the existing value publishes nothing.
+An atomic request to set zero or more coordinates across identified Voxel Volumes to Voxel Values, with the last entry winning for repeated coordinates and any invalid entry rejecting the whole request. A command whose final values differ from the current scene publishes exactly one new Voxel Scene Revision; otherwise it publishes nothing.
 _Avoid_: Edit batch, editor action
 
 **Voxel Scene View**:

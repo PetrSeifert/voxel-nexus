@@ -276,3 +276,36 @@ fn an_older_discontinuous_outcome_cannot_replace_the_newest_requirement()
     assert_eq!(convergence.required_revision(), VoxelSceneRevision::new(91));
     Ok(())
 }
+
+#[test]
+fn atomic_brush_starts_one_preparation_for_all_changed_regions()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = frontend("atomic", 0, VoxelExtent::new(64, 1, 1))?;
+    let mut convergence = convergence(&frontend, VoxelExtent::new(16, 1, 1))?;
+    let outcome = frontend.edit(VoxelEditCommand::from_edits(
+        [0, 15, 16, 63]
+            .map(|coordinate| {
+                voxel_frontend::VoxelEdit::new(
+                    VoxelVolumeId::new("terrain"),
+                    VoxelCoordinate::new(coordinate, 0, 0),
+                    VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+                )
+            })
+            .to_vec(),
+    ))?;
+    convergence.accept(outcome)?;
+    let events = drain_until_ready(&mut convergence, VoxelSceneRevision::new(1))?;
+    assert_eq!(
+        events
+            .iter()
+            .filter(|event| matches!(event, RasterConvergenceEvent::PreparationStarted { .. }))
+            .count(),
+        1
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, RasterConvergenceEvent::PreparationDiscarded { .. }))
+    );
+    Ok(())
+}

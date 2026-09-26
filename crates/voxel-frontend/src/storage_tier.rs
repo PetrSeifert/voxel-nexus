@@ -1,10 +1,9 @@
 use super::*;
-use std::collections::BTreeMap;
 
 pub(super) trait Storage: Send + Sync {
     fn extent(&self) -> VoxelExtent;
     fn value(&self, coordinate: VoxelCoordinate) -> MaterialIndex;
-    fn successor(&self, coordinate: VoxelCoordinate, value: MaterialIndex) -> Arc<dyn Storage>;
+    fn successor(&self, changes: &[(VoxelCoordinate, MaterialIndex)]) -> Arc<dyn Storage>;
     fn uniform_span(&self, start: usize, count: usize) -> Option<MaterialIndex>;
     fn storage_bytes(&self) -> usize;
     #[cfg(test)]
@@ -79,12 +78,14 @@ impl Storage for DenseStorage {
     fn value(&self, coordinate: VoxelCoordinate) -> MaterialIndex {
         self.value(coordinate)
     }
-    fn successor(&self, coordinate: VoxelCoordinate, value: MaterialIndex) -> Arc<dyn Storage> {
+    fn successor(&self, changes: &[(VoxelCoordinate, MaterialIndex)]) -> Arc<dyn Storage> {
         let mut successor = self.clone();
-        if let Some(destination) =
-            dense_index(self.extent, coordinate).and_then(|index| successor.get_mut(index))
-        {
-            *destination = value;
+        for &(coordinate, value) in changes {
+            if let Some(destination) =
+                dense_index(self.extent, coordinate).and_then(|index| successor.get_mut(index))
+            {
+                *destination = value;
+            }
         }
         Arc::new(successor)
     }
@@ -96,17 +97,16 @@ impl Storage for DenseStorage {
     }
     fn storage_bytes(&self) -> usize {
         size_of::<Self>()
-            + self.pages.capacity() * size_of::<Arc<Vec<MaterialIndex>>>()
+            + self.pages.storage_bytes()
             + self
                 .pages
-                .iter()
+                .values()
                 .map(|page| {
                     size_of::<Vec<MaterialIndex>>()
                         + 2 * size_of::<usize>()
                         + page.capacity() * size_of::<MaterialIndex>()
                 })
                 .sum::<usize>()
-            + size_of::<Vec<Arc<Vec<MaterialIndex>>>>()
             + 2 * size_of::<usize>()
     }
     #[cfg(test)]
@@ -135,19 +135,23 @@ impl SparsePage {
 #[derive(Clone)]
 pub(super) struct SparseStorage {
     extent: VoxelExtent,
-    pages: Arc<BTreeMap<usize, SparsePage>>,
+    pages: Arc<PageTable<SparsePage>>,
 }
 
 impl SparseStorage {
     pub(super) fn from_dense(dense: DenseStorage) -> Self {
-        let pages = dense
-            .pages
-            .iter()
-            .enumerate()
-            .filter_map(|(index, page)| {
-                SparsePage::compress(Arc::clone(page)).map(|page| (index, page))
-            })
-            .collect();
+        let mut pages = PageTable::new(
+            dense
+                .extent
+                .value_count()
+                .unwrap_or(0)
+                .div_ceil(DenseStorage::PAGE_VALUES),
+        );
+        for (index, page) in dense.pages.iter() {
+            if let Some(page) = SparsePage::compress(Arc::clone(page)) {
+                pages.insert(index, page);
+            }
+        }
         Self {
             extent: dense.extent,
             pages: Arc::new(pages),
@@ -172,33 +176,35 @@ impl Storage for SparseStorage {
                 .unwrap_or(MaterialIndex::EMPTY),
         }
     }
-    fn successor(&self, coordinate: VoxelCoordinate, value: MaterialIndex) -> Arc<dyn Storage> {
+    fn successor(&self, changes: &[(VoxelCoordinate, MaterialIndex)]) -> Arc<dyn Storage> {
         let mut successor = self.clone();
-        if let Some(index) = dense_index(self.extent, coordinate) {
-            let page_index = index / DenseStorage::PAGE_VALUES;
-            let count = self
-                .extent
-                .value_count()
-                .unwrap_or(0)
-                .saturating_sub(page_index * DenseStorage::PAGE_VALUES)
-                .min(DenseStorage::PAGE_VALUES);
-            let mut values = match self.pages.get(&page_index) {
-                None => Arc::new(vec![MaterialIndex::EMPTY; count]),
-                Some(SparsePage::Uniform(value)) => Arc::new(vec![*value; count]),
-                Some(SparsePage::Mixed(values)) => Arc::clone(values),
-            };
-            if let Some(destination) =
-                Arc::make_mut(&mut values).get_mut(index % DenseStorage::PAGE_VALUES)
-            {
-                *destination = value;
-            }
-            let pages = Arc::make_mut(&mut successor.pages);
-            match SparsePage::compress(values) {
-                Some(page) => {
-                    pages.insert(page_index, page);
+        for &(coordinate, value) in changes {
+            if let Some(index) = dense_index(self.extent, coordinate) {
+                let page_index = index / DenseStorage::PAGE_VALUES;
+                let count = self
+                    .extent
+                    .value_count()
+                    .unwrap_or(0)
+                    .saturating_sub(page_index * DenseStorage::PAGE_VALUES)
+                    .min(DenseStorage::PAGE_VALUES);
+                let mut values = match successor.pages.get(&page_index) {
+                    None => Arc::new(vec![MaterialIndex::EMPTY; count]),
+                    Some(SparsePage::Uniform(value)) => Arc::new(vec![*value; count]),
+                    Some(SparsePage::Mixed(values)) => Arc::clone(values),
+                };
+                if let Some(destination) =
+                    Arc::make_mut(&mut values).get_mut(index % DenseStorage::PAGE_VALUES)
+                {
+                    *destination = value;
                 }
-                None => {
-                    pages.remove(&page_index);
+                let pages = Arc::make_mut(&mut successor.pages);
+                match SparsePage::compress(values) {
+                    Some(page) => {
+                        pages.insert(page_index, page);
+                    }
+                    None => {
+                        pages.remove(&page_index);
+                    }
                 }
             }
         }
@@ -217,13 +223,9 @@ impl Storage for SparseStorage {
         }
     }
     fn storage_bytes(&self) -> usize {
-        // BTreeMap does not expose allocated node capacity; charge one key/value plus
-        // three pointers per entry as an explicit estimate, not allocator telemetry.
         size_of::<Self>()
-            + size_of::<BTreeMap<usize, SparsePage>>()
+            + self.pages.storage_bytes()
             + 2 * size_of::<usize>()
-            + self.pages.len()
-                * (size_of::<usize>() + size_of::<SparsePage>() + 3 * size_of::<usize>())
             + self
                 .pages
                 .values()
@@ -252,15 +254,24 @@ mod tests {
     -> Result<(), Box<dyn std::error::Error>> {
         let dense = DenseStorage {
             extent: VoxelExtent::new(513, 1, 1),
-            pages: Arc::new(vec![
-                Arc::new(vec![MaterialIndex::EMPTY; 256]),
-                Arc::new((0..256).map(|index| MaterialIndex(index % 2)).collect()),
-                Arc::new(vec![MaterialIndex(1)]),
-            ]),
+            pages: Arc::new({
+                let mut pages = PageTable::new(3);
+                for (index, page) in [
+                    Arc::new(vec![MaterialIndex::EMPTY; 256]),
+                    Arc::new((0..256).map(|index| MaterialIndex(index % 2)).collect()),
+                    Arc::new(vec![MaterialIndex(1)]),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    pages.insert(index, page);
+                }
+                pages
+            }),
         };
         let sparse = SparseStorage::from_dense(dense);
-        assert_eq!(sparse.pages.len(), 2);
-        let edited = sparse.successor(VoxelCoordinate::new(0, 0, 0), MaterialIndex(1));
+        assert_eq!(sparse.pages.iter().count(), 2);
+        let edited = sparse.successor(&[(VoxelCoordinate::new(0, 0, 0), MaterialIndex(1))]);
         let edited = edited
             .as_any()
             .downcast_ref::<SparseStorage>()
@@ -275,13 +286,14 @@ mod tests {
             sparse.value(VoxelCoordinate::new(0, 0, 0)),
             MaterialIndex::EMPTY
         );
-        let restored = edited.successor(VoxelCoordinate::new(0, 0, 0), MaterialIndex::EMPTY);
+        let restored = edited.successor(&[(VoxelCoordinate::new(0, 0, 0), MaterialIndex::EMPTY)]);
         let restored = restored
             .as_any()
             .downcast_ref::<SparseStorage>()
             .ok_or("wrong tier")?;
-        assert!(!restored.pages.contains_key(&0));
-        let cleared = restored.successor(VoxelCoordinate::new(512, 0, 0), MaterialIndex::EMPTY);
+        assert!(restored.pages.get(&0).is_none());
+        let cleared =
+            restored.successor(&[(VoxelCoordinate::new(512, 0, 0), MaterialIndex::EMPTY)]);
         assert_eq!(
             cleared.value(VoxelCoordinate::new(512, 0, 0)),
             MaterialIndex::EMPTY

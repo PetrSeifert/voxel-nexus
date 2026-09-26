@@ -1402,6 +1402,47 @@ mod tests {
     }
 
     #[test]
+    fn atomic_command_installs_one_complete_bundle() -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("atomic", 0, VoxelExtent::new(513, 1, 1))?;
+        let mut convergence = convergence(&frontend)?;
+        let outcome = frontend.edit(VoxelEditCommand::from_edits(
+            [0, 255, 256, 512]
+                .map(|coordinate| {
+                    voxel_frontend::VoxelEdit::new(
+                        VoxelVolumeId::new("terrain"),
+                        VoxelCoordinate::new(coordinate, 0, 0),
+                        VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+                    )
+                })
+                .to_vec(),
+        ))?;
+        let expected = ComputeSceneBundle::from_view(outcome.view())?;
+        convergence.accept(outcome)?;
+        let events = drain_until_ready(&mut convergence, VoxelSceneRevision::new(1))?;
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, ComputeConvergenceEvent::PreparationStarted { .. }))
+                .count(),
+            1
+        );
+        convergence.retain_ready_candidate();
+        convergence.mark_hidden_uploaded();
+        convergence
+            .install_hidden(VoxelSceneRevision::new(0))?
+            .ok_or("candidate not installed")?;
+        assert_eq!(
+            convergence.installed_bundle().revision(),
+            VoxelSceneRevision::new(1)
+        );
+        assert_eq!(
+            convergence.installed_bundle().voxel_words(),
+            expected.voxel_words()
+        );
+        Ok(())
+    }
+
+    #[test]
     fn rapid_requirements_install_only_the_newest_authoritative_bundle()
     -> Result<(), Box<dyn std::error::Error>> {
         let frontend = frontend("newest", 10, VoxelExtent::new(64, 1, 1))?;
