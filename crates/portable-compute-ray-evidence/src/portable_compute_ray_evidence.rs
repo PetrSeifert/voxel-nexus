@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Read;
 use std::path::{Component, Path};
 use thiserror::Error;
 
@@ -508,7 +507,6 @@ pub fn verify_hash_inventory(
     bundle_root: &Path,
     artifacts: &[ArtifactRecord],
 ) -> Result<(), EvidenceError> {
-    let mut buffer = vec![0_u8; 64 * 1024];
     for artifact in artifacts {
         validate_artifact_path(&artifact.path)?;
         let artifact_path = bundle_root.join(&artifact.path);
@@ -532,18 +530,10 @@ pub fn verify_hash_inventory(
             });
         }
         let mut hash = Sha256::new();
-        loop {
-            let bytes_read =
-                file.read(&mut buffer)
-                    .map_err(|source| EvidenceError::ArtifactRead {
-                        path: artifact.path.clone(),
-                        source,
-                    })?;
-            if bytes_read == 0 {
-                break;
-            }
-            hash.update(&buffer[..bytes_read]);
-        }
+        std::io::copy(&mut file, &mut hash).map_err(|source| EvidenceError::ArtifactRead {
+            path: artifact.path.clone(),
+            source,
+        })?;
         if format!("{:x}", hash.finalize()) != artifact.sha256 {
             return Err(EvidenceError::ArtifactHash {
                 path: artifact.path.clone(),
@@ -927,32 +917,29 @@ fn verify_timeline_evidence(
         ArtifactCategory::EventTimeline,
     )?;
     let expected = [
-        "raster_revision_1",
-        "compute_revision_1",
-        "edit_burst_requested",
-        "compute_required_4_visible_1",
-        "compute_revision_4",
-        "raster_revision_4",
-        "compute_revision_4_final",
-        "clean_close",
+        ("raster_revision_1", None),
+        ("compute_revision_1", None),
+        ("edit_burst_requested", None),
+        ("compute_required_4_visible_1", Some("Required=4 Visible=1")),
+        ("compute_revision_4", Some("Required=4 Visible=4")),
+        ("raster_revision_4", Some("Required=4 Visible=4")),
+        ("compute_revision_4_final", Some("Required=4 Visible=4")),
+        ("clean_close", None),
     ];
     if timeline.len() != expected.len()
         || timeline
             .iter()
-            .map(|event| event.event.as_str())
-            .ne(expected)
-        || timeline.iter().any(|event| {
-            !event.elapsed_seconds.is_finite()
-                || event.elapsed_seconds < 0.0
-                || event.window_title.is_empty()
-        })
+            .zip(expected)
+            .any(|(event, (expected_event, required_title))| {
+                event.event != expected_event
+                    || !event.elapsed_seconds.is_finite()
+                    || event.elapsed_seconds < 0.0
+                    || event.window_title.is_empty()
+                    || required_title.is_some_and(|title| !event.window_title.contains(title))
+            })
         || timeline
             .windows(2)
             .any(|events| events[1].elapsed_seconds < events[0].elapsed_seconds)
-        || !timeline[3].window_title.contains("Required=4 Visible=1")
-        || timeline[4..7]
-            .iter()
-            .any(|event| !event.window_title.contains("Required=4 Visible=4"))
     {
         return retained_error(path, "event order or revision attribution changed");
     }

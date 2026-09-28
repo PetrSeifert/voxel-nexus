@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::io::Read;
 use std::path::{Component, Path};
 use thiserror::Error;
 
@@ -214,12 +213,12 @@ pub fn verify_manifest_contract(
             .iter()
             .filter(|command| command.category == *required_category)
             .collect::<Vec<_>>();
-        if commands.len() != 1 {
+        let [command] = commands.as_slice() else {
             return Err(EvidenceError::InvalidReproductionCategory {
                 category: *required_category,
             });
-        }
-        if commands[0].command.trim().is_empty() {
+        };
+        if command.command.trim().is_empty() {
             return Err(EvidenceError::EmptyReproductionCommand {
                 category: *required_category,
             });
@@ -320,7 +319,6 @@ pub fn verify_hash_inventory(
     bundle_root: &Path,
     artifacts: &[ArtifactRecord],
 ) -> Result<(), EvidenceError> {
-    let mut buffer = vec![0_u8; 64 * 1024];
     for artifact in artifacts {
         validate_relative_path(&artifact.path)?;
         let artifact_path = bundle_root.join(&artifact.path);
@@ -343,18 +341,10 @@ pub fn verify_hash_inventory(
             });
         }
         let mut hash = Sha256::new();
-        loop {
-            let bytes_read =
-                file.read(&mut buffer)
-                    .map_err(|source| EvidenceError::ArtifactRead {
-                        path: artifact.path.clone(),
-                        source,
-                    })?;
-            if bytes_read == 0 {
-                break;
-            }
-            hash.update(&buffer[..bytes_read]);
-        }
+        std::io::copy(&mut file, &mut hash).map_err(|source| EvidenceError::ArtifactRead {
+            path: artifact.path.clone(),
+            source,
+        })?;
         let actual_hash = format!("{:x}", hash.finalize());
         if actual_hash != artifact.sha256 {
             return Err(EvidenceError::ArtifactHash {

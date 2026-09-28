@@ -78,6 +78,7 @@ impl RenderBackend {
         path: impl RenderPath + 'static,
         options: RenderBackendOptions,
     ) -> Result<Self, BackendError> {
+        // SAFETY: The system Vulkan loader is trusted to run its initialization code on load.
         let entry = unsafe { Entry::load()? };
         require_vulkan_1_3_loader(&entry)?;
         if options.validation_enabled {

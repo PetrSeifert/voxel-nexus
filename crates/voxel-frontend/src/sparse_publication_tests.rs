@@ -35,6 +35,8 @@ impl LimitingAllocator {
     }
 }
 
+// SAFETY: Every call either refuses with null or forwards the caller's pointer and layout
+// unchanged to System, and the counters never allocate.
 unsafe impl GlobalAlloc for LimitingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         if !Self::reserve(layout.size()) {

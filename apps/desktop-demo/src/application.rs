@@ -860,6 +860,7 @@ pub(super) fn run() -> Result<(), String> {
             if raw_message.is_null() {
                 return false;
             }
+            // SAFETY: Checked non-null above; winit passes a pointer to the `MSG` being dispatched.
             let message = unsafe {
                 (*(raw_message as *const windows_sys::Win32::UI::WindowsAndMessaging::MSG)).message
             };

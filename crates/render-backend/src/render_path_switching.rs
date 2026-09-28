@@ -1224,6 +1224,8 @@ mod tests {
     }
 
     fn proof_device() -> ash::Device {
+        // SAFETY: Proof Render Paths never call into the device, so its null function pointers
+        // are never invoked.
         unsafe { ash::Device::load_with(|_| ptr::null(), vk::Device::null()) }
     }
 

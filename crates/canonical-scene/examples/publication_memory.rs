@@ -9,9 +9,10 @@ struct CountingAllocator;
 static LIVE: AtomicUsize = AtomicUsize::new(0);
 static PEAK: AtomicUsize = AtomicUsize::new(0);
 
+// SAFETY: Every call forwards the caller's pointer and layout unchanged to System, and the
+// counters never allocate.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        // Forward the caller's valid layout unchanged to the system allocator.
         let pointer = unsafe { System.alloc(layout) };
         if !pointer.is_null() {
             let live = LIVE.fetch_add(layout.size(), Ordering::SeqCst) + layout.size();
@@ -22,7 +23,6 @@ unsafe impl GlobalAlloc for CountingAllocator {
 
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         LIVE.fetch_sub(layout.size(), Ordering::SeqCst);
-        // The pointer and layout retain the allocation contract from the caller.
         unsafe { System.dealloc(pointer, layout) };
     }
 }

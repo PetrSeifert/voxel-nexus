@@ -178,6 +178,8 @@ pub fn set_measurement_extent(window: &Window, extent: vk::Extent2D) -> Result<(
     Ok(())
 }
 
+// SAFETY: ash_window creates the surface from the supplied instance, and `DesktopRuntime`
+// declares `backend` before `window`, so the Render Backend drops before the window.
 unsafe impl PresentationAdapter for WindowsPresentationAdapter<'_> {
     fn required_instance_extensions(&self) -> Result<Vec<CString>, String> {
         let display_handle = self
@@ -190,6 +192,7 @@ unsafe impl PresentationAdapter for WindowsPresentationAdapter<'_> {
         extension_name_pointers
             .iter()
             .map(|extension_name_pointer| {
+                // SAFETY: ash_window returns pointers to static null-terminated extension names.
                 let extension_name = unsafe { std::ffi::CStr::from_ptr(*extension_name_pointer) };
                 Ok(extension_name.to_owned())
             })

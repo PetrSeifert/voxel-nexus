@@ -571,6 +571,14 @@ impl ComputeConvergenceStatus {
     }
 }
 
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub(crate) enum ComputeConvergenceShutdownError {
+    #[error("the compute convergence preparation barrier is unavailable")]
+    PreparationBarrierUnavailable,
+    #[error("compute convergence worker terminated for Voxel Scene Revision {revision}")]
+    WorkerTerminated { revision: VoxelSceneRevision },
+}
+
 #[derive(Debug, Error)]
 pub enum ComputeConvergenceError {
     #[error(
@@ -978,7 +986,7 @@ impl ComputeConvergence {
         Ok(true)
     }
 
-    pub(crate) fn shutdown(&mut self) -> Result<(), String> {
+    pub(crate) fn shutdown(&mut self) -> Result<(), ComputeConvergenceShutdownError> {
         if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
         }
@@ -987,7 +995,7 @@ impl ComputeConvergence {
                 .preparation_barrier
                 .as_ref()
                 .and_then(|barrier| barrier.release().err())
-                .map(|_| "the compute convergence preparation barrier is unavailable".to_owned())
+                .map(|_| ComputeConvergenceShutdownError::PreparationBarrierUnavailable)
         });
         let active = self.active.take();
         self.pending = None;
@@ -997,10 +1005,9 @@ impl ComputeConvergence {
             && let Some(worker) = active.worker.take()
             && worker.join().is_err()
         {
-            Some(format!(
-                "compute convergence worker terminated for Voxel Scene Revision {}",
-                active.target.view.revision()
-            ))
+            Some(ComputeConvergenceShutdownError::WorkerTerminated {
+                revision: active.target.view.revision(),
+            })
         } else {
             None
         };

@@ -17,8 +17,8 @@ fn record_allocation(bytes: usize) {
     }
 }
 
-// Forward the allocator contract unchanged to System; the counters do not
-// allocate. This executable runs measurements on one thread.
+// SAFETY: Every call forwards the allocator contract unchanged to System, and the
+// counters never allocate. This executable runs measurements on one thread.
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc(layout) };

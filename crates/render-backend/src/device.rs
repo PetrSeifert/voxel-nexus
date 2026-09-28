@@ -201,16 +201,20 @@ unsafe extern "system" fn validation_callback(
     user_data: *mut c_void,
 ) -> vk::Bool32 {
     if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) && !user_data.is_null() {
+        // SAFETY: `user_data` points at the boxed diagnostics, which the owner drops only after
+        // destroying this messenger.
         let diagnostics = unsafe { &*user_data.cast::<ValidationDiagnostics>() };
         diagnostics.errors.fetch_add(1, Ordering::SeqCst);
     }
     let message = if callback_data.is_null() {
         c"validation callback supplied no diagnostic data"
     } else {
+        // SAFETY: Checked non-null above; Vulkan keeps callback data valid for the callback.
         let message_pointer = unsafe { (*callback_data).p_message };
         if message_pointer.is_null() {
             c"validation callback supplied no diagnostic message"
         } else {
+            // SAFETY: Checked non-null above; Vulkan supplies a null-terminated message.
             unsafe { CStr::from_ptr(message_pointer) }
         }
     };
@@ -235,6 +239,7 @@ pub(super) fn require_validation_layer(entry: &Entry) -> Result<(), BackendError
     let layer_properties = unsafe { entry.enumerate_instance_layer_properties() }
         .map_err(BackendError::EnumerateInstanceLayers)?;
     let available = layer_properties.iter().any(|property| {
+        // SAFETY: Vulkan null-terminates its fixed-size name arrays.
         let name = unsafe { CStr::from_ptr(property.layer_name.as_ptr()) };
         name == VALIDATION_LAYER_NAME
     });
@@ -264,6 +269,7 @@ fn inspect_device(
             .instance
             .get_physical_device_properties(physical_device)
     };
+    // SAFETY: Vulkan null-terminates its fixed-size name arrays.
     let name = unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
         .to_string_lossy()
         .into_owned();
@@ -274,6 +280,7 @@ fn inspect_device(
     }
     .map_err(BackendError::InspectPresentationSupport)?;
     let supports_swapchain = extension_properties.iter().any(|extension| {
+        // SAFETY: Vulkan null-terminates its fixed-size name arrays.
         let extension_name = unsafe { CStr::from_ptr(extension.extension_name.as_ptr()) };
         extension_name == ash::khr::swapchain::NAME
     });

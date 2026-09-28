@@ -678,7 +678,7 @@ impl RasterRenderPath {
             let retired = raster_gpu_resource_usage(retirement.resources.iter())
                 .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             let device = device.ok_or(RasterConvergenceError::ConfiguredResourcesRequireDevice)?;
-            // The backend invokes this hook only after its sole in-flight frame fence has completed.
+            // SAFETY: The backend invokes this hook only after its sole in-flight frame fence has completed.
             unsafe { retirement.release_after_gpu_completion(device) };
             if let Some(controller) = &self.lifecycle_control {
                 controller

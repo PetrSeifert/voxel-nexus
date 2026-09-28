@@ -180,14 +180,15 @@ pub(super) fn semantic_ray_input_words(
     probes: &[SemanticRayProbe],
 ) -> [u32; SEMANTIC_RAY_BUFFER_WORD_COUNT] {
     let mut words = [0_u32; SEMANTIC_RAY_BUFFER_WORD_COUNT];
-    words[0] = u32::try_from(probes.len()).unwrap_or(0);
-    for (index, probe) in probes.iter().enumerate() {
-        let offset = SEMANTIC_RAY_INPUT_START + index * SEMANTIC_RAY_INPUT_WORD_COUNT;
+    let mut probe_count = 0_u32;
+    let (input_records, _) = words[SEMANTIC_RAY_INPUT_START..SEMANTIC_RAY_OUTPUT_START]
+        .as_chunks_mut::<SEMANTIC_RAY_INPUT_WORD_COUNT>();
+    for (record, probe) in input_records.iter_mut().zip(probes) {
         let ray = probe.ray();
         let [origin_x, origin_y, origin_z] = ray.origin().map(|value| (value as f32).to_bits());
         let [direction_x, direction_y, direction_z] =
             ray.direction().map(|value| (value as f32).to_bits());
-        words[offset..offset + SEMANTIC_RAY_INPUT_WORD_COUNT].copy_from_slice(&[
+        *record = [
             origin_x,
             origin_y,
             origin_z,
@@ -196,8 +197,10 @@ pub(super) fn semantic_ray_input_words(
             direction_y,
             direction_z,
             (ray.maximum_distance() as f32).to_bits(),
-        ]);
+        ];
+        probe_count += 1;
     }
+    words[0] = probe_count;
     words
 }
 
@@ -222,16 +225,26 @@ pub(super) fn decode_semantic_ray_output(
         .enumerate()
         .map(|(index, probe)| {
             let offset = SEMANTIC_RAY_OUTPUT_START + index * SEMANTIC_RAY_OUTPUT_WORD_COUNT;
-            let output = words
-                .get(offset..offset + SEMANTIC_RAY_OUTPUT_WORD_COUNT)
+            let &[
+                hit_flag,
+                volume_word,
+                coordinate_x,
+                coordinate_y,
+                coordinate_z,
+                material_word,
+                distance_bits,
+                normal_code,
+            ] = words
+                .get(offset..)
+                .and_then(|remaining| remaining.first_chunk::<SEMANTIC_RAY_OUTPUT_WORD_COUNT>())
                 .ok_or(ComputeRenderPathError::InvalidSemanticRayOutput {
                     probe_identity: probe.identity().to_owned(),
                     reason: "the output record is outside the readback buffer",
                 })?;
-            let result = match output[0] {
+            let result = match hit_flag {
                 0 => SemanticRayResult::Miss,
                 1 => {
-                    let volume_index = usize::try_from(output[1]).map_err(|_| {
+                    let volume_index = usize::try_from(volume_word).map_err(|_| {
                         ComputeRenderPathError::InvalidSemanticRayOutput {
                             probe_identity: probe.identity().to_owned(),
                             reason: "the volume index cannot address host memory",
@@ -243,7 +256,7 @@ pub(super) fn decode_semantic_ray_output(
                             reason: "the volume index is outside the installed bundle",
                         },
                     )?;
-                    let material_index = output[5].checked_sub(1).ok_or(
+                    let material_index = material_word.checked_sub(1).ok_or(
                         ComputeRenderPathError::InvalidSemanticRayOutput {
                             probe_identity: probe.identity().to_owned(),
                             reason: "a contact returned the empty material word",
@@ -261,14 +274,14 @@ pub(super) fn decode_semantic_ray_output(
                             reason: "the material index is outside the installed bundle",
                         },
                     )?;
-                    let distance = f32::from_bits(output[6]);
+                    let distance = f32::from_bits(distance_bits);
                     if !distance.is_finite() {
                         return Err(ComputeRenderPathError::InvalidSemanticRayOutput {
                             probe_identity: probe.identity().to_owned(),
                             reason: "the contact distance is not finite",
                         });
                     }
-                    let classification = semantic_ray_classification(output[7]).ok_or(
+                    let classification = semantic_ray_classification(normal_code).ok_or(
                         ComputeRenderPathError::InvalidSemanticRayOutput {
                             probe_identity: probe.identity().to_owned(),
                             reason: "the contact normal code is invalid",
@@ -277,9 +290,9 @@ pub(super) fn decode_semantic_ray_output(
                     SemanticRayResult::Contact(SemanticRayContact::new(
                         volume.identity().clone(),
                         VoxelCoordinate::new(
-                            i32::from_ne_bytes(output[2].to_ne_bytes()),
-                            i32::from_ne_bytes(output[3].to_ne_bytes()),
-                            i32::from_ne_bytes(output[4].to_ne_bytes()),
+                            i32::from_ne_bytes(coordinate_x.to_ne_bytes()),
+                            i32::from_ne_bytes(coordinate_y.to_ne_bytes()),
+                            i32::from_ne_bytes(coordinate_z.to_ne_bytes()),
                         ),
                         material.clone(),
                         f64::from(distance),

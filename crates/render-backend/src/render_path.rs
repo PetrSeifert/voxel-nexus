@@ -207,6 +207,7 @@ impl RenderPathDeviceContext<'_> {
             self.device
                 .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?
         };
+        // SAFETY: The caller guarantees the allocation covers `bytes.len()`, which is the mapped size.
         unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), destination.cast(), bytes.len()) };
         unsafe { self.device.unmap_memory(memory) };
         Ok(())
@@ -235,6 +236,7 @@ impl RenderPathDeviceContext<'_> {
                 .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?
         };
         for (offset, bytes) in ranges {
+            // SAFETY: Every range was checked above to end within the mapped `size`.
             unsafe {
                 std::ptr::copy_nonoverlapping(
                     bytes.as_ptr(),
@@ -260,6 +262,7 @@ impl RenderPathDeviceContext<'_> {
             self.device
                 .map_memory(memory, 0, size, vk::MemoryMapFlags::empty())?
         };
+        // SAFETY: The caller guarantees the allocation covers `bytes.len()`, which is the mapped size.
         unsafe { std::ptr::copy_nonoverlapping(source.cast(), bytes.as_mut_ptr(), bytes.len()) };
         unsafe { self.device.unmap_memory(memory) };
         Ok(())

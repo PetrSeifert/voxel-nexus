@@ -1122,19 +1122,19 @@ fn read_shader(bytes: &[u8]) -> Result<Vec<u32>, std::io::Error> {
 
 fn f32_bytes(values: &[f32]) -> &[u8] {
     let byte_length = std::mem::size_of_val(values);
-    // Every f32 bit pattern is initialized data and valid to read as bytes.
+    // SAFETY: Every f32 bit pattern is initialized data and valid to read as bytes.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 
 pub(super) fn u32_bytes(values: &[u32]) -> &[u8] {
     let byte_length = std::mem::size_of_val(values);
-    // Every u32 bit pattern is initialized data and valid to read as bytes.
+    // SAFETY: Every u32 bit pattern is initialized data and valid to read as bytes.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 
 fn u32_bytes_mut(values: &mut [u32]) -> &mut [u8] {
     let byte_length = std::mem::size_of_val(values);
-    // Every u32 bit pattern is valid and the mapped read initializes all requested bytes.
+    // SAFETY: Every u32 bit pattern is valid and the mapped read initializes all requested bytes.
     unsafe { std::slice::from_raw_parts_mut(values.as_mut_ptr().cast(), byte_length) }
 }
 

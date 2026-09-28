@@ -31,7 +31,7 @@ fn record_allocation(bytes: usize) {
     });
 }
 
-// The wrapper preserves System's pointer and layout contract and records only this thread.
+// SAFETY: The wrapper preserves System's pointer and layout contract and records only this thread.
 unsafe impl GlobalAlloc for MeasuringAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc(layout) };

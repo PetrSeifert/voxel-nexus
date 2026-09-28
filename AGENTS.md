@@ -2,7 +2,7 @@
 
 * Prioritize correctness and clarity. Speed is secondary unless the task says otherwise.
 * Write comments only to explain *why*: a non-obvious reason, invariant, or constraint. The code itself says *what*.
-* Handle every `Result`: propagate it with `?`, or `match` on it where the caller needs custom recovery. Each crate defines its own typed errors with `thiserror`.
+* Handle every `Result`: propagate it with `?`, or `match` on it where the caller needs custom recovery. Each library crate defines its own typed errors with `thiserror`; binaries report `String` errors.
 * Reserve panics for broken invariants (bugs, never runtime conditions), and write them as `expect("<why this cannot fail>")` so the message states the invariant. Tests may `unwrap()`.
 * Reach elements with `get()`, iterators, or pattern matching; index directly only where the bound is established in plain sight.
 * Give an `unsafe` block a `// SAFETY:` comment when its soundness rests on more than valid Vulkan handles.

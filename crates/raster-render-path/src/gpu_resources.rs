@@ -208,6 +208,7 @@ impl RenderPath for RasterRenderPath {
         let mut worker_error = None;
         if let Some(convergence) = &mut self.convergence {
             let shutdown = convergence.shutdown();
+            // SAFETY: The Render Backend waits for device idle before shutting a Render Path down.
             unsafe { shutdown.retirement.release_after_gpu_completion(&device) };
             worker_error = shutdown.worker_error;
         }
@@ -989,18 +990,18 @@ fn create_shader_module(
 
 fn raster_vertex_bytes(values: &[RasterVertex]) -> &[u8] {
     let byte_length = std::mem::size_of_val(values);
-    // RasterVertex is repr(C), contains only u16 values, and has no padding at its checked size.
+    // SAFETY: RasterVertex is repr(C), contains only u16 values, and has no padding at its checked size.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 
 fn u32_bytes(values: &[u32]) -> &[u8] {
     let byte_length = std::mem::size_of_val(values);
-    // Every u32 bit pattern is initialized data and valid to read as bytes.
+    // SAFETY: Every u32 bit pattern is initialized data and valid to read as bytes.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }
 
 fn f32_bytes(values: &[f32]) -> &[u8] {
     let byte_length = std::mem::size_of_val(values);
-    // Every f32 bit pattern is initialized data and valid to read as bytes.
+    // SAFETY: Every f32 bit pattern is initialized data and valid to read as bytes.
     unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), byte_length) }
 }

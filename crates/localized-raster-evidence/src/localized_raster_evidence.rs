@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
-use std::io::Read;
 use std::path::{Component, Path};
 use thiserror::Error;
 
@@ -268,7 +267,6 @@ pub fn verify_hash_inventory(
     bundle_root: &Path,
     artifacts: &[ArtifactRecord],
 ) -> Result<(), EvidenceError> {
-    let mut buffer = vec![0_u8; 64 * 1024];
     let mut paths = BTreeSet::new();
     for artifact in artifacts {
         validate_artifact(artifact, &mut paths)?;
@@ -293,18 +291,10 @@ pub fn verify_hash_inventory(
             });
         }
         let mut hash = Sha256::new();
-        loop {
-            let bytes_read =
-                file.read(&mut buffer)
-                    .map_err(|source| EvidenceError::ArtifactRead {
-                        path: artifact.path.clone(),
-                        source,
-                    })?;
-            if bytes_read == 0 {
-                break;
-            }
-            hash.update(&buffer[..bytes_read]);
-        }
+        std::io::copy(&mut file, &mut hash).map_err(|source| EvidenceError::ArtifactRead {
+            path: artifact.path.clone(),
+            source,
+        })?;
         if format!("{:x}", hash.finalize()) != artifact.sha256 {
             return Err(EvidenceError::ArtifactHash {
                 path: artifact.path.clone(),
@@ -519,8 +509,7 @@ fn verify_extent_selection(
     if candidate_runs.len() != manifest.selection.candidates.len() {
         return source_error(path, "candidate count differs from the selection inputs");
     }
-    for (index, candidate) in candidate_runs.iter().enumerate() {
-        let expected_extent = manifest.selection.candidates[index];
+    for (candidate, &expected_extent) in candidate_runs.iter().zip(&manifest.selection.candidates) {
         verify_u32_triplet(
             candidate,
             "/extent",
@@ -580,9 +569,9 @@ fn verify_candidate_summaries(
     if candidates.len() != manifest.selection.candidates.len() {
         return source_error(path, "selection candidate count changed");
     }
-    for (index, candidate) in candidates.iter().enumerate() {
+    for (candidate, &expected_extent) in candidates.iter().zip(&manifest.selection.candidates) {
         if require_u64(candidate, "/extent", path, "candidate extent")?
-            != u64::from(manifest.selection.candidates[index])
+            != u64::from(expected_extent)
         {
             return source_error(path, "selection candidate order or extent changed");
         }
@@ -639,8 +628,7 @@ fn verify_extent_canonical_input(
     if commands.len() != manifest.commands.len() {
         return source_error(path, "command count changed");
     }
-    for (index, command) in commands.iter().enumerate() {
-        let expected = &manifest.commands[index];
+    for (command, expected) in commands.iter().zip(&manifest.commands) {
         if require_u64(command, "/order", path, "command order")? != u64::from(expected.order)
             || require_string(command, "/old", path, "old Voxel Value")? != expected.old
             || require_string(command, "/requested", path, "requested Voxel Value")?
@@ -823,11 +811,17 @@ fn verify_scale_list(scales: &[serde_json::Value], path: &str) -> Result<(), Evi
     if scales.len() != expected.len() {
         return source_error(path, "scale count changed");
     }
-    for (index, scale) in scales.iter().enumerate() {
-        if require_u64(scale, "/scale", path, "scale")? != expected[index].0 {
+    for (scale, &(expected_scale, expected_dimensions)) in scales.iter().zip(&expected) {
+        if require_u64(scale, "/scale", path, "scale")? != expected_scale {
             return source_error(path, "scale order or value changed");
         }
-        verify_u32_triplet(scale, "/dimensions", expected[index].1, path, "dimensions")?;
+        verify_u32_triplet(
+            scale,
+            "/dimensions",
+            expected_dimensions,
+            path,
+            "dimensions",
+        )?;
     }
     Ok(())
 }
@@ -1057,8 +1051,7 @@ fn verify_source_commands(
         return source_error(path, "command count changed");
     }
     let mut previous_x_coordinate = None;
-    for (index, command) in commands.iter().enumerate() {
-        let expected = &manifest.commands[index];
+    for (command, expected) in commands.iter().zip(&manifest.commands) {
         if require_u64(command, "/Order", path, "command order")? != u64::from(expected.order)
             || require_u64(command, "/PublishedRevision", path, "published revision")?
                 != expected.published_revision
@@ -1397,13 +1390,15 @@ fn validate_commands(commands: &[CommandInput]) -> Result<(), EvidenceError> {
     if commands.len() != expected_coordinates.len() {
         return Err(EvidenceError::InvalidCommands);
     }
-    for (index, command) in commands.iter().enumerate() {
+    for (index, (command, expected_coordinate)) in
+        commands.iter().zip(expected_coordinates).enumerate()
+    {
         let expected_order =
             u32::try_from(index + 1).map_err(|_| EvidenceError::InvalidCommands)?;
         let expected_revision =
             u64::try_from(index + 2).map_err(|_| EvidenceError::InvalidCommands)?;
         if command.order != expected_order
-            || command.coordinate != expected_coordinates[index]
+            || command.coordinate != expected_coordinate
             || command.old != "empty"
             || command.requested != "occupied:canonical-warm"
             || command.published_revision != expected_revision
