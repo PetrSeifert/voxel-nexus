@@ -5,6 +5,9 @@ use thiserror::Error;
 
 #[cfg(test)]
 mod brick_storage_tests;
+mod cell_enumeration;
+#[cfg(test)]
+mod cell_enumeration_tests;
 mod page_table;
 #[cfg(test)]
 mod sharing_tests;
@@ -13,11 +16,13 @@ mod sparse_publication;
 mod sparse_publication_tests;
 mod storage_counters;
 mod storage_tier;
+pub use cell_enumeration::{VoxelCell, VoxelCellCoordinate, VoxelCellEnumeration};
 use page_table::PageTable;
 use sparse_publication::ValidatedBatch;
 #[cfg(feature = "qualification")]
 pub use storage_counters::{
-    PublicationWorkCounters, StorageWorkCounters, ValidationWorkCounters, count_storage_work,
+    EnumerationWorkCounters, PublicationWorkCounters, StorageWorkCounters, ValidationWorkCounters,
+    count_storage_work,
 };
 use storage_counters::{record_publication_values_written, record_staged_values_allocated};
 use storage_tier::{BrickGrid, SparseStorage, Storage};
@@ -621,6 +626,25 @@ pub enum VoxelFrontendError {
     InvalidRegionBounds { identity: VoxelVolumeId },
     #[error("Voxel Region result for Voxel Volume {identity:?} could not be allocated")]
     RegionReadAllocation { identity: VoxelVolumeId },
+    #[error(
+        "Voxel Cell Grid enumeration of Voxel Volume {identity:?} requires a non-zero batch capacity"
+    )]
+    ZeroCellBatchCapacity { identity: VoxelVolumeId },
+    #[error(
+        "Voxel Cell Grid cell edge {cell_edge} for Voxel Volume {identity:?} is not a power of two"
+    )]
+    InvalidCellEdge {
+        identity: VoxelVolumeId,
+        cell_edge: u32,
+    },
+    #[error(
+        "Voxel Cell Grid enumeration of Voxel Volume {identity:?} could not allocate its working state or output"
+    )]
+    CellEnumerationAllocation { identity: VoxelVolumeId },
+    #[error(
+        "Voxel Cell Grid enumeration of Voxel Volume {identity:?} could not traverse its storage"
+    )]
+    CellEnumerationTraversal { identity: VoxelVolumeId },
     #[error("Voxel Frontend state could not be accessed")]
     StateUnavailable,
 }
@@ -868,6 +892,23 @@ impl VoxelSceneView {
             ),
             None => VoxelRegionContent::Mixed,
         })
+    }
+
+    /// Enumerates the non-empty cells of a volume on a Voxel Cell Grid with the given
+    /// power-of-two `cell_edge`, in batches of at most `batch_capacity` cells. The enumeration
+    /// holds a clone of this view, so later edits do not change what it produces.
+    pub fn enumerate_cells(
+        &self,
+        volume_identity: &VoxelVolumeId,
+        cell_edge: u32,
+        batch_capacity: usize,
+    ) -> Result<VoxelCellEnumeration, VoxelFrontendError> {
+        VoxelCellEnumeration::new(
+            self.clone(),
+            volume_identity.clone(),
+            cell_edge,
+            batch_capacity,
+        )
     }
 
     /// Estimated owned storage bytes, excluding allocator overhead and shared scene metadata.

@@ -10,6 +10,7 @@ pub struct StorageWorkCounters {
     pub voxel_values_examined: usize,
     pub publication: PublicationWorkCounters,
     pub validation: ValidationWorkCounters,
+    pub enumeration: EnumerationWorkCounters,
 }
 
 /// Work and staging allocations spent building Storage Tier contents from publication input.
@@ -28,6 +29,18 @@ pub struct ValidationWorkCounters {
     pub batches_validated: usize,
     pub voxel_values_validated: usize,
     pub candidate_pairs_examined: usize,
+}
+
+/// Work spent enumerating the cells of a Voxel Cell Grid. Working cells are held for
+/// deduplication and are separate from the cells held in output batches.
+#[cfg(any(test, feature = "qualification"))]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct EnumerationWorkCounters {
+    pub nodes_visited: usize,
+    pub bricks_examined: usize,
+    pub voxel_values_examined: usize,
+    pub cells_emitted: usize,
+    pub peak_working_cells: usize,
 }
 
 #[cfg(any(test, feature = "qualification"))]
@@ -52,6 +65,18 @@ impl StorageWorkCounters {
                     + other.validation.voxel_values_validated,
                 candidate_pairs_examined: self.validation.candidate_pairs_examined
                     + other.validation.candidate_pairs_examined,
+            },
+            enumeration: EnumerationWorkCounters {
+                nodes_visited: self.enumeration.nodes_visited + other.enumeration.nodes_visited,
+                bricks_examined: self.enumeration.bricks_examined
+                    + other.enumeration.bricks_examined,
+                voxel_values_examined: self.enumeration.voxel_values_examined
+                    + other.enumeration.voxel_values_examined,
+                cells_emitted: self.enumeration.cells_emitted + other.enumeration.cells_emitted,
+                peak_working_cells: self
+                    .enumeration
+                    .peak_working_cells
+                    .max(other.enumeration.peak_working_cells),
             },
         }
     }
@@ -132,4 +157,32 @@ pub(super) fn record_values_validated(count: usize) {
 pub(super) fn record_candidate_pair_examined() {
     #[cfg(any(test, feature = "qualification"))]
     record(|counters| counters.validation.candidate_pairs_examined += 1);
+}
+
+pub(super) fn record_enumeration_node_visited() {
+    #[cfg(any(test, feature = "qualification"))]
+    record(|counters| counters.enumeration.nodes_visited += 1);
+}
+
+pub(super) fn record_enumeration_brick_examined() {
+    #[cfg(any(test, feature = "qualification"))]
+    record(|counters| counters.enumeration.bricks_examined += 1);
+}
+
+pub(super) fn record_enumeration_value_examined() {
+    #[cfg(any(test, feature = "qualification"))]
+    record(|counters| counters.enumeration.voxel_values_examined += 1);
+}
+
+pub(super) fn record_cell_emitted() {
+    #[cfg(any(test, feature = "qualification"))]
+    record(|counters| counters.enumeration.cells_emitted += 1);
+}
+
+#[cfg_attr(not(any(test, feature = "qualification")), allow(unused_variables))]
+pub(super) fn record_working_cells(count: usize) {
+    #[cfg(any(test, feature = "qualification"))]
+    record(|counters| {
+        counters.enumeration.peak_working_cells = counters.enumeration.peak_working_cells.max(count)
+    });
 }

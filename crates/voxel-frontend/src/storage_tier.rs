@@ -1,10 +1,15 @@
+use super::cell_enumeration::{
+    CellGrid, CellSource, CellSourceError, EnumeratedCell, ScanningCellSource,
+};
 use super::storage_counters::{
-    record_brick_examined, record_copied_brick_payload, record_publication_brick_visited,
+    record_brick_examined, record_copied_brick_payload, record_enumeration_brick_examined,
+    record_enumeration_value_examined, record_publication_brick_visited,
     record_publication_values_written, record_staged_values_allocated, record_voxel_value_examined,
+    record_working_cells,
 };
 use super::*;
-use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
+use std::collections::{BTreeMap, hash_map};
 use std::ops::Range;
 
 pub(super) trait Storage: Send + Sync {
@@ -39,6 +44,8 @@ pub(super) trait Storage: Send + Sync {
     }
 
     fn uniform_region(&self, bounds: &RegionBounds) -> Option<MaterialIndex>;
+
+    fn cell_source(self: Arc<Self>, grid: CellGrid) -> Box<dyn CellSource>;
 }
 
 impl DenseStorage {
@@ -105,6 +112,9 @@ impl Storage for DenseStorage {
         }
         uniform
     }
+    fn cell_source(self: Arc<Self>, grid: CellGrid) -> Box<dyn CellSource> {
+        Box::new(ScanningCellSource::new(self, grid))
+    }
     fn storage_bytes(&self) -> usize {
         size_of::<Self>()
             + self.pages.storage_bytes()
@@ -168,6 +178,17 @@ impl BrickGrid {
     fn key(&self, [brick_x, brick_y, brick_z]: [usize; 3]) -> usize {
         let [bricks_x, bricks_y, _] = self.bricks;
         (brick_z * bricks_y + brick_y) * bricks_x + brick_x
+    }
+
+    fn position(&self, key: usize) -> Option<[usize; 3]> {
+        let [bricks_x, bricks_y, bricks_z] = self.bricks;
+        let row = key.checked_div(bricks_x)?;
+        let position = [
+            key.checked_rem(bricks_x)?,
+            row.checked_rem(bricks_y)?,
+            row.checked_div(bricks_y)?,
+        ];
+        (position[2] < bricks_z).then_some(position)
     }
 
     fn brick_extent(&self, [brick_x, brick_y, brick_z]: [usize; 3]) -> [usize; 3] {
@@ -486,6 +507,26 @@ impl Storage for SparseStorage {
         }
         uniform
     }
+    fn cell_source(self: Arc<Self>, grid: CellGrid) -> Box<dyn CellSource> {
+        if grid.edge >= BRICK_EDGE {
+            Box::new(MergingCellSource {
+                bricks_per_cell: grid.edge / BRICK_EDGE,
+                storage: self,
+                grid,
+                next_key: Some(0),
+                slab: None,
+                pending: HashMap::new(),
+                draining: None,
+            })
+        } else {
+            Box::new(SplittingCellSource {
+                storage: self,
+                grid,
+                next_key: Some(0),
+                current: None,
+            })
+        }
+    }
     fn storage_bytes(&self) -> usize {
         size_of::<Self>()
             + self.bricks.storage_bytes()
@@ -504,6 +545,226 @@ impl Storage for SparseStorage {
     #[cfg(test)]
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+/// Enumerates cells that each contain whole bricks, because cell and brick edges are both
+/// powers of two. Resident bricks are visited in key order, so every brick of one z-slab of
+/// cells is seen before any brick of the next, and only that slab's cells are held for merging.
+struct MergingCellSource {
+    storage: Arc<SparseStorage>,
+    grid: CellGrid,
+    bricks_per_cell: usize,
+    next_key: Option<usize>,
+    slab: Option<usize>,
+    pending: HashMap<[usize; 3], ResidentBricks>,
+    draining: Option<hash_map::IntoIter<[usize; 3], ResidentBricks>>,
+}
+
+/// The resident bricks of one cell. `content` is `None` once they disagree or one is mixed.
+struct ResidentBricks {
+    count: usize,
+    content: Option<MaterialIndex>,
+}
+
+impl MergingCellSource {
+    fn finish(
+        &self,
+        cell: [usize; 3],
+        bricks: ResidentBricks,
+    ) -> Result<EnumeratedCell, CellSourceError> {
+        let bounds = self.grid.bounds(cell).ok_or(CellSourceError::Traversal)?;
+        let mut covered = 1usize;
+        for range in &bounds {
+            covered = covered
+                .checked_mul(range.end.div_ceil(BRICK_EDGE) - range.start / BRICK_EDGE)
+                .ok_or(CellSourceError::Traversal)?;
+        }
+        // Absent bricks are Empty and every resident brick holds a non-empty value, so a cell
+        // with any absent brick is mixed.
+        let content = if bricks.count < covered {
+            None
+        } else {
+            bricks.content
+        };
+        Ok(EnumeratedCell {
+            cell,
+            bounds,
+            content,
+        })
+    }
+}
+
+impl CellSource for MergingCellSource {
+    fn next_cell(&mut self) -> Result<Option<EnumeratedCell>, CellSourceError> {
+        loop {
+            if let Some(draining) = self.draining.as_mut() {
+                if let Some((cell, bricks)) = draining.next() {
+                    return self.finish(cell, bricks).map(Some);
+                }
+                self.draining = None;
+            }
+            let Some(start) = self.next_key else {
+                return Ok(None);
+            };
+            let Some((key, brick)) = self.storage.bricks.first_at_or_after(start) else {
+                self.next_key = None;
+                self.draining = Some(std::mem::take(&mut self.pending).into_iter());
+                continue;
+            };
+            let content = match brick {
+                Brick::Uniform(value) => Some(*value),
+                Brick::Mixed(_) => None,
+            };
+            let position = self
+                .storage
+                .grid
+                .position(key)
+                .ok_or(CellSourceError::Traversal)?;
+            let cell = position.map(|index| index / self.bricks_per_cell);
+            if self.slab.is_some_and(|slab| slab != cell[2]) {
+                // Revisit this brick after the finished slab has been emitted.
+                self.slab = Some(cell[2]);
+                self.draining = Some(std::mem::take(&mut self.pending).into_iter());
+                continue;
+            }
+            self.slab = Some(cell[2]);
+            record_enumeration_brick_examined();
+            self.next_key = key.checked_add(1);
+            if let Some(bricks) = self.pending.get_mut(&cell) {
+                bricks.count += 1;
+                if bricks.content != content {
+                    bricks.content = None;
+                }
+                continue;
+            }
+            self.pending
+                .try_reserve(1)
+                .map_err(|_| CellSourceError::Allocation)?;
+            self.pending
+                .insert(cell, ResidentBricks { count: 1, content });
+            record_working_cells(self.pending.len());
+        }
+    }
+}
+
+/// Enumerates cells smaller than a brick, several of which fit inside each resident brick.
+struct SplittingCellSource {
+    storage: Arc<SparseStorage>,
+    grid: CellGrid,
+    next_key: Option<usize>,
+    current: Option<SplitBrick>,
+}
+
+struct SplitBrick {
+    brick: Brick,
+    position: [usize; 3],
+    extent: [usize; 3],
+    cells: [usize; 3],
+    next_cell: usize,
+}
+
+impl SplitBrick {
+    /// Returns the next brick-local cell position, or `None` once every cell has been returned.
+    fn advance(&mut self) -> Option<[usize; 3]> {
+        let [cells_x, cells_y, cells_z] = self.cells;
+        let index = self.next_cell;
+        if index >= cells_x * cells_y * cells_z {
+            return None;
+        }
+        self.next_cell += 1;
+        Some([
+            index % cells_x,
+            index / cells_x % cells_y,
+            index / (cells_x * cells_y),
+        ])
+    }
+
+    /// Returns `Ok(None)` for a mixed cell. `local` is brick-local.
+    fn classify(
+        &self,
+        local: &[Range<usize>; 3],
+    ) -> Result<Option<MaterialIndex>, CellSourceError> {
+        let values = match &self.brick {
+            Brick::Uniform(value) => return Ok(Some(*value)),
+            Brick::Mixed(values) => values,
+        };
+        let [brick_width, brick_height, _] = self.extent;
+        let [x, y, z] = local;
+        let mut uniform = None;
+        for local_z in z.clone() {
+            for local_y in y.clone() {
+                let row = (local_z * brick_height + local_y) * brick_width;
+                for local_x in x.clone() {
+                    record_enumeration_value_examined();
+                    let value = values
+                        .get(row + local_x)
+                        .copied()
+                        .ok_or(CellSourceError::Traversal)?;
+                    if merge_uniform(&mut uniform, value).is_none() {
+                        return Ok(None);
+                    }
+                }
+            }
+        }
+        Ok(uniform)
+    }
+}
+
+impl CellSource for SplittingCellSource {
+    fn next_cell(&mut self) -> Result<Option<EnumeratedCell>, CellSourceError> {
+        let cells_per_brick = BRICK_EDGE / self.grid.edge;
+        loop {
+            if let Some(split) = self.current.as_mut() {
+                let Some(local_cell) = split.advance() else {
+                    self.current = None;
+                    continue;
+                };
+                let mut cell = [0; 3];
+                for axis in 0..3 {
+                    cell[axis] = split.position[axis]
+                        .checked_mul(cells_per_brick)
+                        .and_then(|first| first.checked_add(local_cell[axis]))
+                        .ok_or(CellSourceError::Traversal)?;
+                }
+                let bounds = self.grid.bounds(cell).ok_or(CellSourceError::Traversal)?;
+                let local = [0, 1, 2].map(|axis| {
+                    let origin = split.position[axis] * BRICK_EDGE;
+                    bounds[axis].start - origin..bounds[axis].end - origin
+                });
+                let content = split.classify(&local)?;
+                if content == Some(MaterialIndex::EMPTY) {
+                    continue;
+                }
+                return Ok(Some(EnumeratedCell {
+                    cell,
+                    bounds,
+                    content,
+                }));
+            }
+            let Some(start) = self.next_key else {
+                return Ok(None);
+            };
+            let Some((key, brick)) = self.storage.bricks.first_at_or_after(start) else {
+                self.next_key = None;
+                return Ok(None);
+            };
+            record_enumeration_brick_examined();
+            let position = self
+                .storage
+                .grid
+                .position(key)
+                .ok_or(CellSourceError::Traversal)?;
+            let extent = self.storage.grid.brick_extent(position);
+            self.current = Some(SplitBrick {
+                brick: brick.clone(),
+                position,
+                extent,
+                cells: extent.map(|dimension| dimension.div_ceil(self.grid.edge)),
+                next_cell: 0,
+            });
+            self.next_key = key.checked_add(1);
+        }
     }
 }
 

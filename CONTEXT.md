@@ -24,6 +24,10 @@ _Avoid_: Chunk, octree
 An axis-aligned integer-coordinate subset of a Voxel Volume used to request or report logical voxel contents; internal partitioning is not part of its meaning.
 _Avoid_: Chunk, brick, SVO node
 
+**Voxel Cell Grid**:
+A power-of-two cubic partition of a Voxel Volume, chosen by the caller and aligned to the volume-local origin, whose edge cells are clipped to the volume bounds and identified by their grid coordinate. Each cell is a Voxel Region classified by the same uniform-or-mixed content as any other region, and enumeration reports only the non-empty cells.
+_Avoid_: Chunk grid, brick grid
+
 **Voxel Frontend**:
 The owner of voxel-scene state, storage-independent access, and edit semantics presented to render paths.
 _Avoid_: Data backend

@@ -5,7 +5,9 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use super::storage_counters::count_storage_work;
+use super::storage_counters::{
+    EnumerationWorkCounters, PublicationWorkCounters, ValidationWorkCounters, count_storage_work,
+};
 use super::*;
 
 /// Counts live heap bytes and refuses allocations past `LIMIT`. The limit stays unbounded
@@ -69,6 +71,7 @@ const MEMORY_LIMIT_VARIABLE: &str = "VOXEL_FRONTEND_HARNESS_MEMORY_LIMIT_BYTES";
 const HARNESS_MEMORY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const HARNESS_TIMEOUT: Duration = Duration::from_secs(60);
 const HUGE_AXIS: u32 = 1 << 22;
+const CELL_EDGE: u32 = 64;
 
 fn stone() -> VoxelValue {
     VoxelValue::Occupied(VoxelMaterialId::new("stone"))
@@ -232,11 +235,11 @@ fn overlap_validation_sweeps_a_horizontal_axis_across_terrain_columns() -> Resul
 }
 
 #[test]
-fn huge_extent_publication_stays_within_time_and_memory_limits() -> Result<(), Box<dyn Error>> {
+fn huge_extent_scene_stays_within_time_and_memory_limits() -> Result<(), Box<dyn Error>> {
     let mut child = Command::new(std::env::current_exe()?)
         .args([
             "--exact",
-            "sparse_publication_tests::huge_extent_publication_child",
+            "sparse_publication_tests::huge_extent_scene_child",
             "--ignored",
             "--nocapture",
             "--test-threads=1",
@@ -286,8 +289,8 @@ fn drain(mut pipe: impl Read + Send + 'static) -> std::thread::JoinHandle<std::i
 }
 
 #[test]
-#[ignore = "run in a memory-limited subprocess by huge_extent_publication_stays_within_time_and_memory_limits"]
-fn huge_extent_publication_child() -> Result<(), Box<dyn Error>> {
+#[ignore = "run in a memory-limited subprocess by huge_extent_scene_stays_within_time_and_memory_limits"]
+fn huge_extent_scene_child() -> Result<(), Box<dyn Error>> {
     if let Ok(limit) = std::env::var(MEMORY_LIMIT_VARIABLE) {
         let limit: usize = limit.parse()?;
         LIMIT_BYTES.store(
@@ -377,6 +380,104 @@ fn huge_extent_publication_child() -> Result<(), Box<dyn Error>> {
             VoxelValue::Empty,
         ]
     );
+
+    let volume = volume_identity();
+    for (cell_edge, expected_cells) in [
+        (1, 16 * 16 * 16 + 3 * 5 * 7 + 5),
+        (CELL_EDGE, 3),
+        (HUGE_AXIS, 1),
+    ] {
+        let enumeration = view.enumerate_cells(&volume, cell_edge, 256)?;
+        let (cells, counters) = count_storage_work(|| enumeration.collect::<Result<Vec<_>, _>>());
+        let cells = cells?.concat();
+        assert_eq!(cells.len(), expected_cells, "cell edge {cell_edge}");
+        assert_eq!(counters.enumeration.bricks_examined, 3);
+        assert_eq!(counters.enumeration.cells_emitted, expected_cells);
+        assert_eq!(counters.publication, PublicationWorkCounters::default());
+        assert_eq!(counters.validation, ValidationWorkCounters::default());
+        assert_eq!(
+            (counters.copied_nodes, counters.copied_brick_payloads),
+            (0, 0)
+        );
+        // Classifying the whole volume would visit every brick, so only cells smaller
+        // than the volume are compared with region classification.
+        if cell_edge < HUGE_AXIS {
+            for cell in &cells {
+                assert_eq!(
+                    &view.region_content(&volume, cell.region())?,
+                    cell.content()
+                );
+            }
+        }
+    }
+
+    // Occupy empty space and break the uniform brick in one command.
+    let (outcome, edit) = count_storage_work(|| {
+        frontend.edit(VoxelEditCommand::from_edits(vec![
+            VoxelEdit::new(volume.clone(), VoxelCoordinate::new(200, 0, 0), stone()),
+            VoxelEdit::new(
+                volume.clone(),
+                VoxelCoordinate::new(5, 5, 5),
+                VoxelValue::Empty,
+            ),
+        ]))
+    });
+    let outcome = outcome?;
+    let change_set = outcome.change_set().ok_or("edit changed nothing")?;
+    assert_eq!(edit.copied_brick_payloads, 2);
+    // A 2^54-brick key space gives a page table of depth 9, and each edited brick copies at
+    // most the nodes on its own path.
+    assert!(edit.copied_nodes <= 2 * 9, "{edit:?}");
+    assert_eq!(edit.enumeration, EnumerationWorkCounters::default());
+    assert_eq!(edit.publication, PublicationWorkCounters::default());
+    assert_eq!(edit.validation, ValidationWorkCounters::default());
+
+    let edge = i64::from(CELL_EDGE);
+    let mut changed_cells = Vec::new();
+    for changed in change_set.changed_regions() {
+        let changed = changed.region();
+        let [start_x, start_y, start_z] = changed.origin().components().map(i64::from);
+        let [width, height, depth] = changed.extent().dimensions().map(i64::from);
+        for z in start_z / edge..=(start_z + depth - 1) / edge {
+            for y in start_y / edge..=(start_y + height - 1) / edge {
+                for x in start_x / edge..=(start_x + width - 1) / edge {
+                    if !changed_cells.contains(&[x, y, z]) {
+                        changed_cells.push([x, y, z]);
+                    }
+                }
+            }
+        }
+    }
+    changed_cells.sort_unstable();
+    assert_eq!(changed_cells, [[0, 0, 0], [3, 0, 0]]);
+    let edited = outcome.view();
+    let (contents, reclassification) = count_storage_work(|| {
+        changed_cells
+            .iter()
+            .map(|cell| {
+                let [x, y, z] = cell.map(|index| i32::try_from(index * edge));
+                Ok::<_, Box<dyn Error>>(
+                    edited.region_content(&volume, region([x?, y?, z?], [CELL_EDGE; 3]))?,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+    });
+    assert_eq!(
+        contents?,
+        [VoxelRegionContent::Mixed, VoxelRegionContent::Mixed]
+    );
+    assert!(reclassification.bricks_examined <= 2 * 4 * 4 * 4);
+    assert_eq!(
+        reclassification.enumeration,
+        EnumerationWorkCounters::default()
+    );
+    let (cells, enumeration) = count_storage_work(|| {
+        edited
+            .enumerate_cells(&volume, CELL_EDGE, 256)?
+            .collect::<Result<Vec<_>, _>>()
+    });
+    assert_eq!(cells?.concat().len(), 4);
+    assert_eq!(enumeration.enumeration.bricks_examined, 4);
 
     assert!(matches!(
         frontend.publish_sparse(sparse_scene([HUGE_AXIS; 3], batches(), StorageTier::Dense)),

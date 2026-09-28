@@ -1,4 +1,4 @@
-use crate::storage_counters::record_copied_node;
+use crate::storage_counters::{record_copied_node, record_enumeration_node_visited};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -51,6 +51,15 @@ impl<T: Clone> PageTable<T> {
 
     pub(super) fn iter(&self) -> impl Iterator<Item = (usize, &T)> {
         self.root.iter(0, self.shift)
+    }
+
+    /// Finds the lowest stored index at or after `index`, visiting only nodes along the
+    /// search path rather than the absent indices before the match.
+    pub(super) fn first_at_or_after(&self, index: usize) -> Option<(usize, &T)> {
+        if index >> self.shift > LEVEL_MASK {
+            return None;
+        }
+        self.root.first_at_or_after(index, 0, self.shift)
     }
 
     pub(super) fn values(&self) -> impl Iterator<Item = &T> {
@@ -129,6 +138,27 @@ impl<T: Clone> Node<T> {
         }
     }
 
+    fn first_at_or_after(&self, index: usize, prefix: usize, shift: u32) -> Option<(usize, &T)> {
+        record_enumeration_node_visited();
+        let slot = (index >> shift) & LEVEL_MASK;
+        match self {
+            Self::Leaf(values) => values
+                .range(slot..)
+                .next()
+                .map(|(slot, value)| (prefix | slot, value)),
+            // Removal prunes empty branches, so at most the first child searched can miss.
+            Self::Branch(children) => children.range(slot..).find_map(|(child_slot, child)| {
+                let child_prefix = prefix | (child_slot << shift);
+                let lower_bound = if *child_slot == slot {
+                    index
+                } else {
+                    child_prefix
+                };
+                child.first_at_or_after(lower_bound, child_prefix, shift - LEVEL_BITS)
+            }),
+        }
+    }
+
     fn iter(&self, prefix: usize, shift: u32) -> Box<dyn Iterator<Item = (usize, &T)> + '_> {
         match self {
             Self::Leaf(values) => Box::new(
@@ -180,6 +210,25 @@ mod tests {
             }
             _ => 0,
         }
+    }
+
+    #[test]
+    fn seeking_finds_the_next_stored_index_across_pruned_branches() {
+        let mut table = PageTable::new(1 << 20);
+        for index in [3, 4096, 4097, 262_143, 1 << 19] {
+            table.insert(index, index);
+        }
+        table.remove(&4096);
+        let mut found = Vec::new();
+        let mut cursor = 0;
+        while let Some((index, value)) = table.first_at_or_after(cursor) {
+            assert_eq!(index, *value);
+            found.push(index);
+            cursor = index + 1;
+        }
+        assert_eq!(found, [3, 4097, 262_143, 1 << 19]);
+        assert_eq!(table.first_at_or_after(1 << 24), None);
+        assert_eq!(PageTable::<usize>::new(0).first_at_or_after(0), None);
     }
 
     #[test]
