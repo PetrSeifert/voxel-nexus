@@ -1,8 +1,10 @@
 use super::storage_counters::{
-    record_brick_examined, record_copied_brick_payload, record_voxel_value_examined,
+    record_brick_examined, record_copied_brick_payload, record_publication_brick_visited,
+    record_publication_values_written, record_staged_values_allocated, record_voxel_value_examined,
 };
 use super::*;
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::ops::Range;
 
 pub(super) trait Storage: Send + Sync {
@@ -232,6 +234,7 @@ impl SparseStorage {
         for brick_z in 0..bricks_z {
             for brick_y in 0..bricks_y {
                 for brick_x in 0..bricks_x {
+                    record_publication_brick_visited();
                     let brick = [brick_x, brick_y, brick_z];
                     let [brick_width, brick_height, brick_depth] = grid.brick_extent(brick);
                     let mut values = Vec::with_capacity(brick_width * brick_height * brick_depth);
@@ -261,6 +264,90 @@ impl SparseStorage {
             grid,
             bricks: Arc::new(bricks),
         }
+    }
+
+    /// Builds bricks only where batches supply values, so absent space is never visited.
+    /// Batches must not overlap: a brick a fill covers entirely receives no other values.
+    pub(super) fn from_batches(
+        extent: VoxelExtent,
+        grid: BrickGrid,
+        batches: &[ValidatedBatch],
+        identity: &VoxelVolumeId,
+    ) -> Result<Self, VoxelFrontendError> {
+        let mut bricks = PageTable::new(grid.brick_count);
+        let mut partial_bricks: BTreeMap<usize, Vec<MaterialIndex>> = BTreeMap::new();
+        for batch in batches {
+            // Partial bricks start out empty and absent bricks mean empty, so an Empty fill
+            // writes nothing.
+            if batch.fill_value() == Some(MaterialIndex::EMPTY) {
+                continue;
+            }
+            let [start_x, start_y, start_z] = batch.start;
+            let [end_x, end_y, end_z] = batch.end;
+            for brick_z in start_z / BRICK_EDGE..end_z.div_ceil(BRICK_EDGE) {
+                for brick_y in start_y / BRICK_EDGE..end_y.div_ceil(BRICK_EDGE) {
+                    for brick_x in start_x / BRICK_EDGE..end_x.div_ceil(BRICK_EDGE) {
+                        record_publication_brick_visited();
+                        let brick = [brick_x, brick_y, brick_z];
+                        let brick_extent = grid.brick_extent(brick);
+                        let x = brick_local(&(start_x..end_x), brick_x);
+                        let y = brick_local(&(start_y..end_y), brick_y);
+                        let z = brick_local(&(start_z..end_z), brick_z);
+                        let key = grid.key(brick);
+                        let covered = [&x, &y, &z]
+                            .into_iter()
+                            .zip(brick_extent)
+                            .all(|(range, edge)| range.start == 0 && range.end == edge);
+                        if covered && let Some(value) = batch.fill_value() {
+                            bricks.insert(key, Brick::Uniform(value));
+                            continue;
+                        }
+                        let [brick_width, brick_height, brick_depth] = brick_extent;
+                        let values = match partial_bricks.entry(key) {
+                            Entry::Occupied(entry) => entry.into_mut(),
+                            Entry::Vacant(entry) => {
+                                let count = brick_width * brick_height * brick_depth;
+                                let mut values = Vec::new();
+                                values.try_reserve_exact(count).map_err(|_| {
+                                    VoxelFrontendError::VolumeAllocation {
+                                        identity: identity.clone(),
+                                    }
+                                })?;
+                                values.resize(count, MaterialIndex::EMPTY);
+                                record_staged_values_allocated(count);
+                                entry.insert(values)
+                            }
+                        };
+                        let origin = brick.map(|index| index * BRICK_EDGE);
+                        for local_z in z.clone() {
+                            for local_y in y.clone() {
+                                let row = (local_z * brick_height + local_y) * brick_width;
+                                for local_x in x.clone() {
+                                    if let Some(destination) = values.get_mut(row + local_x) {
+                                        *destination = batch.value_at([
+                                            origin[0] + local_x,
+                                            origin[1] + local_y,
+                                            origin[2] + local_z,
+                                        ]);
+                                    }
+                                }
+                            }
+                        }
+                        record_publication_values_written(x.len() * y.len() * z.len());
+                    }
+                }
+            }
+        }
+        for (key, values) in partial_bricks {
+            if let Some(brick) = Brick::normalize(values) {
+                bricks.insert(key, brick);
+            }
+        }
+        Ok(Self {
+            extent,
+            grid,
+            bricks: Arc::new(bricks),
+        })
     }
 }
 

@@ -8,11 +8,18 @@ mod brick_storage_tests;
 mod page_table;
 #[cfg(test)]
 mod sharing_tests;
+mod sparse_publication;
+#[cfg(test)]
+mod sparse_publication_tests;
 mod storage_counters;
 mod storage_tier;
 use page_table::PageTable;
+use sparse_publication::ValidatedBatch;
 #[cfg(feature = "qualification")]
-pub use storage_counters::{StorageWorkCounters, count_storage_work};
+pub use storage_counters::{
+    PublicationWorkCounters, StorageWorkCounters, ValidationWorkCounters, count_storage_work,
+};
+use storage_counters::{record_publication_values_written, record_staged_values_allocated};
 use storage_tier::{BrickGrid, SparseStorage, Storage};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -280,6 +287,92 @@ impl DenseVoxelScene {
     }
 }
 
+/// The value of every coordinate that a sparse volume's batches omit.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SparseVoxelBackground {
+    #[default]
+    Empty,
+}
+
+#[derive(Clone, Debug)]
+pub struct VoxelRegionFill {
+    region: VoxelRegion,
+    value: VoxelValue,
+}
+
+impl VoxelRegionFill {
+    pub fn new(region: VoxelRegion, value: VoxelValue) -> Self {
+        Self { region, value }
+    }
+}
+
+/// Every coordinate in a batch's region counts as supplied, including explicitly supplied
+/// `Empty`, so the regions of one volume's batches must not intersect.
+#[derive(Clone, Debug)]
+pub enum SparseVoxelBatch {
+    Fill(VoxelRegionFill),
+    Detail(DenseVoxelBatch),
+}
+
+#[derive(Clone, Debug)]
+pub struct SparseVoxelVolume {
+    metadata: VoxelVolumeMetadata,
+    background: SparseVoxelBackground,
+    batches: Vec<SparseVoxelBatch>,
+    storage_tier: StorageTier,
+}
+
+impl SparseVoxelVolume {
+    pub fn new(
+        metadata: VoxelVolumeMetadata,
+        background: SparseVoxelBackground,
+        batches: Vec<SparseVoxelBatch>,
+    ) -> Self {
+        Self {
+            metadata,
+            background,
+            batches,
+            storage_tier: StorageTier::Dense,
+        }
+    }
+
+    pub fn with_storage_tier(mut self, storage_tier: StorageTier) -> Self {
+        self.storage_tier = storage_tier;
+        self
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SparseVoxelScene {
+    identity: VoxelSceneId,
+    revision: VoxelSceneRevision,
+    materials: Vec<VoxelMaterial>,
+    volumes: Vec<SparseVoxelVolume>,
+}
+
+impl SparseVoxelScene {
+    pub fn new(
+        identity: VoxelSceneId,
+        revision: VoxelSceneRevision,
+        materials: Vec<VoxelMaterial>,
+        volumes: Vec<SparseVoxelVolume>,
+    ) -> Self {
+        Self {
+            identity,
+            revision,
+            materials,
+            volumes,
+        }
+    }
+
+    pub fn with_storage_tier(mut self, storage_tier: StorageTier) -> Self {
+        for volume in &mut self.volumes {
+            volume.storage_tier = storage_tier;
+        }
+        self
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VoxelSample {
     coordinate: VoxelCoordinate,
@@ -439,27 +532,25 @@ pub enum VoxelFrontendError {
     InvalidVolumeMetadata { identity: VoxelVolumeId },
     #[error("Voxel Volume {identity:?} is too large to address")]
     VolumeTooLarge { identity: VoxelVolumeId },
-    #[error("dense storage for Voxel Volume {identity:?} could not be allocated")]
+    #[error("storage for Voxel Volume {identity:?} could not be allocated")]
     VolumeAllocation { identity: VoxelVolumeId },
-    #[error("dense batch {batch_index} for Voxel Volume {identity:?} has an empty region")]
+    #[error("batch {batch_index} for Voxel Volume {identity:?} has an empty region")]
     EmptyBatchRegion {
         identity: VoxelVolumeId,
         batch_index: usize,
     },
-    #[error(
-        "dense batch {batch_index} for Voxel Volume {identity:?} has invalid coordinate bounds"
-    )]
+    #[error("batch {batch_index} for Voxel Volume {identity:?} has invalid coordinate bounds")]
     InvalidBatchBounds {
         identity: VoxelVolumeId,
         batch_index: usize,
     },
-    #[error("dense batch {batch_index} for Voxel Volume {identity:?} is outside the volume extent")]
+    #[error("batch {batch_index} for Voxel Volume {identity:?} is outside the volume extent")]
     BatchOutsideVolume {
         identity: VoxelVolumeId,
         batch_index: usize,
     },
     #[error(
-        "dense batch {batch_index} for Voxel Volume {identity:?} contains {actual} values but its region requires {expected}"
+        "batch {batch_index} for Voxel Volume {identity:?} contains {actual} values but its region requires {expected}"
     )]
     BatchValueCount {
         identity: VoxelVolumeId,
@@ -471,6 +562,14 @@ pub enum VoxelFrontendError {
     DuplicateVoxelCoordinate {
         identity: VoxelVolumeId,
         coordinate: VoxelCoordinate,
+    },
+    #[error(
+        "sparse batches {first_batch_index} and {second_batch_index} for Voxel Volume {identity:?} overlap"
+    )]
+    OverlappingBatches {
+        identity: VoxelVolumeId,
+        first_batch_index: usize,
+        second_batch_index: usize,
     },
     #[error("Voxel Volume {identity:?} does not provide every coordinate in its finite extent")]
     IncompleteVolume { identity: VoxelVolumeId },
@@ -537,7 +636,28 @@ impl VoxelFrontend {
     }
 
     pub fn publish(&self, scene: DenseVoxelScene) -> Result<VoxelSceneView, VoxelFrontendError> {
-        let published = Arc::new(PublishedScene::try_from(scene)?);
+        self.install(PublishedScene::new(
+            scene.identity,
+            scene.revision,
+            scene.materials,
+            scene.volumes,
+        )?)
+    }
+
+    pub fn publish_sparse(
+        &self,
+        scene: SparseVoxelScene,
+    ) -> Result<VoxelSceneView, VoxelFrontendError> {
+        self.install(PublishedScene::new(
+            scene.identity,
+            scene.revision,
+            scene.materials,
+            scene.volumes,
+        )?)
+    }
+
+    fn install(&self, published: PublishedScene) -> Result<VoxelSceneView, VoxelFrontendError> {
+        let published = Arc::new(published);
         let mut current = self
             .published
             .write()
@@ -807,16 +927,84 @@ struct PublishedScene {
     volumes: HashMap<VoxelVolumeId, Arc<dyn Storage>>,
 }
 
-impl TryFrom<DenseVoxelScene> for PublishedScene {
-    type Error = VoxelFrontendError;
+trait VolumeInput {
+    fn metadata(&self) -> &VoxelVolumeMetadata;
+    fn storage(
+        &self,
+        materials: &HashMap<VoxelMaterialId, MaterialIndex>,
+    ) -> Result<Arc<dyn Storage>, VoxelFrontendError>;
+}
 
-    fn try_from(scene: DenseVoxelScene) -> Result<Self, Self::Error> {
-        if scene.identity.0.is_empty() {
+impl VolumeInput for DenseVoxelVolume {
+    fn metadata(&self) -> &VoxelVolumeMetadata {
+        &self.metadata
+    }
+
+    fn storage(
+        &self,
+        materials: &HashMap<VoxelMaterialId, MaterialIndex>,
+    ) -> Result<Arc<dyn Storage>, VoxelFrontendError> {
+        Ok(match self.storage_tier {
+            StorageTier::Dense => Arc::new(DenseStorage::from_batches(self, materials)?),
+            StorageTier::SparsePages => {
+                let grid = brick_grid(&self.metadata)?;
+                Arc::new(SparseStorage::from_dense(
+                    &DenseStorage::from_batches(self, materials)?,
+                    grid,
+                ))
+            }
+        })
+    }
+}
+
+impl VolumeInput for SparseVoxelVolume {
+    fn metadata(&self) -> &VoxelVolumeMetadata {
+        &self.metadata
+    }
+
+    fn storage(
+        &self,
+        materials: &HashMap<VoxelMaterialId, MaterialIndex>,
+    ) -> Result<Arc<dyn Storage>, VoxelFrontendError> {
+        // Absent sparse bricks and unwritten dense values both mean Empty.
+        let SparseVoxelBackground::Empty = self.background;
+        let batches = sparse_publication::validate(self, materials)?;
+        let identity = &self.metadata.identity;
+        Ok(match self.storage_tier {
+            StorageTier::Dense => Arc::new(DenseStorage::from_sparse_batches(
+                self.metadata.extent,
+                &batches,
+                identity,
+            )?),
+            StorageTier::SparsePages => Arc::new(SparseStorage::from_batches(
+                self.metadata.extent,
+                brick_grid(&self.metadata)?,
+                &batches,
+                identity,
+            )?),
+        })
+    }
+}
+
+fn brick_grid(metadata: &VoxelVolumeMetadata) -> Result<BrickGrid, VoxelFrontendError> {
+    BrickGrid::new(metadata.extent).ok_or_else(|| VoxelFrontendError::VolumeTooLarge {
+        identity: metadata.identity.clone(),
+    })
+}
+
+impl PublishedScene {
+    fn new(
+        scene_identity: VoxelSceneId,
+        revision: VoxelSceneRevision,
+        materials: Vec<VoxelMaterial>,
+        volumes: Vec<impl VolumeInput>,
+    ) -> Result<Self, VoxelFrontendError> {
+        if scene_identity.0.is_empty() {
             return Err(VoxelFrontendError::EmptySceneIdentity);
         }
         let mut material_identities = HashMap::new();
         let mut palette_values = vec![VoxelValue::Empty];
-        for material in &scene.materials {
+        for material in &materials {
             if material.identity.0.is_empty() {
                 return Err(VoxelFrontendError::EmptyMaterialIdentity);
             }
@@ -843,45 +1031,31 @@ impl TryFrom<DenseVoxelScene> for PublishedScene {
         }
 
         let mut volume_identities = HashSet::new();
-        let mut volume_metadata = Vec::with_capacity(scene.volumes.len());
-        let mut volumes = HashMap::with_capacity(scene.volumes.len());
-        for volume in scene.volumes {
-            let identity = volume.metadata.identity.clone();
+        let mut volume_metadata = Vec::with_capacity(volumes.len());
+        let mut storage_by_volume = HashMap::with_capacity(volumes.len());
+        for volume in volumes {
+            let metadata = volume.metadata();
+            let identity = metadata.identity.clone();
             if identity.0.is_empty() {
                 return Err(VoxelFrontendError::EmptyVolumeIdentity);
             }
             if !volume_identities.insert(identity.clone()) {
                 return Err(VoxelFrontendError::DuplicateVolumeIdentity { identity });
             }
-            validate_volume_metadata(&volume.metadata)?;
-            let storage: Arc<dyn Storage> = match volume.storage_tier {
-                StorageTier::Dense => {
-                    Arc::new(DenseStorage::from_batches(&volume, &material_identities)?)
-                }
-                StorageTier::SparsePages => {
-                    let grid = BrickGrid::new(volume.metadata.extent).ok_or_else(|| {
-                        VoxelFrontendError::VolumeTooLarge {
-                            identity: identity.clone(),
-                        }
-                    })?;
-                    Arc::new(SparseStorage::from_dense(
-                        &DenseStorage::from_batches(&volume, &material_identities)?,
-                        grid,
-                    ))
-                }
-            };
-            volume_metadata.push(volume.metadata);
-            volumes.insert(identity, storage);
+            validate_volume_metadata(metadata)?;
+            let storage = volume.storage(&material_identities)?;
+            volume_metadata.push(metadata.clone());
+            storage_by_volume.insert(identity, storage);
         }
 
         Ok(Self {
-            identity: scene.identity,
-            revision: scene.revision,
-            materials: scene.materials.into(),
+            identity: scene_identity,
+            revision,
+            materials: materials.into(),
             material_indices: Arc::new(material_identities),
             palette_values: palette_values.into(),
             volume_metadata: volume_metadata.into(),
-            volumes,
+            volumes: storage_by_volume,
         })
     }
 }
@@ -981,21 +1155,12 @@ impl DenseStorage {
                 identity: volume.metadata.identity.clone(),
             });
         }
-        let mut pages = PageTable::new(value_count.div_ceil(Self::PAGE_VALUES));
-        for start in (0..value_count).step_by(Self::PAGE_VALUES) {
-            let count = (value_count - start).min(Self::PAGE_VALUES);
-            let mut page = Vec::new();
-            page.try_reserve_exact(count)
-                .map_err(|_| VoxelFrontendError::VolumeAllocation {
-                    identity: volume.metadata.identity.clone(),
-                })?;
-            page.resize(count, MaterialIndex::UNSUPPLIED);
-            pages.insert(start / Self::PAGE_VALUES, Arc::new(page));
-        }
-        let mut storage = Self {
-            extent: volume.metadata.extent,
-            pages: Arc::new(pages),
-        };
+        let mut storage = Self::filled(
+            volume.metadata.extent,
+            value_count,
+            MaterialIndex::UNSUPPLIED,
+            &volume.metadata.identity,
+        )?;
         for (batch_index, batch) in volume.batches.iter().enumerate() {
             let bounds = validate_dense_batch(
                 batch,
@@ -1045,6 +1210,7 @@ impl DenseStorage {
                 }
                 *destination = value_index;
             }
+            record_publication_values_written(batch.values.len());
         }
         if storage
             .pages
@@ -1054,6 +1220,59 @@ impl DenseStorage {
             return Err(VoxelFrontendError::IncompleteVolume {
                 identity: volume.metadata.identity.clone(),
             });
+        }
+        Ok(storage)
+    }
+
+    fn filled(
+        extent: VoxelExtent,
+        value_count: usize,
+        value: MaterialIndex,
+        identity: &VoxelVolumeId,
+    ) -> Result<Self, VoxelFrontendError> {
+        let mut pages = PageTable::new(value_count.div_ceil(Self::PAGE_VALUES));
+        for start in (0..value_count).step_by(Self::PAGE_VALUES) {
+            let count = (value_count - start).min(Self::PAGE_VALUES);
+            let mut page = Vec::new();
+            page.try_reserve_exact(count)
+                .map_err(|_| VoxelFrontendError::VolumeAllocation {
+                    identity: identity.clone(),
+                })?;
+            page.resize(count, value);
+            pages.insert(start / Self::PAGE_VALUES, Arc::new(page));
+        }
+        record_staged_values_allocated(value_count);
+        Ok(Self {
+            extent,
+            pages: Arc::new(pages),
+        })
+    }
+
+    fn from_sparse_batches(
+        extent: VoxelExtent,
+        batches: &[ValidatedBatch],
+        identity: &VoxelVolumeId,
+    ) -> Result<Self, VoxelFrontendError> {
+        let value_count =
+            extent
+                .value_count()
+                .ok_or_else(|| VoxelFrontendError::VolumeTooLarge {
+                    identity: identity.clone(),
+                })?;
+        let mut storage = Self::filled(extent, value_count, MaterialIndex::EMPTY, identity)?;
+        for batch in batches {
+            // The storage starts out empty, so an Empty fill writes nothing.
+            if batch.fill_value() == Some(MaterialIndex::EMPTY) {
+                continue;
+            }
+            for (coordinate, value) in batch.values() {
+                if let Some(destination) =
+                    dense_index(extent, coordinate).and_then(|index| storage.get_mut(index))
+                {
+                    *destination = value;
+                }
+            }
+            record_publication_values_written(batch.value_count());
         }
         Ok(storage)
     }
@@ -1072,8 +1291,33 @@ fn validate_dense_batch(
     volume_identity: &VoxelVolumeId,
     volume_extent: VoxelExtent,
 ) -> Result<RegionBounds, VoxelFrontendError> {
-    let bounds = RegionBounds::new(batch.region).ok_or_else(|| {
-        if batch.region.extent.is_empty() {
+    let bounds = validate_batch_region(batch.region, batch_index, volume_identity, volume_extent)?;
+    let expected = batch.region.extent.value_count().ok_or_else(|| {
+        VoxelFrontendError::InvalidBatchBounds {
+            identity: volume_identity.clone(),
+            batch_index,
+        }
+    })?;
+    if batch.values.len() != expected {
+        return Err(VoxelFrontendError::BatchValueCount {
+            identity: volume_identity.clone(),
+            batch_index,
+            expected,
+            actual: batch.values.len(),
+        });
+    }
+
+    Ok(bounds)
+}
+
+fn validate_batch_region(
+    region: VoxelRegion,
+    batch_index: usize,
+    volume_identity: &VoxelVolumeId,
+    volume_extent: VoxelExtent,
+) -> Result<RegionBounds, VoxelFrontendError> {
+    let bounds = RegionBounds::new(region).ok_or_else(|| {
+        if region.extent.is_empty() {
             VoxelFrontendError::EmptyBatchRegion {
                 identity: volume_identity.clone(),
                 batch_index,
@@ -1097,21 +1341,6 @@ fn validate_dense_batch(
             batch_index,
         });
     }
-    let expected = batch.region.extent.value_count().ok_or_else(|| {
-        VoxelFrontendError::InvalidBatchBounds {
-            identity: volume_identity.clone(),
-            batch_index,
-        }
-    })?;
-    if batch.values.len() != expected {
-        return Err(VoxelFrontendError::BatchValueCount {
-            identity: volume_identity.clone(),
-            batch_index,
-            expected,
-            actual: batch.values.len(),
-        });
-    }
-
     Ok(bounds)
 }
 
