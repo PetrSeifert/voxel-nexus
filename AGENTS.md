@@ -31,20 +31,6 @@
 
 Issues and specs are tracked in GitHub Issues using the `gh` CLI. See `docs/agents/issue-tracker.md`.
 
-### Devlog tracking
-
-YouTube devlog milestones and their issue history are managed with the `devlog-workflow`
-
-Design and activate milestones according to `docs/agents/milestones.md`. Keep future milestones at roadmap resolution and fully specify only the selected next milestone.
-
-Before starting or completing issue-backed work, inspect the active devlog milestone. While one is active:
-
-* Ensure each substantive feature, bugfix, or maintenance change has a GitHub issue.
-* Keep unplanned work outside the milestone's `Planned work` checklist; it is tracked automatically as incidental work.
-* After verification and before closing a work issue, use the skill to add its structured devlog note.
-
-After a devlog milestone is closed, use the `write-devlog-script` skill when producing its YouTube narration and shot plan.
-
 ### Domain docs
 
 This repository uses the single-context domain documentation layout. See `docs/agents/domain.md`.
