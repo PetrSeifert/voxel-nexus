@@ -113,15 +113,11 @@ bool intersect_volume(
     return true;
 }
 
-ivec3 coordinate_at(Volume volume, vec3 point, vec3 ray_direction) {
+ivec3 coordinate_at(Volume volume, vec3 point) {
     vec3 local = (point - volume.origin) / volume.voxel_size;
-    ivec3 coordinate = ivec3(floor(local));
-    for (uint axis = 0; axis < 3; ++axis) {
-        if (coordinate[axis] == int(volume.extent[axis]) && ray_direction[axis] < 0.0) {
-            coordinate[axis] -= 1;
-        }
-    }
-    return coordinate;
+    // The entry point lies on a volume face, and single-precision rounding can place it just
+    // outside; flooring would then yield a cell outside the volume and drop the ray entirely.
+    return clamp(ivec3(floor(local)), ivec3(0), ivec3(volume.extent) - ivec3(1));
 }
 
 bool coordinate_in_volume(Volume volume, ivec3 coordinate) {
@@ -159,11 +155,7 @@ Hit trace_volume(
     )) {
         return miss;
     }
-    ivec3 coordinate = coordinate_at(
-        volume,
-        ray_origin + ray_direction * distance,
-        ray_direction
-    );
+    ivec3 coordinate = coordinate_at(volume, ray_origin + ray_direction * distance);
     while (coordinate_in_volume(volume, coordinate) && distance <= exit_distance) {
         uint voxel_base = scene.words[3] + volume.voxel_word_offset;
         uint material_word = scene.words[voxel_base + dense_index(volume, coordinate)];
