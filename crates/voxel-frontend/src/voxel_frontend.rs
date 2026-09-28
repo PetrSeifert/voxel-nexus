@@ -3,12 +3,17 @@ use std::fmt;
 use std::sync::{Arc, RwLock};
 use thiserror::Error;
 
+#[cfg(test)]
+mod brick_storage_tests;
 mod page_table;
 #[cfg(test)]
 mod sharing_tests;
+mod storage_counters;
 mod storage_tier;
 use page_table::PageTable;
-use storage_tier::{SparseStorage, Storage};
+#[cfg(feature = "qualification")]
+pub use storage_counters::{StorageWorkCounters, count_storage_work};
+use storage_tier::{BrickGrid, SparseStorage, Storage};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StorageTier {
@@ -849,10 +854,21 @@ impl TryFrom<DenseVoxelScene> for PublishedScene {
                 return Err(VoxelFrontendError::DuplicateVolumeIdentity { identity });
             }
             validate_volume_metadata(&volume.metadata)?;
-            let dense = DenseStorage::from_batches(&volume, &material_identities)?;
             let storage: Arc<dyn Storage> = match volume.storage_tier {
-                StorageTier::Dense => Arc::new(dense),
-                StorageTier::SparsePages => Arc::new(SparseStorage::from_dense(dense)),
+                StorageTier::Dense => {
+                    Arc::new(DenseStorage::from_batches(&volume, &material_identities)?)
+                }
+                StorageTier::SparsePages => {
+                    let grid = BrickGrid::new(volume.metadata.extent).ok_or_else(|| {
+                        VoxelFrontendError::VolumeTooLarge {
+                            identity: identity.clone(),
+                        }
+                    })?;
+                    Arc::new(SparseStorage::from_dense(
+                        &DenseStorage::from_batches(&volume, &material_identities)?,
+                        grid,
+                    ))
+                }
             };
             volume_metadata.push(volume.metadata);
             volumes.insert(identity, storage);

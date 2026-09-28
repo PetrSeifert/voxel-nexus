@@ -6,5 +6,9 @@ edition = "2024"
 [lib]
 path = "src/voxel_frontend.rs"
 
+[features]
+default = []
+qualification = []
+
 [dependencies]
 thiserror = "2.0.18"

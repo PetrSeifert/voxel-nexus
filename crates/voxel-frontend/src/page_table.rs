@@ -1,3 +1,4 @@
+use crate::storage_counters::record_copied_node;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -32,15 +33,20 @@ impl<T: Clone> PageTable<T> {
     }
 
     pub(super) fn get_mut(&mut self, index: &usize) -> Option<&mut T> {
-        Arc::make_mut(&mut self.root).get_mut(*index, self.shift)
+        make_node_mut(&mut self.root).get_mut(*index, self.shift)
     }
 
     pub(super) fn insert(&mut self, index: usize, value: T) {
-        Arc::make_mut(&mut self.root).insert(index, self.shift, value);
+        make_node_mut(&mut self.root).insert(index, self.shift, value);
     }
 
     pub(super) fn remove(&mut self, index: &usize) {
-        Arc::make_mut(&mut self.root).remove(*index, self.shift);
+        make_node_mut(&mut self.root).remove(*index, self.shift);
+    }
+
+    #[cfg(test)]
+    pub(super) fn depth(&self) -> usize {
+        (self.shift / LEVEL_BITS) as usize + 1
     }
 
     pub(super) fn iter(&self) -> impl Iterator<Item = (usize, &T)> {
@@ -54,6 +60,13 @@ impl<T: Clone> PageTable<T> {
     pub(super) fn storage_bytes(&self) -> usize {
         size_of::<Self>() + self.root.storage_bytes()
     }
+}
+
+fn make_node_mut<T: Clone>(node: &mut Arc<Node<T>>) -> &mut Node<T> {
+    if Arc::get_mut(node).is_none() {
+        record_copied_node();
+    }
+    Arc::make_mut(node)
 }
 
 impl<T: Clone> Node<T> {
@@ -78,7 +91,7 @@ impl<T: Clone> Node<T> {
         match self {
             Self::Leaf(values) => values.get_mut(&slot),
             Self::Branch(children) => {
-                Arc::make_mut(children.get_mut(&slot)?).get_mut(index, shift - LEVEL_BITS)
+                make_node_mut(children.get_mut(&slot)?).get_mut(index, shift - LEVEL_BITS)
             }
         }
     }
@@ -93,7 +106,7 @@ impl<T: Clone> Node<T> {
                 let child = children
                     .entry(slot)
                     .or_insert_with(|| Arc::new(Self::empty(shift - LEVEL_BITS)));
-                Arc::make_mut(child).insert(index, shift - LEVEL_BITS, value);
+                make_node_mut(child).insert(index, shift - LEVEL_BITS, value);
             }
         }
     }
@@ -107,7 +120,7 @@ impl<T: Clone> Node<T> {
             }
             Self::Branch(children) => {
                 if let Some(child) = children.get_mut(&slot)
-                    && Arc::make_mut(child).remove(index, shift - LEVEL_BITS)
+                    && make_node_mut(child).remove(index, shift - LEVEL_BITS)
                 {
                     children.remove(&slot);
                 }
