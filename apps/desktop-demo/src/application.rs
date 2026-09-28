@@ -42,7 +42,7 @@ use voxel_frontend::{VoxelExtent, VoxelFrontend, VoxelSceneRevision};
 #[cfg(target_os = "windows")]
 use winit::application::ApplicationHandler;
 #[cfg(target_os = "windows")]
-use winit::event::WindowEvent;
+use winit::event::{DeviceEvent, DeviceId, WindowEvent};
 #[cfg(target_os = "windows")]
 use winit::event_loop::EventLoopProxy;
 #[cfg(target_os = "windows")]
@@ -169,8 +169,13 @@ impl DesktopApplication {
         render_configuration: DesktopRenderConfiguration,
         event_proxy: EventLoopProxy<DesktopEvent>,
     ) -> Result<Self, String> {
-        let camera_state = render_configuration.camera_pose()?;
         let scenario_state = ScenarioState::new(&render_configuration)?;
+        // The free-fly controller re-expresses the starting pose, so starting from its Camera
+        // State avoids publishing an unchanged view on the first frame.
+        let camera_state = match &scenario_state.interactive {
+            Some(interactive) => interactive.camera_state()?,
+            None => render_configuration.camera_pose()?,
+        };
         Ok(Self {
             scenario_state,
             desktop: DesktopRuntime {
@@ -270,7 +275,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             }
         };
         let text_overlay = if self.desktop.render_configuration.edit_burst_demo
-            || self.desktop.render_configuration.compute_switch_demo
+            || self
+                .desktop
+                .render_configuration
+                .render_path_switching_enabled()
         {
             match WindowsTextOverlay::new(&window) {
                 Ok(overlay) => Some(overlay),
@@ -532,7 +540,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.desktop.preparation_release = preparation_release;
         self.desktop
             .set_status(&format!("preparing revision {published_revision}"));
-        if self.desktop.render_configuration.compute_switch_demo
+        if self
+            .desktop
+            .render_configuration
+            .render_path_switching_enabled()
             && let Err(error) = self.scenarios().set_render_path_overlay()
         {
             self.desktop.application_error = Some(error);
@@ -668,6 +679,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             WindowEvent::KeyboardInput { event, .. } => {
                 self.scenarios().keyboard_input(event_loop, &event);
             }
+            WindowEvent::MouseInput { state, button, .. } => {
+                self.scenarios()
+                    .interactive_mouse_input(event_loop, state, button);
+            }
+            WindowEvent::Focused(focused) => {
+                self.scenarios()
+                    .interactive_focus_changed(event_loop, focused);
+            }
             WindowEvent::RedrawRequested => {
                 if should_wait_for_initial_raster_artifact(
                     &self.desktop.render_configuration,
@@ -686,6 +705,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     if initial_artifact_revision.is_none() {
                         return;
                     }
+                }
+                self.scenarios().before_interactive_draw(event_loop);
+                if event_loop.exiting() {
+                    return;
                 }
                 let frame_started_at = Instant::now();
                 let (outcome, gpu_observation, submitted_frame_sequence, presentation_extent) =
@@ -751,6 +774,17 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: DesktopEvent) {
         self.scenarios().user_event(event_loop, event);
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        if let DeviceEvent::MouseMotion { delta } = event {
+            self.scenarios().interactive_mouse_motion(delta);
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {

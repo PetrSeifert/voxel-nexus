@@ -23,6 +23,23 @@ use scenarios::*;
 #[cfg(target_os = "windows")]
 mod windows_adapter;
 
+#[cfg(any(target_os = "windows", test))]
+mod free_fly_camera;
+#[cfg(target_os = "windows")]
+mod interactive_scenario;
+#[cfg(target_os = "windows")]
+mod render_path_switch;
+#[cfg(any(target_os = "windows", test))]
+mod voxel_editing;
+#[cfg(target_os = "windows")]
+use free_fly_camera::{FreeFlyCamera, MovementInput};
+#[cfg(target_os = "windows")]
+use interactive_scenario::*;
+#[cfg(target_os = "windows")]
+use render_path_switch::*;
+#[cfg(target_os = "windows")]
+use voxel_editing::*;
+
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::canonical_edit_semantic_ray_probes;
 #[cfg(target_os = "windows")]
@@ -44,7 +61,7 @@ use raster_render_path::{
 #[cfg(target_os = "windows")]
 use render_backend::{
     CameraStateRevision, PresentationConfigurationId, RenderBackend, RenderPathHandoffControl,
-    RenderPathReadiness, RenderPathSwitchDiagnostics,
+    RenderPathReadiness, RenderPathSwitchDiagnostics, RenderPathSwitchRequestError,
 };
 #[cfg(target_os = "windows")]
 use semantic_ray_oracle::{

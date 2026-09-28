@@ -53,6 +53,7 @@ pub(super) struct DesktopRenderConfiguration {
     pub(super) hold_post_upload_candidate: bool,
     pub(super) inject_raster_upload_failure: bool,
     pub(super) edit_burst_demo: bool,
+    pub(super) interactive: bool,
     pub(super) compute_switch_demo: bool,
     pub(super) compute_switch_lifecycle_demo: bool,
     pub(super) portable_milestone_demo: bool,
@@ -83,6 +84,10 @@ impl DesktopRenderConfiguration {
             )
             .map_err(|error| error.to_string()),
         }
+    }
+
+    pub(super) fn render_path_switching_enabled(&self) -> bool {
+        self.compute_switch_demo || self.interactive
     }
 
     pub(super) fn camera_identity(&self) -> String {
@@ -144,6 +149,8 @@ pub(super) fn parse_render_configuration(
     let mut hold_post_upload_candidate = false;
     let mut inject_raster_upload_failure = false;
     let mut edit_burst_demo = false;
+    let mut interactive = false;
+    let mut camera_move_was_selected = false;
     let mut compute_switch_demo = false;
     let mut compute_switch_lifecycle_demo = false;
     let mut portable_milestone_demo = false;
@@ -160,6 +167,7 @@ pub(super) fn parse_render_configuration(
             "--hold-post-upload-candidate" => hold_post_upload_candidate = true,
             "--inject-raster-upload-failure" => inject_raster_upload_failure = true,
             "--edit-burst-demo" => edit_burst_demo = true,
+            "--interactive" => interactive = true,
             "--compute-switch-demo" => compute_switch_demo = true,
             "--compute-switch-lifecycle-demo" => {
                 compute_switch_demo = true;
@@ -310,6 +318,7 @@ pub(super) fn parse_render_configuration(
                     pose,
                 };
                 camera_was_selected = true;
+                camera_move_was_selected = true;
             }
             unknown => return Err(format!("unknown desktop demo argument {unknown:?}")),
         }
@@ -335,6 +344,21 @@ pub(super) fn parse_render_configuration(
                 .to_owned(),
         );
     }
+    if interactive
+        && (compute_switch_demo
+            || hold_background_preparation
+            || hold_post_upload_candidate
+            || inject_raster_upload_failure
+            || edit_burst_demo
+            || measurement.is_some()
+            || camera_move_was_selected
+            || matches!(scene, DesktopSceneSelection::WindingDiagnostic))
+    {
+        return Err(
+            "the interactive mode combines only with --scene-scale, --camera-pose, and --raster-region-extent"
+                .to_owned(),
+        );
+    }
     if compute_switch_lifecycle_demo && compute_shutdown_qualification.is_some() {
         return Err(
             "the automatic compute switch lifecycle demo cannot run a compute shutdown qualification"
@@ -350,6 +374,7 @@ pub(super) fn parse_render_configuration(
             hold_post_upload_candidate,
             inject_raster_upload_failure,
             edit_burst_demo,
+            interactive,
             compute_switch_demo,
             compute_switch_lifecycle_demo,
             portable_milestone_demo,
@@ -480,4 +505,54 @@ fn format_vector<const LENGTH: usize>(components: [f32; LENGTH]) -> String {
         .map(|component| component.to_string())
         .collect::<Vec<_>>()
         .join(",")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(arguments: &[&str]) -> Result<(DesktopRenderConfiguration, bool), String> {
+        parse_render_configuration(arguments.iter().map(|argument| (*argument).to_owned()))
+    }
+
+    #[test]
+    fn interactive_mode_combines_with_scene_scale_and_starting_pose() -> Result<(), String> {
+        let (configuration, report_only) = parse(&[
+            "--interactive",
+            "--scene-scale",
+            "64",
+            "--camera-pose",
+            "cavity",
+        ])?;
+        assert!(configuration.interactive);
+        assert!(!report_only);
+        assert!(!configuration.compute_switch_demo);
+        assert_eq!(configuration.camera_identity(), "cavity");
+        Ok(())
+    }
+
+    #[test]
+    fn interactive_mode_excludes_other_demo_modes() {
+        for arguments in [
+            &["--interactive", "--winding-diagnostic"][..],
+            &["--interactive", "--camera-move-step", "3"][..],
+            &["--winding-diagnostic", "--interactive"][..],
+        ] {
+            assert!(parse(arguments).is_err(), "{arguments:?}");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "qualification")]
+    fn interactive_mode_excludes_qualification_demo_modes() {
+        for argument in [
+            "--compute-switch-demo",
+            "--edit-burst-demo",
+            "--hold-background-preparation",
+            "--hold-post-upload-candidate",
+            "--inject-raster-upload-failure",
+        ] {
+            assert!(parse(&["--interactive", argument]).is_err(), "{argument}");
+        }
+    }
 }

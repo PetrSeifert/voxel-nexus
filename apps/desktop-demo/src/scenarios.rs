@@ -6,6 +6,7 @@ pub(super) struct ScenarioState {
     pub(super) compute: ComputeScenarioState,
     pub(super) camera: CameraScenarioState,
     pub(super) evidence: EvidenceCollection,
+    pub(super) interactive: Option<InteractiveState>,
 }
 
 pub(super) struct RasterScenarioState {
@@ -50,6 +51,11 @@ impl ScenarioState {
         let compute_switch_lifecycle_stage = configuration
             .compute_switch_lifecycle_demo
             .then_some(ComputeSwitchLifecycleStage::Replacement);
+        let interactive = if configuration.interactive {
+            Some(InteractiveState::new(configuration.camera_pose()?))
+        } else {
+            None
+        };
         Ok(Self {
             raster: RasterScenarioState {
                 preparation_is_paused: false,
@@ -85,6 +91,7 @@ impl ScenarioState {
                 semantic_qualification: SemanticQualificationState::default(),
                 first_matching_frame_presented: false,
             },
+            interactive,
         })
     }
 }
@@ -343,23 +350,33 @@ pub(super) fn compute_edit_burst_admission(
 
 pub(super) fn render_path_switch_admission(
     diagnostics: &RenderPathSwitchDiagnostics,
-) -> Result<(), String> {
+) -> Result<(), RenderPathSwitchRequestError> {
     let roles = diagnostics.roles();
     if roles.replacement().is_some() || roles.retiring().is_some() {
-        return Err("a Render Path switch is already in progress".to_owned());
+        return Err(RenderPathSwitchRequestError::SwitchInProgress);
     }
     let presenting = diagnostics.presenting();
     if presenting.required_revision() != presenting.visible_revision()
         || presenting.readiness() != RenderPathReadiness::Recordable
     {
-        return Err(format!(
-            "the Presenting Render Path is not fully converged: Required={} Visible={} Readiness={:?}",
-            presenting.required_revision(),
-            presenting.visible_revision(),
-            presenting.readiness()
-        ));
+        return Err(RenderPathSwitchRequestError::PresentingPathNotConverged {
+            required_revision: presenting.required_revision(),
+            visible_revision: presenting.visible_revision(),
+            readiness: presenting.readiness(),
+        });
     }
     Ok(())
+}
+
+pub(super) fn render_path_switch_phase(diagnostics: &RenderPathSwitchDiagnostics) -> &'static str {
+    match (diagnostics.replacement(), diagnostics.retiring()) {
+        (Some(replacement), _) if replacement.readiness() == RenderPathReadiness::Recordable => {
+            "handoff-ready"
+        }
+        (Some(_), _) => "preparing",
+        (None, Some(_)) => "retiring",
+        (None, None) => "idle",
+    }
 }
 
 pub(super) fn format_render_path_overlay(
@@ -368,14 +385,7 @@ pub(super) fn format_render_path_overlay(
     camera: &str,
     control_feedback: &str,
 ) -> String {
-    let switch_phase = match (diagnostics.replacement(), diagnostics.retiring()) {
-        (Some(replacement), _) if replacement.readiness() == RenderPathReadiness::Recordable => {
-            "handoff-ready"
-        }
-        (Some(_), _) => "preparing",
-        (None, Some(_)) => "retiring",
-        (None, None) => "idle",
-    };
+    let switch_phase = render_path_switch_phase(diagnostics);
     let replacement_revision = diagnostics
         .replacement()
         .map(|replacement| replacement.required_revision().to_string())
@@ -574,13 +584,14 @@ impl ScenarioExecution<'_> {
             let revision = installed_revision.unwrap_or(VoxelSceneRevision::new(0));
             self.state.evidence.first_matching_frame_presented = true;
             println!("First matching raster frame presented: revision={revision}");
-            if self.desktop.render_configuration.compute_switch_demo
+            if (self.desktop.render_configuration.compute_switch_demo
                 && !self
                     .desktop
                     .render_configuration
-                    .compute_switch_lifecycle_demo
+                    .compute_switch_lifecycle_demo)
+                || self.desktop.render_configuration.interactive
             {
-                self.state.compute.render_path_control_feedback = "Tab-ready".to_owned();
+                self.set_control_feedback("Tab-ready".to_owned());
             }
             if let Some(measurement) = &mut self.state.evidence.measurement {
                 let presented_at = Instant::now();
@@ -645,7 +656,11 @@ impl ScenarioExecution<'_> {
                     return;
                 }
             }
-        } else if self.desktop.render_configuration.compute_switch_demo {
+        } else if self
+            .desktop
+            .render_configuration
+            .render_path_switching_enabled()
+        {
             match self.update_interactive_render_path_switch() {
                 Ok(in_progress) => in_progress,
                 Err(error) => {
@@ -815,6 +830,12 @@ impl ScenarioExecution<'_> {
             }
         }
         self.advance_edit_burst(event_loop);
+        if self.desktop.render_configuration.interactive {
+            self.after_interactive_presented(event_loop);
+            if event_loop.exiting() {
+                return;
+            }
+        }
         if self.desktop.render_configuration.edit_burst_demo
             && let Some(controller) = &self.desktop.lifecycle_controller
         {
@@ -877,6 +898,9 @@ impl ScenarioExecution<'_> {
             &event.logical_key,
         ) {
             self.handle_compute_edit_burst_key(event_loop);
+        }
+        if self.desktop.render_configuration.interactive {
+            self.interactive_keyboard_input(event_loop, event);
         }
     }
 
@@ -984,7 +1008,11 @@ impl ScenarioExecution<'_> {
                 Err(error) => self.desktop.record_close_error(error),
             }
         }
-        if self.desktop.render_configuration.compute_switch_demo {
+        // Interactive sessions own compute resources only after switching to compute.
+        if self.desktop.render_configuration.compute_switch_demo
+            || (self.desktop.render_configuration.interactive
+                && self.desktop.compute_lifecycle_controller.is_some())
+        {
             let compute_resources = self
                 .desktop
                 .compute_lifecycle_controller

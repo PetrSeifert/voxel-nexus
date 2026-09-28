@@ -761,6 +761,10 @@ pub trait RenderPath {
 pub enum RenderPathEditError {
     #[error("the presenting Render Path does not accept Voxel Edit outcomes")]
     SubmissionUnavailable,
+    /// The replacement was prepared from an earlier Voxel Scene Revision and cannot follow edits,
+    /// so accepting one would defer the handoff indefinitely.
+    #[error("a Render Path switch is preparing a replacement, so Voxel Edit outcomes are rejected")]
+    SwitchInProgress,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]

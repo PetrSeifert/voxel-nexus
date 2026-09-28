@@ -1,8 +1,9 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use thiserror::Error;
 use voxel_frontend::{
-    VoxelCoordinate, VoxelFrontendError, VoxelMaterialId, VoxelRegion, VoxelSceneId,
+    VoxelCoordinate, VoxelExtent, VoxelFrontendError, VoxelMaterialId, VoxelRegion, VoxelSceneId,
     VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
 };
 
@@ -380,6 +381,222 @@ pub fn observe_probe(
     })
 }
 
+/// Produces the same observation as [`observe`] while reading only values near the ray, so the
+/// cost follows the traversed distance instead of the volume size.
+pub fn observe_along_ray(
+    view: &VoxelSceneView,
+    ray: &SemanticRay,
+) -> Result<SemanticRayObservation, SemanticRayOracleError> {
+    let mut nearest_contact: Option<SemanticRayContact> = None;
+    for volume in view.volumes() {
+        for contact in traversed_contacts(view, volume, ray)? {
+            if nearest_contact
+                .as_ref()
+                .is_none_or(|nearest| contact_precedes(&contact, nearest))
+            {
+                nearest_contact = Some(contact);
+            }
+        }
+    }
+
+    Ok(SemanticRayObservation {
+        scene_identity: view.scene_id().clone(),
+        revision: view.revision(),
+        result: nearest_contact.map_or(SemanticRayResult::Miss, SemanticRayResult::Contact),
+    })
+}
+
+/// Returns contacts in the same z, y, x order that [`observe`] visits them, so equal-distance
+/// precedence resolves identically.
+fn traversed_contacts(
+    view: &VoxelSceneView,
+    volume: &VoxelVolumeMetadata,
+    ray: &SemanticRay,
+) -> Result<Vec<SemanticRayContact>, SemanticRayOracleError> {
+    let dimensions = volume.extent().dimensions().map(i64::from);
+    if dimensions.contains(&0) {
+        return Ok(Vec::new());
+    }
+    let scene_origin = volume.scene_origin().map(f64::from);
+    let voxel_size = f64::from(volume.voxel_size());
+    let Some((entry_distance, exit_distance)) =
+        volume_interval(ray, scene_origin, voxel_size, dimensions)
+    else {
+        return Ok(Vec::new());
+    };
+
+    let start = point_at_distance(ray, entry_distance);
+    let mut cell = [0_i64; 3];
+    for axis in Axis::ALL {
+        let local = (axis.component(start) - axis.component(scene_origin)) / voxel_size;
+        *axis.cell_component_mut(&mut cell) =
+            (local.floor() as i64).clamp(0, axis.cell_component(dimensions) - 1);
+    }
+
+    let mut evaluated: BTreeMap<[i64; 3], Option<SemanticRayContact>> = BTreeMap::new();
+    let mut values = Vec::new();
+    let mut nearest_distance: Option<f64> = None;
+    let mut cell_entry_distance = entry_distance;
+    let step_limit = dimensions.iter().sum::<i64>() + 3;
+    for _ in 0..step_limit {
+        // Visited cells are ordered by entry distance, so once they pass the nearest contact by
+        // a full voxel no later cell can precede it.
+        if cell_entry_distance > exit_distance + voxel_size
+            || nearest_distance.is_some_and(|nearest| cell_entry_distance > nearest + voxel_size)
+        {
+            break;
+        }
+        // Rounding at shared faces, edges, and corners can make the traversal choose a
+        // neighbour of the exact cell, so the whole neighbourhood is evaluated exactly.
+        let neighbourhood_nearest =
+            evaluate_neighbourhood(view, volume, ray, cell, &mut evaluated, &mut values)?;
+        if let Some(distance) = neighbourhood_nearest {
+            nearest_distance =
+                Some(nearest_distance.map_or(distance, |nearest| nearest.min(distance)));
+        }
+
+        let mut next_axis = None;
+        let mut next_distance = f64::INFINITY;
+        for axis in Axis::ALL {
+            let direction = axis.component(ray.direction);
+            if direction == 0.0 {
+                continue;
+            }
+            let boundary_cell = axis.cell_component(cell) + i64::from(direction > 0.0);
+            let boundary = axis.component(scene_origin) + boundary_cell as f64 * voxel_size;
+            let distance = (boundary - axis.component(ray.origin)) / direction;
+            if distance < next_distance {
+                next_distance = distance;
+                next_axis = Some(axis);
+            }
+        }
+        let Some(axis) = next_axis else {
+            break;
+        };
+        let direction_step = if axis.component(ray.direction) > 0.0 {
+            1
+        } else {
+            -1
+        };
+        let next_cell = axis.cell_component(cell) + direction_step;
+        if !(0..axis.cell_component(dimensions)).contains(&next_cell) {
+            break;
+        }
+        *axis.cell_component_mut(&mut cell) = next_cell;
+        cell_entry_distance = next_distance;
+    }
+
+    Ok(evaluated.into_values().flatten().collect())
+}
+
+/// Conservatively bounds the distances at which the ray can touch the volume's cells.
+fn volume_interval(
+    ray: &SemanticRay,
+    scene_origin: [f64; 3],
+    voxel_size: f64,
+    dimensions: [i64; 3],
+) -> Option<(f64, f64)> {
+    let mut entry_distance = ray.minimum_distance;
+    let mut exit_distance = ray.maximum_distance;
+    for axis in Axis::ALL {
+        let origin = axis.component(ray.origin);
+        let direction = axis.component(ray.direction);
+        let minimum = axis.component(scene_origin);
+        let maximum = minimum + axis.cell_component(dimensions) as f64 * voxel_size;
+        if direction == 0.0 {
+            if origin < minimum - voxel_size || origin > maximum + voxel_size {
+                return None;
+            }
+            continue;
+        }
+        let minimum_distance = (minimum - origin) / direction;
+        let maximum_distance = (maximum - origin) / direction;
+        entry_distance = entry_distance.max(minimum_distance.min(maximum_distance));
+        exit_distance = exit_distance.min(minimum_distance.max(maximum_distance));
+    }
+    if entry_distance > exit_distance + voxel_size {
+        return None;
+    }
+    Some((entry_distance, exit_distance))
+}
+
+fn voxel_coordinate(coordinate: [i64; 3]) -> Result<VoxelCoordinate, SemanticRayOracleError> {
+    let [x, y, z] = coordinate.map(|component| {
+        i32::try_from(component).map_err(|_| SemanticRayOracleError::ArithmeticOverflow)
+    });
+    Ok(VoxelCoordinate::new(x?, y?, z?))
+}
+
+fn evaluate_neighbourhood(
+    view: &VoxelSceneView,
+    volume: &VoxelVolumeMetadata,
+    ray: &SemanticRay,
+    cell: [i64; 3],
+    evaluated: &mut BTreeMap<[i64; 3], Option<SemanticRayContact>>,
+    values: &mut Vec<VoxelValue>,
+) -> Result<Option<f64>, SemanticRayOracleError> {
+    let dimensions = volume.extent().dimensions().map(i64::from);
+    let mut minimum = [0_i64; 3];
+    let mut extent = [0_i64; 3];
+    for axis in Axis::ALL {
+        let low = (axis.cell_component(cell) - 1).max(0);
+        let high = (axis.cell_component(cell) + 1).min(axis.cell_component(dimensions) - 1);
+        *axis.cell_component_mut(&mut minimum) = low;
+        *axis.cell_component_mut(&mut extent) = high - low + 1;
+    }
+    let [minimum_x, minimum_y, minimum_z] = minimum;
+    let [width, height, depth] = extent.map(|length| {
+        u32::try_from(length).map_err(|_| SemanticRayOracleError::ArithmeticOverflow)
+    });
+    let (width, height, depth) = (width?, height?, depth?);
+    let region_origin = voxel_coordinate(minimum)?;
+    let value_count = usize::try_from(width * height * depth)
+        .map_err(|_| SemanticRayOracleError::ArithmeticOverflow)?;
+    values.clear();
+    values.resize(value_count, VoxelValue::Empty);
+    view.read_region_into(
+        volume.identity(),
+        VoxelRegion::new(region_origin, VoxelExtent::new(width, height, depth)),
+        values,
+    )?;
+
+    let mut nearest_distance: Option<f64> = None;
+    let offsets =
+        (0..depth).flat_map(|z| (0..height).flat_map(move |y| (0..width).map(move |x| (x, y, z))));
+    for (value, (offset_x, offset_y, offset_z)) in values.iter().zip(offsets) {
+        let coordinate = [
+            minimum_x + i64::from(offset_x),
+            minimum_y + i64::from(offset_y),
+            minimum_z + i64::from(offset_z),
+        ];
+        let [coordinate_x, coordinate_y, coordinate_z] = coordinate;
+        let key = [coordinate_z, coordinate_y, coordinate_x];
+        if evaluated.contains_key(&key) {
+            continue;
+        }
+        let contact = match value {
+            VoxelValue::Empty => None,
+            VoxelValue::Occupied(material_identity) => {
+                let coordinate = voxel_coordinate(coordinate)?;
+                intersect_cell(ray, volume, coordinate).map(|intersection| SemanticRayContact {
+                    volume_identity: volume.identity().clone(),
+                    coordinate,
+                    material_identity: material_identity.clone(),
+                    distance: intersection.distance,
+                    classification: intersection.classification,
+                })
+            }
+        };
+        if let Some(contact) = &contact {
+            nearest_distance = Some(
+                nearest_distance.map_or(contact.distance, |nearest| nearest.min(contact.distance)),
+            );
+        }
+        evaluated.insert(key, contact);
+    }
+    Ok(nearest_distance)
+}
+
 fn contact_precedes(candidate: &SemanticRayContact, current: &SemanticRayContact) -> bool {
     match candidate.distance.total_cmp(&current.distance) {
         std::cmp::Ordering::Less => true,
@@ -506,6 +723,24 @@ impl Axis {
 
     fn component(self, value: [f64; 3]) -> f64 {
         let [x, y, z] = value;
+        match self {
+            Self::X => x,
+            Self::Y => y,
+            Self::Z => z,
+        }
+    }
+
+    fn cell_component(self, cell: [i64; 3]) -> i64 {
+        let [x, y, z] = cell;
+        match self {
+            Self::X => x,
+            Self::Y => y,
+            Self::Z => z,
+        }
+    }
+
+    fn cell_component_mut(self, cell: &mut [i64; 3]) -> &mut i64 {
+        let [x, y, z] = cell;
         match self {
             Self::X => x,
             Self::Y => y,

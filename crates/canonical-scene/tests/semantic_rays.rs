@@ -2,7 +2,8 @@ use canonical_scene::{
     CanonicalSceneScale, canonical_edit_semantic_ray_probes, generate_canonical_scene,
 };
 use semantic_ray_oracle::{
-    AxisNormal, SemanticRayContactClassification, SemanticRayResult, observe_probe,
+    AxisNormal, SemanticRay, SemanticRayContactClassification, SemanticRayResult, observe,
+    observe_along_ray, observe_probe,
 };
 use voxel_frontend::{
     VoxelCoordinate, VoxelEditCommand, VoxelFrontend, VoxelMaterialId, VoxelValue, VoxelVolumeId,
@@ -55,5 +56,43 @@ fn canonical_edit_probes_miss_revision_one_and_identify_revision_four_edits()
         );
     }
 
+    Ok(())
+}
+
+#[test]
+fn traversal_matches_the_exhaustive_oracle_across_the_canonical_scene()
+-> Result<(), Box<dyn std::error::Error>> {
+    let view = VoxelFrontend::new()
+        .publish(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
+    let origins = [
+        [20.0, 14.0, 22.0],
+        [0.0, 1.0, 17.0],
+        [-14.0, 2.0, 8.0],
+        [0.0, -1.0, 0.0],
+    ];
+    let mut contact_count = 0;
+    for origin in origins {
+        for yaw_step in 0..8 {
+            for pitch_step in 0..3 {
+                let yaw = f64::from(yaw_step) * std::f64::consts::TAU / 8.0;
+                let pitch = (f64::from(pitch_step) - 1.0) * 0.4;
+                let direction = [
+                    pitch.cos() * yaw.cos(),
+                    pitch.sin(),
+                    pitch.cos() * yaw.sin(),
+                ];
+                let ray = SemanticRay::new(origin, direction, 0.0, 100.0)?;
+                let exhaustive = observe(&view, &ray)?;
+                if matches!(exhaustive.result(), SemanticRayResult::Contact(_)) {
+                    contact_count += 1;
+                }
+                assert_eq!(observe_along_ray(&view, &ray)?, exhaustive, "ray {ray:?}");
+            }
+        }
+    }
+    assert!(
+        contact_count > 15,
+        "only {contact_count} rays reached the canonical scene"
+    );
     Ok(())
 }

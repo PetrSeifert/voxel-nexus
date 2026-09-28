@@ -593,8 +593,7 @@ impl ScenarioExecution<'_> {
         }
         println!("Raster artifact installed: revision={installed_revision} count=1");
         if preparation_target == RasterPreparationTarget::Replacement {
-            self.state.compute.render_path_control_feedback =
-                format!("Raster-replacement-ready-{installed_revision}");
+            self.set_control_feedback(format!("Raster-replacement-ready-{installed_revision}"));
             if let Err(error) = self.set_render_path_overlay() {
                 self.desktop.fail(event_loop, error);
                 return;
@@ -728,7 +727,10 @@ impl ScenarioExecution<'_> {
                 .render_configuration
                 .hold_background_preparation
             || self.desktop.render_configuration.edit_burst_demo
-            || self.desktop.render_configuration.compute_switch_demo
+            || self
+                .desktop
+                .render_configuration
+                .render_path_switching_enabled()
         {
             self.desktop.lifecycle_controller =
                 Some(render_path.enable_lifecycle_control_with_hold(

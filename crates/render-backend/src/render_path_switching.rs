@@ -1,6 +1,6 @@
 use crate::{
     CameraState, PresentationConfigurationId, RenderPath, RenderPathDeviceContext,
-    RenderPathFrameContext, RenderPathResult, RenderPathTarget,
+    RenderPathEditError, RenderPathFrameContext, RenderPathResult, RenderPathTarget,
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -614,6 +614,9 @@ impl RenderPath for RenderPathSwitchOwner {
         &mut self,
         outcome: voxel_frontend::VoxelEditOutcome,
     ) -> RenderPathResult<()> {
+        if self.replacement.is_some() {
+            return Err(Box::new(RenderPathEditError::SwitchInProgress));
+        }
         self.presenting.submit_edit_outcome(outcome)
     }
 
@@ -1312,18 +1315,23 @@ mod tests {
     }
 
     #[test]
-    fn edit_during_switch_reaches_only_presenter_and_blocks_stale_handoff() -> RenderPathResult<()>
-    {
+    fn edit_during_replacement_preparation_is_rejected_and_handoff_completes()
+    -> RenderPathResult<()> {
         let third_strategy = RenderPathStrategy::new("external.third-path");
         let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(third_strategy, 1, 1)));
         owner.request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))?;
         let path: &mut dyn RenderPath = &mut owner;
-        path.submit_edit_outcome(edit_outcome()?)?;
-        let device = proof_device();
-        owner.advance_frame_boundary(proof_device_context(&device), proof_target(1, 800, 600))?;
+        let rejection = match path.submit_edit_outcome(edit_outcome()?) {
+            Ok(()) => return Err("an edit during replacement preparation was accepted".into()),
+            Err(error) => error,
+        };
+        assert_eq!(
+            rejection.downcast_ref::<RenderPathEditError>(),
+            Some(&RenderPathEditError::SwitchInProgress)
+        );
         assert_eq!(
             owner.diagnostics().presenting().required_revision(),
-            VoxelSceneRevision::new(2)
+            VoxelSceneRevision::new(1)
         );
         assert_eq!(
             owner
@@ -1332,14 +1340,10 @@ mod tests {
                 .map(RenderPathStamp::required_revision),
             Some(VoxelSceneRevision::new(1))
         );
-        assert_eq!(owner.role_status().presenting(), third_strategy);
-        assert!(matches!(
-            owner.events().last(),
-            Some(RenderPathSwitchEvent::HandoffDeferred {
-                mismatch: RenderPathHandoffMismatch::VoxelSceneRevision,
-                ..
-            })
-        ));
+        let device = proof_device();
+        owner.advance_frame_boundary(proof_device_context(&device), proof_target(1, 800, 600))?;
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
+        assert_eq!(owner.role_status().retiring(), Some(third_strategy));
         Ok(())
     }
 

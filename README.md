@@ -15,7 +15,34 @@ Cargo compiles the shaders during the build. Run the commands below from the rep
 
 ## Start here
 
-Launch the interactive Render Path switching demo with the small scene:
+Fly around the small scene and edit it:
+
+```powershell
+cargo run --locked --package desktop-demo -- --interactive --scene-scale 64
+```
+
+`--interactive` needs no qualification build. It also accepts `--camera-pose` for the starting view and `--raster-region-extent`. It can't be combined with the other demo modes.
+
+| Input | Action |
+| --- | --- |
+| Click the window | Capture the mouse for looking around. This click doesn't edit. |
+| Mouse | Look around while the mouse is captured |
+| **Escape** | Release the mouse |
+| **W** / **A** / **S** / **D** | Move forward, left, back, and right |
+| **E** / **Q** | Move up and down |
+| **Shift** | Move faster |
+| Left click | Break the targeted voxel |
+| Right click | Place the selected material on the targeted face |
+| **1**–**9** | Select a material, in the scene's material order |
+| **Tab** | Switch between raster and compute-ray rendering |
+
+The target is the voxel under the screen center. The overlay and window title show the Presenting Render Path, switch state, Required and Visible revisions, the target volume, coordinate, material, and entry face (or `none`), the selected material, and the result of the last action. Each click makes at most one edit, and holding a button doesn't repeat it. A placement outside the volume shows `Place-rejected-out-of-bounds`.
+
+Edits are rejected while a Render Path switch is preparing its replacement (`Break-rejected-switching`). They're accepted again once the replacement starts presenting. Tab is rejected while a switch is in progress or while the Presenting Render Path is still converging. Rejected requests aren't queued. Wait for Required and Visible to match, then press Tab again.
+
+### Compute switch qualification demo
+
+Launch the fixed Render Path switching demo with the small scene:
 
 ```powershell
 cargo run --locked --features qualification --package desktop-demo -- --scene-scale 64 --compute-switch-demo
@@ -33,7 +60,7 @@ This mode checks the completed round trip when you close it. Closing early repor
 
 The overlay shows the presenting Render Path, switch state, Required and Visible Voxel Scene Revisions, edit-burst stage, and control readiness. During edits, Required can advance while Visible still shows the previous complete scene.
 
-There are no WASD, mouse-look, or arbitrary block-editing controls. Tab switches Render Paths in the compute demo, and Space runs its fixed edit sequence. Camera views are selected at launch or driven by the verification scripts.
+In this demo, Tab and Space only drive the fixed sequence. Use `--interactive` for free camera movement and editing.
 
 ## View the scene without a qualification sequence
 

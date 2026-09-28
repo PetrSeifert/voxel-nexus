@@ -13,6 +13,9 @@ impl ScenarioExecution<'_> {
     }
 
     pub(super) fn set_render_path_overlay(&mut self) -> Result<(), String> {
+        if self.state.interactive.is_some() {
+            return self.set_interactive_overlay();
+        }
         let diagnostics = self
             .desktop
             .backend
@@ -61,24 +64,13 @@ impl ScenarioExecution<'_> {
     }
 
     pub(super) fn request_interactive_render_path_switch(&mut self) -> Result<(), String> {
-        if self.desktop.interactive_switch.is_some() {
-            return Err("a Render Path switch is already in progress".to_owned());
-        }
         if !self.state.evidence.first_matching_frame_presented {
             return Err(
                 "the initial raster path has not presented its first matching frame".to_owned(),
             );
         }
-        let diagnostics = self
-            .desktop
-            .backend
-            .as_ref()
-            .and_then(RenderBackend::render_path_switch_diagnostics)
-            .ok_or_else(|| "Render Path switching diagnostics are unavailable".to_owned())?;
-        render_path_switch_admission(&diagnostics)?;
-        let presenting = diagnostics.presenting();
-        let source = presenting.strategy();
-        if source == COMPUTE_RAY_STRATEGY
+        let admitted = self.desktop.admit_render_path_switch()?;
+        if admitted.source == COMPUTE_RAY_STRATEGY
             && !matches!(
                 self.state.compute.compute_edit_burst_stage,
                 Some(ComputeEditBurstStage::Complete)
@@ -86,145 +78,44 @@ impl ScenarioExecution<'_> {
         {
             return Err("the fixed compute edit burst has not completed".to_owned());
         }
-        let replacement = match source {
-            RASTER_STRATEGY => COMPUTE_RAY_STRATEGY,
-            COMPUTE_RAY_STRATEGY => RASTER_STRATEGY,
-            _ => return Err("the demo cannot switch this Render Path strategy".to_owned()),
-        };
-        let view = self
-            .desktop
-            .frontend
-            .as_ref()
-            .ok_or_else(|| {
-                "the Voxel Frontend is unavailable for Render Path preparation".to_owned()
-            })?
-            .scene_view()
-            .map_err(|error| error.to_string())?;
-        if view.scene_id() != presenting.scene_identity()
-            || view.revision() != presenting.required_revision()
-        {
-            return Err(format!(
-                "the current Voxel Scene View does not match the converged presenter: view={} presenter={}",
-                view.revision(),
-                presenting.required_revision()
-            ));
+        let source = admitted.source;
+        let replacement = admitted.replacement;
+        let revision = admitted.view().revision();
+        let mut burst_plan = None;
+        if replacement == COMPUTE_RAY_STRATEGY {
+            let prepare_compute_burst = self.state.compute.compute_edit_burst_stage.is_none()
+                && self.state.compute.completed_interactive_switches == 0;
+            if prepare_compute_burst {
+                let plan = fixed_edit_burst(
+                    admitted.view(),
+                    self.desktop.render_configuration.raster_region_extent,
+                )?;
+                println!(
+                    "Compute edit burst qualification: preparation_block_edge=32 hold_after_completed_blocks=1 post_upload_revision=3 expected_final_revision={}",
+                    plan.expected_final_revision
+                );
+                burst_plan = Some(plan);
+            }
+            self.report_compute_timing_events()?;
         }
-        let revision = view.revision();
-        let retiring_raster = if source == RASTER_STRATEGY {
-            Some(
-                self.desktop
-                    .lifecycle_controller
-                    .as_ref()
-                    .ok_or_else(|| "raster retirement diagnostics are unavailable".to_owned())?
-                    .clone(),
-            )
-        } else {
-            None
-        };
         let mut compute_burst_setup = None;
-        let switch_requested_at = Instant::now();
-
-        match replacement {
-            COMPUTE_RAY_STRATEGY => {
-                let prepare_compute_burst = self.state.compute.compute_edit_burst_stage.is_none()
-                    && self.state.compute.completed_interactive_switches == 0;
-                let burst_plan = prepare_compute_burst
-                    .then(|| {
-                        let plan = fixed_edit_burst(
-                            &view,
-                            self.desktop.render_configuration.raster_region_extent,
-                        )?;
-                        println!(
-                            "Compute edit burst qualification: preparation_block_edge=32 hold_after_completed_blocks=1 post_upload_revision=3 expected_final_revision={}",
-                            plan.expected_final_revision
-                        );
-                        Ok::<_, String>(plan)
-                    })
-                    .transpose()?;
-                self.report_compute_timing_events()?;
-                let (mut replacement_path, measurement_controller) =
-                    ComputeRayRenderPathAdapter::new_with_measurement(
-                        view.clone(),
-                        self.desktop.camera_state,
-                        self.desktop.camera_state_revision,
-                    )
-                    .map_err(|error| {
-                        format!("could not cold-build the compute replacement: {error}")
-                    })?;
-                self.desktop.compute_measurement_controller = Some(measurement_controller);
-                self.desktop.compute_lifecycle_controller =
-                    Some(replacement_path.enable_lifecycle_control());
-                self.state
-                    .evidence
-                    .semantic_qualification
-                    .register_compute(&mut replacement_path, &view)?;
-                if let Some(plan) = burst_plan {
-                    let controller = replacement_path.enable_convergence_control_with_hold(true);
-                    compute_burst_setup = Some((controller, plan));
-                }
-                self.desktop
-                    .backend
-                    .as_mut()
-                    .ok_or_else(|| "the Render Backend is unavailable".to_owned())?
-                    .request_render_path_switch(Box::new(replacement_path))
-                    .map_err(|error| error.to_string())?;
-            }
-            RASTER_STRATEGY => {
-                let (mut replacement_path, installer, _) =
-                    RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
-                        self.desktop.camera_state,
-                        self.desktop.camera_state_revision,
-                        view.scene_id().clone(),
-                        revision,
-                    );
-                let lifecycle_controller = replacement_path.enable_lifecycle_control();
-                self.state
-                    .evidence
-                    .semantic_qualification
-                    .register_raster(&mut replacement_path, &view)?;
-                let event_proxy = self.desktop.event_proxy.clone();
-                let mut preparation = RasterArtifactPreparation::start_regions(
-                    view,
-                    VoxelExtent::new(
-                        self.desktop.render_configuration.raster_region_extent,
-                        self.desktop.render_configuration.raster_region_extent,
-                        self.desktop.render_configuration.raster_region_extent,
-                    ),
-                    move |event| {
-                        if event_proxy
-                            .send_event(DesktopEvent::Preparation(event))
-                            .is_err()
-                        {
-                            eprintln!(
-                                "desktop event loop closed before raster replacement preparation notification"
-                            );
+        let semantic_qualification = &mut self.state.evidence.semantic_qualification;
+        self.desktop
+            .start_render_path_switch(admitted, |replacement_path, view| {
+                match replacement_path {
+                    ReplacementRenderPath::Compute(path) => {
+                        semantic_qualification.register_compute(path, view)?;
+                        if let Some(plan) = burst_plan.take() {
+                            let controller = path.enable_convergence_control_with_hold(true);
+                            compute_burst_setup = Some((controller, plan));
                         }
-                    },
-                )
-                .map_err(|error| error.to_string())?;
-                if let Err(error) = self
-                    .desktop
-                    .backend
-                    .as_mut()
-                    .ok_or_else(|| "the Render Backend is unavailable".to_owned())?
-                    .request_render_path_switch(Box::new(replacement_path))
-                {
-                    preparation
-                        .cancel_and_join()
-                        .map_err(|cleanup_error| {
-                            format!(
-                                "{error}; raster replacement preparation cleanup failed: {cleanup_error}"
-                            )
-                        })?;
-                    return Err(error.to_string());
+                    }
+                    ReplacementRenderPath::Raster(path) => {
+                        semantic_qualification.register_raster(path, view)?;
+                    }
                 }
-                self.desktop.preparation = Some(preparation);
-                self.desktop.raster_preparation_target = Some(RasterPreparationTarget::Replacement);
-                self.desktop.raster_replacement_installer = Some(installer);
-                self.desktop.raster_replacement_lifecycle_controller = Some(lifecycle_controller);
-            }
-            _ => return Err("the demo cannot construct this Render Path strategy".to_owned()),
-        }
+                Ok(())
+            })?;
 
         if let Some((controller, plan)) = compute_burst_setup {
             self.desktop.compute_convergence_controller = Some(controller);
@@ -236,15 +127,6 @@ impl ScenarioExecution<'_> {
                 .compute_edit_burst_presented_revisions
                 .clear();
         }
-
-        self.desktop.interactive_switch = Some(InteractiveRenderPathSwitch {
-            source,
-            replacement,
-            revision,
-            handoff_reported: false,
-            retiring_raster,
-            requested_at: switch_requested_at,
-        });
         self.state.compute.render_path_control_feedback =
             format!("Tab-accepted-{}", replacement.identifier());
         println!(
@@ -364,8 +246,7 @@ impl ScenarioExecution<'_> {
             if active_switch.source == COMPUTE_RAY_STRATEGY {
                 self.desktop.compute_convergence_controller = None;
             }
-            self.state.compute.render_path_control_feedback = if active_switch.replacement
-                == COMPUTE_RAY_STRATEGY
+            let feedback = if active_switch.replacement == COMPUTE_RAY_STRATEGY
                 && matches!(
                     self.state.compute.compute_edit_burst_stage,
                     Some(ComputeEditBurstStage::AwaitingSpace(_))
@@ -377,6 +258,7 @@ impl ScenarioExecution<'_> {
                     self.state.compute.completed_interactive_switches
                 )
             };
+            self.set_control_feedback(feedback);
             println!(
                 "Render Path retirement complete: Retired={:?} owned_resources=0 workers=0 completed_switches={}",
                 active_switch.source, self.state.compute.completed_interactive_switches
