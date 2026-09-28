@@ -13,3 +13,6 @@ voxel-frontend = { path = "../voxel-frontend" }
 
 [dev-dependencies]
 raster-render-path = { path = "../raster-render-path" }
+
+[lints]
+workspace = true

@@ -8,3 +8,6 @@ path = "src/canonical_inspection.rs"
 
 [dependencies]
 render-backend = { path = "../render-backend" }
+
+[lints]
+workspace = true

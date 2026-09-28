@@ -12,3 +12,6 @@ qualification = []
 
 [dependencies]
 thiserror = "2.0.18"
+
+[lints]
+workspace = true

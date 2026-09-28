@@ -22,3 +22,6 @@ shaderc = "0.10.1"
 
 [dev-dependencies]
 canonical-scene = { path = "../canonical-scene" }
+
+[lints]
+workspace = true

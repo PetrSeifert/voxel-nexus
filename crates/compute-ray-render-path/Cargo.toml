@@ -23,3 +23,6 @@ shaderc = "0.10.1"
 [dev-dependencies]
 canonical-scene = { path = "../canonical-scene" }
 raster-render-path = { path = "../raster-render-path" }
+
+[lints]
+workspace = true

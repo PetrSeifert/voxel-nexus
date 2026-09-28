@@ -4,3 +4,9 @@ members = [
     "apps/*",
     "crates/*"
 ]
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+let_underscore_must_use = "warn"
+todo = "warn"
+unwrap_used = "warn"

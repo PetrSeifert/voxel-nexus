@@ -9,3 +9,6 @@ path = "src/semantic_ray_oracle.rs"
 [dependencies]
 thiserror = "2.0.18"
 voxel-frontend = { path = "../voxel-frontend" }
+
+[lints]
+workspace = true

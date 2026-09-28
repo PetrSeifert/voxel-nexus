@@ -31,3 +31,6 @@ windows-sys = { version = "0.59.0", features = ["Win32_UI_WindowsAndMessaging"] 
 
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.59.0", features = ["Win32_Graphics_Gdi", "Win32_Graphics_Dwm"] }
+
+[lints]
+workspace = true
