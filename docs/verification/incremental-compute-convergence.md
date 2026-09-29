@@ -2,7 +2,7 @@
 
 Issue #89 replaces full-scene preparation for adjacent edits with immutable, shared CPU pages and changed-word uploads. A binary tree limits page copying to the edited paths and leaves of at most 1,024 words. Metadata is shared between bundles. Inspection methods `voxel_words()` and `storage_words()` now return materialized vectors; convergence does not call them on the incremental path.
 
-Preparation reads the changed regions from the newest authoritative view. It validates the complete chain from Visible to Required, including scene identity, adjacent revisions, and compatible volume/material metadata. Missing, mismatched, or discarded chains use the full rebuild. History is bounded to 64 change sets while visibility is stalled.
+Preparation reads the changed regions from the newest authoritative view. It validates the complete chain from Visible to Required, including scene identity, adjacent revisions, and compatible volume/material metadata. For dense scenes, missing, mismatched, or discarded chains use the full rebuild. History is bounded to 64 change sets while visibility is stalled.
 
 An incremental hidden candidate retains CPU patches without changing the installed GPU buffer. The existing candidate-upload checkpoint means the candidate is staged and may be held or rejected there. The actual range writes happen at installation, after the backend waits for the preceding frame and after supersession, hold, and injected failure checks. All ranges are validated before a single memory mapping, so a mapping failure cannot partially update Visible data. CPU installation immediately follows the writes. Installed bundles release transient patches. Full rebuilds still use separate candidate GPU buffers.
 
@@ -40,3 +40,30 @@ pwsh -NoProfile -File scripts/verify-portable-compute-ray-milestone.ps1 -Evidenc
 ```
 
 Local runtime logs and the summary are in `artifacts/issue-89-validation`. The verification script was copied locally with its process launch set to `-WindowStyle Hidden`; qualification logic was unchanged. The run occurred before committing, so its recorded repository revision is the parent commit.
+
+
+## Brickmap convergence, issue #107
+
+Brickmap preparation maps every changed region to its intersecting 8³ cells and deduplicates them before classification. Missing revisions conservatively invalidate the entire cell grid. Both cases produce patches against the installed allocation, with no rebuild fallback. The packed CPU words use the existing persistent page tree, so a small edit does not clone a scene-sized grid.
+
+The convergence owner retains pool state in its installed bundle and private candidate snapshots. A candidate removes reserved slots only from its private free set and records retired slots separately. Dropping or cancelling the candidate discards those reservations without changing installed ownership. Candidates may name the same free slot because their payloads stay in CPU memory until installation. The owner releases retired slots only when installation commits after the preceding frame has finished. Revision and allocation identity must still match before any GPU write.
+
+Initial construction reserves up to one spare slot per coarse cell, capped at 64 spare slots and the remaining byte budget. Every slot occupies 1,024 bytes. The material table includes the scene's currently unused materials so later edits can reference them without moving the grid or pool. Pool growth is not implemented. Exhaustion reports a preparation failure while the installed revision continues presenting.
+
+Hidden candidates expose dirty-cell, reserved-slot, retired-slot, and upload-byte counts through `ComputeConvergenceStatus::hidden_patch`. The installed counts remain available through `installed_patch` and `ComputeSceneBundle::brickmap_patch_observations`. Upload timings continue to report the actual patch payload size. An error during mutation permanently stops frame recording and convergence for that Render Path; the qualification hook deterministically writes the first range and then reports failure.
+
+Verified on 2026-09-29:
+
+- In-crate owner tests cover structural transitions, deduplication, supersession, skipped revisions, cancellation, stale revision/allocation bases, capacity exhaustion, and deferred retirement.
+- The Windows Vulkan adapter regression covers all four structural transitions against the Semantic Ray oracle, held candidates preserving visible observations, one-slot retirement/reuse, capacity failure preserving presentation, and partial-write failure preventing further frames. Vulkan validation reports zero errors and warnings.
+- The existing brickmap milestone proof passes edit-burst newest-only convergence and the switching round trip. Evidence is in `artifacts/issue-107-brickmap`.
+
+Commands:
+
+```powershell
+cargo test --workspace --all-features
+cargo test -p desktop-demo --features qualification --test compute_dda_gpu -- --ignored --nocapture
+pwsh -NoProfile -File scripts/verify-portable-compute-ray-milestone.ps1 -EvidenceDirectory artifacts/issue-107-brickmap -ComputeRepresentation brickmap
+cargo fmt --all
+cargo clippy --workspace --all-targets --all-features
+```

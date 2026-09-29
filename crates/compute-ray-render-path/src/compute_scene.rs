@@ -3,7 +3,10 @@ use semantic_ray_oracle::{
     AxisNormal, SemanticRay, SemanticRayContact, SemanticRayContactClassification,
     SemanticRayObservation, SemanticRayResult,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[path = "brickmap_patch.rs"]
+mod brickmap_patch;
+pub use brickmap_patch::BrickmapPatchObservations;
 use std::num::TryFromIntError;
 use std::sync::Arc;
 use thiserror::Error;
@@ -81,7 +84,12 @@ impl ComputeVolumeHeader {
 #[derive(Clone, Debug)]
 pub struct ComputeSceneBundle {
     representation: crate::ComputeRepresentation,
-    brickmap: Option<Arc<crate::BrickmapSceneBundle>>,
+    pool_offset: Option<usize>,
+    pool_allocation: Arc<()>,
+    free_slots: Arc<BTreeSet<u32>>,
+    reserved_slots: Vec<u32>,
+    retired_slots: Vec<u32>,
+    patch_observations: BrickmapPatchObservations,
     scene_identity: VoxelSceneId,
     revision: VoxelSceneRevision,
     volume_headers: Arc<[ComputeVolumeHeader]>,
@@ -132,7 +140,15 @@ impl ComputeSceneBundle {
         crate::brickmap_validation::validate_view(view, budget_bytes)?;
         let brickmap = crate::BrickmapSceneBundle::from_view_with_progress(view, progress)?;
         let (volume_headers, voxel_words) = brickmap.gpu_words()?;
-        let material_identities = brickmap.material_identities().to_vec();
+        let mut material_identities = brickmap.material_identities().to_vec();
+        for material in view.materials() {
+            if !material_identities.contains(material.identity()) {
+                material_identities.push(material.identity().clone());
+            }
+        }
+        if material_identities.len() > u16::MAX as usize {
+            return Err(ComputeSceneBuildError::BrickmapMaterialCapacity);
+        }
         let mut material_words = Vec::new();
         for identity in &material_identities {
             let material = view
@@ -153,15 +169,36 @@ impl ComputeSceneBundle {
             u64::MAX,
             u64::MAX,
         )?;
+        let voxel_start = storage_words.len() - voxel_words.len();
+        let pool_offset = voxel_start + voxel_words.first().copied().unwrap_or(0) as usize;
+        let occupied_slots = (storage_words.len() - pool_offset) / 256;
+        // Bound spare capacity so a mostly empty large scene stays sparse. The budget
+        // can reduce this headroom to zero; later exhaustion is a convergence failure.
+        let cell_count = pool_offset - voxel_start - 1;
+        let spare_slots = usize::try_from((budget_bytes - storage_words.len() as u64 * 4) / 1024)?
+            .min(cell_count.min(64));
+        storage_words
+            .try_reserve_exact(spare_slots * 256)
+            .map_err(|_| ComputeSceneBuildError::Allocation)?;
+        storage_words.resize(storage_words.len() + spare_slots * 256, 0);
+        u32::try_from(storage_words.len())?;
+        let free_slots = (occupied_slots..occupied_slots + spare_slots)
+            .map(u32::try_from)
+            .collect::<Result<BTreeSet<_>, _>>()?;
         Ok(Self {
             representation,
-            brickmap: Some(Arc::new(brickmap)),
+            pool_offset: Some(pool_offset),
+            pool_allocation: Arc::new(()),
+            free_slots: Arc::new(free_slots),
+            reserved_slots: Vec::new(),
+            retired_slots: Vec::new(),
+            patch_observations: BrickmapPatchObservations::default(),
             scene_identity: view.scene_id().clone(),
             revision: view.revision(),
             volume_headers: volume_headers.into(),
             material_identities: material_identities.into(),
             material_words: material_words.into(),
-            voxel_start: storage_words.len() - voxel_words.len(),
+            voxel_start,
             storage_words: SceneWords::new(&storage_words),
             predecessor: None,
             patches: Arc::new(BTreeMap::new()),
@@ -265,7 +302,12 @@ impl ComputeSceneBundle {
         let storage_words = pack_storage_words(&volume_headers, &material_words, &voxel_words)?;
         Ok(Self {
             representation: crate::ComputeRepresentation::Dense,
-            brickmap: None,
+            pool_offset: None,
+            pool_allocation: Arc::new(()),
+            free_slots: Arc::new(BTreeSet::new()),
+            reserved_slots: Vec::new(),
+            retired_slots: Vec::new(),
+            patch_observations: BrickmapPatchObservations::default(),
             scene_identity: view.scene_id().clone(),
             revision: view.revision(),
             volume_headers: volume_headers.into(),
@@ -321,6 +363,8 @@ impl ComputeSceneBundle {
     }
 
     pub(crate) fn finish_installation(&mut self) {
+        Arc::make_mut(&mut self.free_slots).extend(self.retired_slots.drain(..));
+        self.reserved_slots.clear();
         self.patches = Arc::new(BTreeMap::new());
         self.predecessor = None;
     }
@@ -336,22 +380,8 @@ impl ComputeSceneBundle {
         mut cancellation_requested: impl FnMut() -> bool,
         mut block_completed: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
-        if let crate::ComputeRepresentation::Brickmap { .. } = self.representation {
-            if cancellation_requested() {
-                return Err(ComputeSceneBuildError::Cancelled);
-            }
-            let bundle =
-                Self::from_view_with_representation_progress(view, self.representation, || {
-                    if cancellation_requested() {
-                        return Err(ComputeSceneBuildError::Cancelled);
-                    }
-                    block_completed()
-                })?;
-            block_completed()?;
-            if cancellation_requested() {
-                return Err(ComputeSceneBuildError::Cancelled);
-            }
-            return Ok(bundle);
+        if self.pool_offset.is_some() {
+            return self.brickmap_successor(view, changes, cancellation_requested, block_completed);
         }
         let mut revision = self.revision;
         let chain_matches = self.scene_identity() == view.scene_id()
@@ -475,12 +505,15 @@ impl ComputeSceneBundle {
     }
 
     pub fn observe(&self, ray: &SemanticRay) -> SemanticRayObservation {
-        if let Some(brickmap) = &self.brickmap {
-            return brickmap.observe(ray);
-        }
         let mut nearest_contact = None;
         for header in self.volume_headers.iter() {
-            let Some(contact) = trace_volume(self, header, ray) else {
+            let Some(contact) = (if self.pool_offset.is_some() {
+                trace_volume_with(header, ray, &self.material_identities, |coordinate| {
+                    self.sample_brickmap(header, coordinate)
+                })
+            } else {
+                trace_volume(self, header, ray)
+            }) else {
                 continue;
             };
             if nearest_contact
@@ -500,6 +533,12 @@ impl ComputeSceneBundle {
 
 #[derive(Debug, Error)]
 pub enum ComputeSceneBuildError {
+    #[error("the brickmap scene palette exceeds the 65,535 occupied material identity limit")]
+    BrickmapMaterialCapacity,
+    #[error("brickmap pool capacity exhausted while reserving a private candidate slot")]
+    PoolCapacityExhausted,
+    #[error("brickmap patch base revision, allocation, or scene layout does not match")]
+    PatchBaseMismatch,
     #[error(transparent)]
     Brickmap(#[from] crate::BrickmapBuildError),
     #[error(transparent)]

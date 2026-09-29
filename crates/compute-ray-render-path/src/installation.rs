@@ -19,6 +19,9 @@ impl ComputeRayRenderPath {
         device: &RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> Result<(), ComputeRenderPathError> {
+        if self.presentation_stopped {
+            return Err(ComputeRenderPathError::PresentationStopped);
+        }
         if self.configuration_id != Some(target.configuration_id())
             || self.output_extent != target.extent()
         {
@@ -112,6 +115,13 @@ impl ComputeRayRenderPath {
                 ComputeConvergenceFailurePhase::Installation,
             ));
         }
+        self.convergence.validate_hidden_base()?;
+        let inject_partial_write = self
+            .convergence_control
+            .as_ref()
+            .map(|control| control.take_partial_write_failure())
+            .transpose()?
+            .unwrap_or(false);
         let candidate_bundle = self
             .convergence
             .hidden_bundle()
@@ -124,11 +134,36 @@ impl ComputeRayRenderPath {
                 .iter()
                 .map(|(index, word)| (index * 4, u32_bytes(std::slice::from_ref(word))))
                 .collect::<Vec<_>>();
-            // The backend has waited for the preceding frame. Hidden candidates never
-            // touch Visible memory, and all rejection checks precede this atomic write.
-            if let Err(error) = unsafe {
-                device.write_memory_ranges(self.scene_memory, self.scene_allocation_bytes, &ranges)
-            } {
+            if ranges.iter().any(|(offset, bytes)| {
+                offset
+                    .checked_add(bytes.len())
+                    .is_none_or(|end| end as u64 > self.scene_allocation_bytes)
+            }) {
+                return Err(ComputeRenderPathError::WriteSceneMemory(
+                    vk::Result::ERROR_OUT_OF_HOST_MEMORY,
+                ));
+            }
+            // SAFETY: The backend has waited for preceding readers. The coherent
+            // allocation bounds and patch base are validated before any mutation.
+            let write_result = unsafe {
+                if inject_partial_write && !ranges.is_empty() {
+                    device
+                        .write_memory_ranges(
+                            self.scene_memory,
+                            self.scene_allocation_bytes,
+                            &ranges[..1],
+                        )
+                        .and(Err(vk::Result::ERROR_UNKNOWN))
+                } else {
+                    device.write_memory_ranges(
+                        self.scene_memory,
+                        self.scene_allocation_bytes,
+                        &ranges,
+                    )
+                }
+            };
+            if let Err(error) = write_result {
+                self.presentation_stopped = true;
                 self.convergence
                     .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
                 self.release_hidden_scene_gpu_resources_with(|resources| {
