@@ -52,7 +52,11 @@ impl ScenarioState {
             .compute_switch_lifecycle_demo
             .then_some(ComputeSwitchLifecycleStage::Replacement);
         let interactive = if configuration.interactive {
-            Some(InteractiveState::new(configuration.camera_pose()?))
+            let mut state = InteractiveState::new(configuration.camera_pose()?);
+            if let Err(reason) = configuration.admit_path_switch() {
+                state.control_feedback = format!("Tab-rejected-{reason}");
+            }
+            Some(state)
         } else {
             None
         };
