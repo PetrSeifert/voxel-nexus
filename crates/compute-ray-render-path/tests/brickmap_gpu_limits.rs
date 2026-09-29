@@ -1,4 +1,7 @@
-use compute_ray_render_path::{ComputeRayRenderPathAdapter, ComputeRepresentation};
+use compute_ray_render_path::{
+    BrickmapValidationError, ComputeRayRenderPathAdapter, ComputeRepresentation,
+    ComputeSceneBuildError, ComputeSceneBundle,
+};
 use render_backend::{CameraState, CameraStateRevision};
 use voxel_frontend::{DenseVoxelScene, VoxelFrontend, VoxelSceneId, VoxelSceneRevision};
 
@@ -31,57 +34,130 @@ fn volume_view(
 #[test]
 fn packed_coarse_grid_and_metadata_must_fit_both_device_limits()
 -> Result<(), Box<dyn std::error::Error>> {
-    use compute_ray_render_path::ComputeSceneBundle;
+    let view = volume_view([0.0; 3], [9, 1, 1], 1.0)?;
     let bundle = ComputeSceneBundle::from_view_with_representation(
-        &volume_view([0.0; 3], [9, 1, 1], 1.0)?,
+        &view,
         ComputeRepresentation::Brickmap { budget_bytes: 60 },
     )?;
-    bundle.validate_device_limits(60, 60)?;
-    assert!(
-        bundle
-            .validate_device_limits(59, 60)
-            .err()
-            .ok_or("missing range rejection")?
-            .to_string()
-            .contains("maxStorageBufferRange")
+    check_buffer_limits(&bundle, 60)?;
+    let error = ComputeSceneBundle::from_view_with_representation(
+        &view,
+        ComputeRepresentation::Brickmap { budget_bytes: 59 },
+    )
+    .expect_err("the coarse grid exceeds the budget by one byte");
+    let ComputeSceneBuildError::BrickmapValidation(error) = error else {
+        panic!("expected a brickmap budget error, got {error:?}");
+    };
+    check_buffer_error(error, "configured budget", 60, 59);
+    Ok(())
+}
+
+fn check_buffer_error(error: BrickmapValidationError, limit: &str, required: u64, available: u64) {
+    let BrickmapValidationError::BufferLimit {
+        limit: actual_limit,
+        required: actual_required,
+        available: actual_available,
+    } = error
+    else {
+        panic!("expected a buffer limit error, got {error:?}");
+    };
+    assert_eq!(
+        (actual_limit, actual_required, actual_available),
+        (limit, required, available)
     );
-    assert!(
-        bundle
-            .validate_device_limits(60, 59)
-            .err()
-            .ok_or("missing size rejection")?
-            .to_string()
-            .contains("maxBufferSize")
-    );
+}
+
+fn check_buffer_limits(
+    bundle: &ComputeSceneBundle,
+    required: u64,
+) -> Result<(), BrickmapValidationError> {
+    for (storage, buffer) in [
+        (required, required),
+        (required, u64::MAX),
+        (u64::MAX, required),
+    ] {
+        bundle.validate_device_limits(storage, buffer)?;
+    }
+    for (storage, buffer, limit) in [
+        (required - 1, u64::MAX, "maxStorageBufferRange"),
+        (u64::MAX, required - 1, "maxBufferSize"),
+    ] {
+        check_buffer_error(
+            bundle
+                .validate_device_limits(storage, buffer)
+                .expect_err("one insufficient capability must reject the scene"),
+            limit,
+            required,
+            required - 1,
+        );
+    }
     Ok(())
 }
 
 #[test]
 fn origin_extent_and_final_bounds_are_separate_limits() -> Result<(), Box<dyn std::error::Error>> {
-    use compute_ray_render_path::ComputeSceneBundle;
     let representation = ComputeRepresentation::Brickmap {
         budget_bytes: 1024 * 1024,
     };
-    for (origin, extent, size, reason) in [
-        ([65537.0, 0.0, 0.0], [1; 3], 1.0, "origin"),
-        ([65536.0, 0.0, 0.0], [8193, 1, 1], 8.0, "final scene-space"),
-        ([0.0; 3], [65537, 1, 1], 1.0, "extent"),
-        ([0.0; 3], [1; 3], 0.0625, "voxel size"),
+    for axis in 0..3 {
+        for (origin_component, length, size, rejection) in [
+            (-65536.0_f32, 1, 1.0, None),
+            (65536.0, 1, 1.0, None),
+            ((-65536.0_f32).next_down(), 1, 1.0, Some("origin")),
+            (65536.0_f32.next_up(), 1, 1.0, Some("origin")),
+            (0.0, 65536, 0.125, None),
+            (0.0, 65537, 0.125, Some("extent")),
+            (65536.0, 8192, 8.0, None),
+            (65536.0, 8193, 8.0, Some("final scene-space")),
+            // The f64 bound exceeds 131072 even though its f32 rounding equals the limit.
+            (65536.0, 8192, 8.0_f32.next_up(), Some("final scene-space")),
+        ] {
+            let mut origin = [0.0; 3];
+            let mut extent = [1; 3];
+            origin[axis] = origin_component;
+            extent[axis] = length;
+            let view = volume_view(origin, extent, size)?;
+            let result = ComputeSceneBundle::from_view_with_representation(&view, representation);
+            if let Some(reason) = rejection {
+                let error = result.expect_err("a value just outside the envelope must be rejected");
+                assert!(matches!(
+                    error,
+                    ComputeSceneBuildError::BrickmapValidation(
+                        BrickmapValidationError::Envelope { .. }
+                    )
+                ));
+                assert!(error.to_string().contains(reason), "axis {axis}: {error}");
+            } else {
+                result?;
+            }
+            ComputeSceneBundle::from_view(&view)?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn voxel_size_endpoints_are_inclusive_and_sparse_only() -> Result<(), Box<dyn std::error::Error>> {
+    for (size, accepted) in [
+        (0.125_f32.next_down(), false),
+        (0.125, true),
+        (16.0, true),
+        (16.0_f32.next_up(), false),
     ] {
-        let view = volume_view(origin, extent, size)?;
-        assert!(
-            ComputeSceneBundle::from_view_with_representation(&view, representation)
-                .err()
-                .ok_or("missing envelope rejection")?
-                .to_string()
-                .contains(reason)
+        let view = volume_view([0.0; 3], [1; 3], size)?;
+        let result = ComputeSceneBundle::from_view_with_representation(
+            &view,
+            ComputeRepresentation::Brickmap { budget_bytes: 1024 },
         );
+        if accepted {
+            result?;
+        } else {
+            let error =
+                result.expect_err("a voxel size just outside the envelope must be rejected");
+            assert!(error.to_string().contains("voxel size"));
+        }
         ComputeSceneBundle::from_view(&view)?;
     }
-    ComputeSceneBundle::from_view_with_representation(
-        &volume_view([65536.0, 0.0, 0.0], [8192, 1, 1], 8.0)?,
-        representation,
-    )?;
     Ok(())
 }
 
@@ -151,16 +227,16 @@ fn mixed_pool_counts_toward_budget_and_device_limits() -> Result<(), Box<dyn std
         &view,
         ComputeRepresentation::Brickmap { budget_bytes: 2124 },
     )?;
-    bundle.validate_device_limits(2124, 2124)?;
-    assert!(bundle.validate_device_limits(2123, 2124).is_err());
-    assert!(bundle.validate_device_limits(2124, 2123).is_err());
-    assert!(
-        compute_ray_render_path::ComputeSceneBundle::from_view_with_representation(
-            &view,
-            ComputeRepresentation::Brickmap { budget_bytes: 2123 },
-        )
-        .is_err()
-    );
+    check_buffer_limits(&bundle, 2124)?;
+    let error = compute_ray_render_path::ComputeSceneBundle::from_view_with_representation(
+        &view,
+        ComputeRepresentation::Brickmap { budget_bytes: 2123 },
+    )
+    .expect_err("the mixed pool exceeds the budget by one byte");
+    let ComputeSceneBuildError::BrickmapValidation(error) = error else {
+        panic!("expected a brickmap budget error, got {error:?}");
+    };
+    check_buffer_error(error, "configured budget", 2124, 2123);
     Ok(())
 }
 
