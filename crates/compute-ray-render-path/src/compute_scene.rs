@@ -54,11 +54,15 @@ impl ComputeVolumeHeader {
         self.extent
     }
 
+    pub(crate) fn set_voxel_word_offset(&mut self, offset: u32) {
+        self.voxel_word_offset = offset;
+    }
+
     pub fn voxel_word_offset(&self) -> u32 {
         self.voxel_word_offset
     }
 
-    fn storage_words(&self) -> [u32; VOLUME_HEADER_WORD_COUNT] {
+    pub(crate) fn storage_words(&self) -> [u32; VOLUME_HEADER_WORD_COUNT] {
         let [origin_x, origin_y, origin_z] = self.scene_origin;
         let [width, height, depth] = self.extent.dimensions();
         [
@@ -76,6 +80,8 @@ impl ComputeVolumeHeader {
 
 #[derive(Clone, Debug)]
 pub struct ComputeSceneBundle {
+    representation: crate::ComputeRepresentation,
+    brickmap: Option<Arc<crate::BrickmapSceneBundle>>,
     scene_identity: VoxelSceneId,
     revision: VoxelSceneRevision,
     volume_headers: Arc<[ComputeVolumeHeader]>,
@@ -88,6 +94,80 @@ pub struct ComputeSceneBundle {
 }
 
 impl ComputeSceneBundle {
+    pub fn representation(&self) -> crate::ComputeRepresentation {
+        self.representation
+    }
+
+    pub fn validate_device_limits(
+        &self,
+        max_storage_buffer_range: u64,
+        max_buffer_size: u64,
+    ) -> Result<(), crate::BrickmapValidationError> {
+        if let crate::ComputeRepresentation::Brickmap { budget_bytes } = self.representation {
+            crate::brickmap_validation::validate_buffer_sizes(
+                self.storage_word_count() as u64 * 4,
+                budget_bytes,
+                max_storage_buffer_range,
+                max_buffer_size,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn from_view_with_representation(
+        view: &VoxelSceneView,
+        representation: crate::ComputeRepresentation,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        Self::from_view_with_representation_progress(view, representation, || Ok(()))
+    }
+
+    fn from_view_with_representation_progress(
+        view: &VoxelSceneView,
+        representation: crate::ComputeRepresentation,
+        progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        let crate::ComputeRepresentation::Brickmap { budget_bytes } = representation else {
+            return Self::from_view(view);
+        };
+        crate::brickmap_validation::validate_view(view, budget_bytes)?;
+        let brickmap = crate::BrickmapSceneBundle::from_view_with_progress(view, progress)?;
+        let (volume_headers, voxel_words) = brickmap.gpu_words()?;
+        let material_identities = brickmap.material_identities().to_vec();
+        let mut material_words = Vec::new();
+        for identity in &material_identities {
+            let material = view
+                .materials()
+                .iter()
+                .find(|material| material.identity() == identity)
+                .expect("brickmap materials come from the validated scene");
+            material_words.extend(material.linear_base_color().map(f32::to_bits));
+        }
+        let mut storage_words = pack_storage_words(&volume_headers, &material_words, &voxel_words)?;
+        // The high bit distinguishes sparse addressing without changing the dense buffer layout.
+        *storage_words
+            .get_mut(1)
+            .expect("the scene prefix contains four words") |= 1 << 31;
+        crate::brickmap_validation::validate_buffer_sizes(
+            storage_words.len() as u64 * 4,
+            budget_bytes,
+            u64::MAX,
+            u64::MAX,
+        )?;
+        Ok(Self {
+            representation,
+            brickmap: Some(Arc::new(brickmap)),
+            scene_identity: view.scene_id().clone(),
+            revision: view.revision(),
+            volume_headers: volume_headers.into(),
+            material_identities: material_identities.into(),
+            material_words: material_words.into(),
+            voxel_start: storage_words.len() - voxel_words.len(),
+            storage_words: SceneWords::new(&storage_words),
+            predecessor: None,
+            patches: Arc::new(BTreeMap::new()),
+        })
+    }
+
     pub fn from_view(view: &VoxelSceneView) -> Result<Self, ComputeSceneBuildError> {
         Self::from_view_until_cancelled(view, || false)
     }
@@ -184,6 +264,8 @@ impl ComputeSceneBundle {
 
         let storage_words = pack_storage_words(&volume_headers, &material_words, &voxel_words)?;
         Ok(Self {
+            representation: crate::ComputeRepresentation::Dense,
+            brickmap: None,
             scene_identity: view.scene_id().clone(),
             revision: view.revision(),
             volume_headers: volume_headers.into(),
@@ -254,6 +336,23 @@ impl ComputeSceneBundle {
         mut cancellation_requested: impl FnMut() -> bool,
         mut block_completed: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
+        if let crate::ComputeRepresentation::Brickmap { .. } = self.representation {
+            if cancellation_requested() {
+                return Err(ComputeSceneBuildError::Cancelled);
+            }
+            let bundle =
+                Self::from_view_with_representation_progress(view, self.representation, || {
+                    if cancellation_requested() {
+                        return Err(ComputeSceneBuildError::Cancelled);
+                    }
+                    block_completed()
+                })?;
+            block_completed()?;
+            if cancellation_requested() {
+                return Err(ComputeSceneBuildError::Cancelled);
+            }
+            return Ok(bundle);
+        }
         let mut revision = self.revision;
         let chain_matches = self.scene_identity() == view.scene_id()
             && changes.iter().all(|change| {
@@ -376,6 +475,9 @@ impl ComputeSceneBundle {
     }
 
     pub fn observe(&self, ray: &SemanticRay) -> SemanticRayObservation {
+        if let Some(brickmap) = &self.brickmap {
+            return brickmap.observe(ray);
+        }
         let mut nearest_contact = None;
         for header in self.volume_headers.iter() {
             let Some(contact) = trace_volume(self, header, ray) else {
@@ -398,6 +500,10 @@ impl ComputeSceneBundle {
 
 #[derive(Debug, Error)]
 pub enum ComputeSceneBuildError {
+    #[error(transparent)]
+    Brickmap(#[from] crate::BrickmapBuildError),
+    #[error(transparent)]
+    BrickmapValidation(#[from] crate::BrickmapValidationError),
     #[error("compute-owned Voxel Scene preparation was cancelled")]
     Cancelled,
     #[error("could not allocate the compute-owned Voxel Scene representation")]

@@ -63,6 +63,16 @@ pub struct BrickmapSceneBundle {
 
 impl BrickmapSceneBundle {
     pub fn from_view(view: &VoxelSceneView) -> Result<Self, BrickmapBuildError> {
+        Self::from_view_with_progress(view, || Ok(()))
+    }
+
+    pub(crate) fn from_view_with_progress<E>(
+        view: &VoxelSceneView,
+        mut progress: impl FnMut() -> Result<(), E>,
+    ) -> Result<Self, E>
+    where
+        E: From<BrickmapBuildError> + From<VoxelFrontendError>,
+    {
         let started = Instant::now();
         let mut bundle = Self {
             scene_identity: view.scene_id().clone(),
@@ -78,7 +88,10 @@ impl BrickmapSceneBundle {
             },
         };
         let mut indices = HashMap::new();
-        for volume in view.volumes() {
+        let mut volumes = view.volumes().iter().collect::<Vec<_>>();
+        volumes.sort_by(|left, right| left.identity().cmp(right.identity()));
+        for volume in volumes {
+            progress()?;
             let identity = volume.identity();
             let dimensions = volume
                 .extent()
@@ -102,6 +115,7 @@ impl BrickmapSceneBundle {
             entries.resize(count, 0);
             for batch in view.enumerate_cells(identity, EDGE, 64)? {
                 for cell in batch? {
+                    progress()?;
                     let entry = match cell.content() {
                         VoxelRegionContent::Uniform(value) => u32::from(material_index(
                             value,
@@ -166,6 +180,38 @@ impl BrickmapSceneBundle {
         bundle.observations.pool_bytes = bundle.pool.len() * size_of::<u32>();
         bundle.observations.construction_time = started.elapsed();
         Ok(bundle)
+    }
+
+    pub(crate) fn gpu_words(
+        &self,
+    ) -> Result<(Vec<ComputeVolumeHeader>, Vec<u32>), crate::ComputeSceneBuildError> {
+        let allocation_error = |_| crate::ComputeSceneBuildError::Allocation;
+        let count = self
+            .volumes
+            .iter()
+            .try_fold(1usize, |count, volume| {
+                count.checked_add(volume.entries.len())
+            })
+            .and_then(|count| count.checked_add(self.pool.len()))
+            .ok_or(crate::ComputeSceneBuildError::ArithmeticOverflow)?;
+        u32::try_from(count)?;
+        let mut headers = Vec::new();
+        headers
+            .try_reserve_exact(self.volumes.len())
+            .map_err(allocation_error)?;
+        let mut words = Vec::new();
+        words.try_reserve_exact(count).map_err(allocation_error)?;
+        words.push(0);
+        for volume in &self.volumes {
+            let mut header = volume.header.clone();
+            header.set_voxel_word_offset(u32::try_from(words.len())?);
+            headers.push(header);
+            words.extend(&volume.entries);
+        }
+        *words.first_mut().expect("the pool offset word is present") = u32::try_from(words.len())?;
+        words.extend(&self.pool);
+        u32::try_from(words.len())?;
+        Ok((headers, words))
     }
 
     pub fn observations(&self) -> &BrickmapObservations {

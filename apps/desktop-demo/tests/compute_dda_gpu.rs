@@ -5,7 +5,9 @@
 mod windows_adapter;
 
 use ash::vk;
-use compute_ray_render_path::ComputeRayRenderPathAdapter;
+use compute_ray_render_path::{
+    BrickmapSceneBundle, ComputeRayRenderPathAdapter, ComputeRepresentation,
+};
 use render_backend::{CameraState, CameraStateRevision, RenderBackend, RenderBackendOptions};
 use semantic_ray_oracle::{SemanticRay, SemanticRayDistanceTolerance, SemanticRayProbe, observe};
 use voxel_frontend::{
@@ -54,9 +56,41 @@ fn check_gpu(
     probes: Vec<SemanticRayProbe>,
     scale: f64,
 ) -> TestResult {
+    for representation in [
+        ComputeRepresentation::Dense,
+        ComputeRepresentation::Brickmap {
+            budget_bytes: 128 * 1024 * 1024,
+        },
+    ] {
+        check_gpu_representation(
+            window,
+            view.clone(),
+            probes.clone(),
+            scale,
+            representation,
+            vec![],
+        )?;
+    }
+    Ok(())
+}
+
+fn check_gpu_representation(
+    window: &Window,
+    view: VoxelSceneView,
+    probes: Vec<SemanticRayProbe>,
+    scale: f64,
+    representation: ComputeRepresentation,
+    successors: Vec<(voxel_frontend::VoxelEditOutcome, VoxelSceneView)>,
+) -> TestResult {
     let camera = CameraState::new([0.0, 0.0, 5.0], [0.0; 3], [0.0, 1.0, 0.0], 50.0, 0.1, 100.0)?;
-    let mut path =
-        ComputeRayRenderPathAdapter::new(view.clone(), camera, CameraStateRevision::new(1))?;
+    let (mut path, measurement) =
+        ComputeRayRenderPathAdapter::new_with_representation_and_measurement(
+            view.clone(),
+            camera,
+            CameraStateRevision::new(1),
+            representation,
+        )?;
+    let convergence = path.enable_convergence_control();
     let controller = path.enable_semantic_ray_observation();
     controller.request(probes.clone())?;
     let size = window.inner_size();
@@ -76,39 +110,143 @@ fn check_gpu(
     )?;
     println!("{}", backend.runtime_context());
     let result = (|| -> TestResult {
-        let mut observations = Vec::new();
-        for _ in 0..8 {
-            backend.draw_frame()?;
-            observations.extend(controller.drain()?);
-            if observations.len() == probes.len() {
-                break;
+        let phases = std::iter::once((None, view)).chain(
+            successors
+                .into_iter()
+                .map(|(outcome, view)| (Some(outcome), view)),
+        );
+        for (outcome, view) in phases {
+            if let Some(outcome) = outcome {
+                convergence.submit(outcome)?;
+                for _ in 0..1000 {
+                    backend.draw_frame()?;
+                    if convergence.status()?.visible_revision() == view.revision() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                assert_eq!(convergence.status()?.visible_revision(), view.revision());
+                controller.request(probes.clone())?;
             }
-        }
-        if observations.len() != probes.len() {
-            return Err("installed GPU traversal did not return every probe".into());
-        }
-        let tolerance = SemanticRayDistanceTolerance::new(scale * 1.0e-6)?;
-        for (probe, actual) in probes.iter().zip(&observations) {
-            let expected = observe(&view, probe.ray())?;
-            if actual.probe_identity() != probe.identity()
-                || !actual.observation().agrees_with(&expected, tolerance)
-            {
-                return Err(format!(
-                    "{}: GPU {:?}, oracle {expected:?}",
-                    probe.identity(),
-                    actual.observation()
-                )
-                .into());
+            let mut observations = Vec::new();
+            for _ in 0..8 {
+                backend.draw_frame()?;
+                observations.extend(controller.drain()?);
+                if observations.len() == probes.len() {
+                    break;
+                }
             }
+            if observations.len() != probes.len() {
+                return Err("installed GPU traversal did not return every probe".into());
+            }
+            let tolerance = SemanticRayDistanceTolerance::new(scale * 1.0e-6)?;
+            for (probe, actual) in probes.iter().zip(&observations) {
+                let expected = observe(&view, probe.ray())?;
+                let cpu = BrickmapSceneBundle::from_view(&view)?.observe(probe.ray());
+                assert!(cpu.agrees_with(&expected, tolerance));
+                if actual.probe_identity() != probe.identity()
+                    || !actual.observation().agrees_with(&expected, tolerance)
+                {
+                    return Err(format!(
+                        "{}: GPU {:?}, oracle {expected:?}",
+                        probe.identity(),
+                        actual.observation()
+                    )
+                    .into());
+                }
+            }
+            let events = measurement.drain()?;
+            let upload = events
+                .iter()
+                .find(|event| event.phase() == compute_ray_render_path::ComputeTimingPhase::Upload)
+                .ok_or("missing upload observation")?;
+            assert_eq!(upload.revision(), view.revision());
+            assert!(upload.uploaded_bytes() > 0);
+            assert!(upload.elapsed_milliseconds().is_finite());
         }
         Ok(())
     })();
     backend.shutdown()?;
     assert_eq!(backend.validation_error_count(), 0);
+    assert_eq!(backend.validation_warning_count(), 0);
     result
 }
 
 fn run_fixtures(window: &Window) -> TestResult {
+    check_gpu(
+        window,
+        scene(1.0, VoxelExtent::new(16, 8, 1), 8 + 16 * 4)?,
+        vec![SemanticRayProbe::new(
+            "empty-brick-negative-internal-boundary",
+            SemanticRay::new([0.0, 12.0, 0.5], [1.0, -1.0, 0.0], 0.0, 30.0)?,
+        )?],
+        1.0,
+    )?;
+
+    check_gpu(
+        window,
+        scene(1.0, VoxelExtent::new(16, 8, 1), 8 + 16 * 3)?,
+        vec![SemanticRayProbe::new(
+            "empty-brick-negative-internal-face-tie",
+            SemanticRay::new([0.0, 12.0, 0.5], [1.0, -1.0, 0.0], 0.0, 30.0)?,
+        )?],
+        1.0,
+    )?;
+    let frontend = VoxelFrontend::new();
+    let view = frontend.publish_sparse(
+        canonical_scene::generate_canonical_scene(canonical_scene::CanonicalSceneScale::Small)?
+            .into_scene(),
+    )?;
+    let mut successors = Vec::new();
+    for x in [0, 8, 16] {
+        let outcome = frontend.edit(voxel_frontend::VoxelEditCommand::new(
+            VoxelVolumeId::new("canonical-volume"),
+            VoxelCoordinate::new(x, 0, 0),
+            VoxelValue::Occupied(VoxelMaterialId::new("canonical-warm")),
+        ))?;
+        successors.push((outcome, frontend.scene_view()?));
+    }
+    let probes = [0.125, 2.125, 4.125]
+        .into_iter()
+        .enumerate()
+        .map(|(index, x)| {
+            Ok(SemanticRayProbe::new(
+                format!("canonical-edit-{index}"),
+                SemanticRay::new([x, 0.125, -1.0], [0.0, 0.0, 1.0], 0.0, 30.0)?,
+            )?)
+        })
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    check_gpu_representation(
+        window,
+        view,
+        probes,
+        1.0,
+        ComputeRepresentation::Brickmap {
+            budget_bytes: 128 * 1024 * 1024,
+        },
+        successors,
+    )?;
+    let probes = [
+        ([-1.0, 8.5, 8.5], [1.0, 0.0, 0.0]),
+        ([26.0, 8.5, 8.5], [-1.0, 0.0, 0.0]),
+        ([-1.0, 0.5, 0.5], [1.0, 0.0, 0.0]),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, (origin, direction))| {
+        Ok(SemanticRayProbe::new(
+            format!("clipped-{index}"),
+            SemanticRay::new(origin, direction, 0.0, 40.0)?,
+        )?)
+    })
+    .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    check_gpu(
+        window,
+        scene(1.0, VoxelExtent::new(25, 9, 9), 25 * 9 * 9 - 1)?,
+        probes,
+        1.0,
+    )?;
+
     for voxel_size in [1.0_f32, 0.125, 16.0] {
         let scale = f64::from(voxel_size);
         for negative in [false, true] {

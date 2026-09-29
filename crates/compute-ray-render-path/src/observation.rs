@@ -15,6 +15,7 @@ pub enum ComputeTimingPhase {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ComputeTimingEvent {
     pub(super) phase: ComputeTimingPhase,
+    pub(super) uploaded_bytes: u64,
     pub(super) scene_identity: VoxelSceneId,
     pub(super) revision: VoxelSceneRevision,
     pub(super) generation: u64,
@@ -22,6 +23,10 @@ pub struct ComputeTimingEvent {
 }
 
 impl ComputeTimingEvent {
+    pub fn uploaded_bytes(&self) -> u64 {
+        self.uploaded_bytes
+    }
+
     pub fn phase(&self) -> ComputeTimingPhase {
         self.phase
     }

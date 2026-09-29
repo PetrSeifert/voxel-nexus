@@ -130,10 +130,11 @@ impl ComputeRayRenderPath {
             self.release_scene_resources(device);
             let upload_started_at = Instant::now();
             self.create_scene_buffer(device)?;
-            self.record_timing(
+            self.record_timing_with_bytes(
                 ComputeTimingPhase::Upload,
                 self.convergence.status().installed(),
                 upload_started_at,
+                self.convergence.installed_bundle().storage_word_count() as u64 * 4,
             )?;
         }
         if self.semantic_ray_buffer == vk::Buffer::null()
@@ -171,11 +172,22 @@ impl ComputeRayRenderPath {
         stamp: ComputeConvergenceWorkStamp,
         started_at: Instant,
     ) -> Result<(), ComputeRenderPathError> {
+        self.record_timing_with_bytes(phase, stamp, started_at, 0)
+    }
+
+    pub(super) fn record_timing_with_bytes(
+        &self,
+        phase: ComputeTimingPhase,
+        stamp: ComputeConvergenceWorkStamp,
+        started_at: Instant,
+        uploaded_bytes: u64,
+    ) -> Result<(), ComputeRenderPathError> {
         let Some(controller) = &self.measurement_controller else {
             return Ok(());
         };
         controller.record(ComputeTimingEvent {
             phase,
+            uploaded_bytes,
             scene_identity: self.convergence.installed_bundle().scene_identity().clone(),
             revision: stamp.revision(),
             generation: stamp.generation().value(),
@@ -970,6 +982,10 @@ pub(super) fn scene_storage_byte_size(
     device: &RenderPathDeviceContext<'_>,
     bundle: &ComputeSceneBundle,
 ) -> Result<u64, ComputeRenderPathError> {
+    bundle.validate_device_limits(
+        u64::from(device.capabilities().max_storage_buffer_range),
+        device.capabilities().max_buffer_size,
+    )?;
     let byte_size = u64::try_from(
         bundle
             .storage_word_count()

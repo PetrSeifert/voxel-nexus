@@ -63,6 +63,7 @@ pub struct RenderPathDeviceCapabilities {
     pub max_compute_work_group_invocations: u32,
     pub max_compute_work_group_size: [u32; 3],
     pub max_storage_buffer_range: u32,
+    pub max_buffer_size: u64,
     pub rgba8_unorm_optimal_tiling_features: vk::FormatFeatureFlags,
 }
 

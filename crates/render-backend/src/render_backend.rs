@@ -180,6 +180,10 @@ impl RenderBackend {
             .publish_camera_state(camera_state, camera_state_revision)
     }
 
+    pub fn validation_warning_count(&self) -> usize {
+        self.presentation.validation_diagnostics.warning_count()
+    }
+
     pub fn validation_error_count(&self) -> usize {
         self.presentation.validation_diagnostics.error_count()
     }

@@ -10,6 +10,8 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub(super) enum ComputeRenderPathError {
     #[error(transparent)]
+    BrickmapValidation(#[from] crate::BrickmapValidationError),
+    #[error(transparent)]
     Convergence(#[from] ComputeConvergenceError),
     #[error(transparent)]
     ConvergenceControl(#[from] ComputeConvergenceControlError),

@@ -95,9 +95,13 @@ pub(super) struct InspectedDevice {
 #[derive(Default)]
 pub(super) struct ValidationDiagnostics {
     errors: AtomicUsize,
+    warnings: AtomicUsize,
 }
 
 impl ValidationDiagnostics {
+    pub(super) fn warning_count(&self) -> usize {
+        self.warnings.load(Ordering::SeqCst)
+    }
     pub(super) fn error_count(&self) -> usize {
         self.errors.load(Ordering::SeqCst)
     }
@@ -200,11 +204,16 @@ unsafe extern "system" fn validation_callback(
     callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT<'_>,
     user_data: *mut c_void,
 ) -> vk::Bool32 {
-    if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) && !user_data.is_null() {
+    if !user_data.is_null() {
         // SAFETY: `user_data` points at the boxed diagnostics, which the owner drops only after
         // destroying this messenger.
         let diagnostics = unsafe { &*user_data.cast::<ValidationDiagnostics>() };
-        diagnostics.errors.fetch_add(1, Ordering::SeqCst);
+        if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::ERROR) {
+            diagnostics.errors.fetch_add(1, Ordering::SeqCst);
+        }
+        if severity.contains(vk::DebugUtilsMessageSeverityFlagsEXT::WARNING) {
+            diagnostics.warnings.fetch_add(1, Ordering::SeqCst);
+        }
     }
     let message = if callback_data.is_null() {
         c"validation callback supplied no diagnostic data"
@@ -335,6 +344,16 @@ fn inspect_device(
             .instance
             .get_physical_device_format_properties(physical_device, vk::Format::R8G8B8A8_UNORM)
     };
+    let mut maintenance = vk::PhysicalDeviceMaintenance4Properties::default();
+    if properties.api_version >= vk::API_VERSION_1_3 {
+        let mut extended_properties =
+            vk::PhysicalDeviceProperties2::default().push_next(&mut maintenance);
+        unsafe {
+            presentation
+                .instance
+                .get_physical_device_properties2(physical_device, &mut extended_properties)
+        };
+    }
     let limits = properties.limits;
     let render_path_device_capabilities = RenderPathDeviceCapabilities {
         api_version: properties.api_version,
@@ -353,6 +372,7 @@ fn inspect_device(
         max_compute_work_group_invocations: limits.max_compute_work_group_invocations,
         max_compute_work_group_size: limits.max_compute_work_group_size,
         max_storage_buffer_range: limits.max_storage_buffer_range,
+        max_buffer_size: maintenance.max_buffer_size,
         rgba8_unorm_optimal_tiling_features: rgba8_unorm_format_properties.optimal_tiling_features,
     };
 

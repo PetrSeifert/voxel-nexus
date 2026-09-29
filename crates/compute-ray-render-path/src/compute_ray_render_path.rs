@@ -43,6 +43,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use voxel_frontend::{VoxelEditOutcome, VoxelSceneView};
 
+mod brickmap_validation;
+pub use brickmap_validation::BrickmapValidationError;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ComputeRepresentation {
+    #[default]
+    Dense,
+    Brickmap {
+        budget_bytes: u64,
+    },
+}
+
 mod brickmap_scene;
 mod compute_convergence;
 mod compute_scene;
@@ -88,7 +100,22 @@ impl ComputeRayRenderPathAdapter {
         camera_state: CameraState,
         camera_state_revision: CameraStateRevision,
     ) -> Result<Self, ComputeSceneBuildError> {
-        let scene_bundle = ComputeSceneBundle::from_view(&view)?;
+        Self::new_with_representation(
+            view,
+            camera_state,
+            camera_state_revision,
+            ComputeRepresentation::Dense,
+        )
+    }
+
+    pub fn new_with_representation(
+        view: VoxelSceneView,
+        camera_state: CameraState,
+        camera_state_revision: CameraStateRevision,
+        representation: ComputeRepresentation,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        let scene_bundle =
+            ComputeSceneBundle::from_view_with_representation(&view, representation)?;
         Ok(Self {
             render_path: ComputeRayRenderPath::new(scene_bundle, camera_state, None),
             camera_state_revision,
@@ -101,10 +128,26 @@ impl ComputeRayRenderPathAdapter {
         camera_state: CameraState,
         camera_state_revision: CameraStateRevision,
     ) -> Result<(Self, ComputeMeasurementController), ComputeSceneBuildError> {
+        Self::new_with_representation_and_measurement(
+            view,
+            camera_state,
+            camera_state_revision,
+            ComputeRepresentation::Dense,
+        )
+    }
+
+    pub fn new_with_representation_and_measurement(
+        view: VoxelSceneView,
+        camera_state: CameraState,
+        camera_state_revision: CameraStateRevision,
+        representation: ComputeRepresentation,
+    ) -> Result<(Self, ComputeMeasurementController), ComputeSceneBuildError> {
         let started_at = Instant::now();
-        let scene_bundle = ComputeSceneBundle::from_view(&view)?;
+        let scene_bundle =
+            ComputeSceneBundle::from_view_with_representation(&view, representation)?;
         let measurement = ComputeMeasurementController::with_initial_event(ComputeTimingEvent {
             phase: ComputeTimingPhase::Preparation,
+            uploaded_bytes: 0,
             scene_identity: scene_bundle.scene_identity().clone(),
             revision: scene_bundle.revision(),
             generation: 0,
