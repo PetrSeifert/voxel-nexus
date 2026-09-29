@@ -13,6 +13,7 @@ voxel-frontend = { path = "../voxel-frontend" }
 
 [dev-dependencies]
 raster-render-path = { path = "../raster-render-path" }
+voxel-frontend = { path = "../voxel-frontend", features = ["qualification"] }
 
 [lints]
 workspace = true

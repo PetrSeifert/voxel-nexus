@@ -29,6 +29,10 @@ pub struct ValidationWorkCounters {
     pub batches_validated: usize,
     pub voxel_values_validated: usize,
     pub candidate_pairs_examined: usize,
+    /// Number of overlap sweeps selected on x, y, and z respectively.
+    pub sweeps_by_axis: [usize; 3],
+    /// Total sparse validation wall time, including rejected input.
+    pub elapsed: std::time::Duration,
 }
 
 /// Work spent enumerating the cells of a Voxel Cell Grid. Working cells are held for
@@ -65,6 +69,10 @@ impl StorageWorkCounters {
                     + other.validation.voxel_values_validated,
                 candidate_pairs_examined: self.validation.candidate_pairs_examined
                     + other.validation.candidate_pairs_examined,
+                sweeps_by_axis: std::array::from_fn(|axis| {
+                    self.validation.sweeps_by_axis[axis] + other.validation.sweeps_by_axis[axis]
+                }),
+                elapsed: self.validation.elapsed + other.validation.elapsed,
             },
             enumeration: EnumerationWorkCounters {
                 nodes_visited: self.enumeration.nodes_visited + other.enumeration.nodes_visited,
@@ -157,6 +165,28 @@ pub(super) fn record_values_validated(count: usize) {
 pub(super) fn record_candidate_pair_examined() {
     #[cfg(any(test, feature = "qualification"))]
     record(|counters| counters.validation.candidate_pairs_examined += 1);
+}
+
+#[cfg_attr(not(any(test, feature = "qualification")), allow(unused_variables))]
+pub(super) fn record_sweep_axis(axis: usize) {
+    #[cfg(any(test, feature = "qualification"))]
+    record(|counters| {
+        *counters
+            .validation
+            .sweeps_by_axis
+            .get_mut(axis)
+            .expect("overlap sweep selects one of the three axes") += 1;
+    });
+}
+
+#[cfg(any(test, feature = "qualification"))]
+pub(super) struct ValidationTimer(pub(super) std::time::Instant);
+
+#[cfg(any(test, feature = "qualification"))]
+impl Drop for ValidationTimer {
+    fn drop(&mut self) {
+        record(|counters| counters.validation.elapsed += self.0.elapsed());
+    }
 }
 
 pub(super) fn record_enumeration_node_visited() {
