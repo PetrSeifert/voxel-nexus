@@ -68,7 +68,9 @@ pub use compute_convergence::{
     ComputeConvergenceRetry, ComputeConvergenceStatus, ComputeConvergenceWorkStamp,
     ComputePreparationBarrierObservation,
 };
-pub use compute_scene::{ComputeSceneBuildError, ComputeSceneBundle, ComputeVolumeHeader};
+pub use compute_scene::{
+    BrickmapGrowthObservations, ComputeSceneBuildError, ComputeSceneBundle, ComputeVolumeHeader,
+};
 
 pub const COMPUTE_RAY_STRATEGY: RenderPathStrategy =
     RenderPathStrategy::new("voxel-nexus.compute-ray");

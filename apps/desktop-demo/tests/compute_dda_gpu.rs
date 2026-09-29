@@ -194,7 +194,16 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
             VoxelVolumeMetadata::new(VoxelVolumeId::new("volume"), extent, [0.0; 3], 1.0),
             vec![DenseVoxelBatch::new(
                 VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
-                vec![VoxelValue::Empty; 1024],
+                (0..1024)
+                    .map(|index| {
+                        if scenario == BrickmapLifecycleScenario::PartialWriteFailure && index == 7
+                        {
+                            VoxelValue::Occupied(VoxelMaterialId::new("stone"))
+                        } else {
+                            VoxelValue::Empty
+                        }
+                    })
+                    .collect(),
             )],
         )],
     ))?;
@@ -204,10 +213,10 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
         camera,
         CameraStateRevision::new(1),
         ComputeRepresentation::Brickmap {
-            budget_bytes: if scenario == BrickmapLifecycleScenario::PartialWriteFailure {
-                2124
+            budget_bytes: if scenario == BrickmapLifecycleScenario::CapacityExhaustion {
+                3000
             } else {
-                1100
+                8192
             },
         },
     )?;
@@ -278,14 +287,27 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
             Some(VoxelSceneRevision::new(1))
         );
         assert_eq!(convergence.status()?.visible_revision(), initial.revision());
-        assert_eq!(
-            convergence
+        if scenario == BrickmapLifecycleScenario::PartialWriteFailure {
+            assert_eq!(
+                convergence
+                    .status()?
+                    .hidden_patch
+                    .ok_or("missing patch")?
+                    .slots_reserved,
+                1
+            );
+        } else {
+            let growth = convergence
                 .status()?
-                .hidden_patch
-                .ok_or("missing patch observation")?
-                .slots_reserved,
-            1
-        );
+                .hidden_growth
+                .ok_or("missing growth")?;
+            assert_eq!((growth.old_capacity, growth.new_capacity), (0, 1));
+            assert_eq!(growth.trigger_revision, VoxelSceneRevision::new(1));
+            assert_eq!(growth.predicted_peak_bytes, 2276);
+            assert!(
+                (2276..=3000).contains(&growth.actual_peak_bytes.ok_or("missing actual peak")?)
+            );
+        }
         verify(&mut backend, &initial)?;
         convergence.release_post_upload()?;
         backend.draw_frame()?;
@@ -330,7 +352,31 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
                 verify(&mut backend, &visible)?;
             }
         } else {
-            // With one slot, every mixed successor after retirement must reuse it.
+            convergence.submit(frontend.edit(VoxelEditCommand::new(
+                VoxelVolumeId::new("volume"),
+                VoxelCoordinate::new(1, 0, 0),
+                occupied.clone(),
+            ))?)?;
+            let grown_view = frontend.scene_view()?;
+            for _ in 0..1000 {
+                backend.draw_frame()?;
+                if convergence.status()?.visible_revision() == grown_view.revision() {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            let growth = convergence
+                .status()?
+                .installed_growth
+                .ok_or("missing installed growth")?;
+            assert_eq!(growth.trigger_revision, grown_view.revision());
+            assert_eq!((growth.old_capacity, growth.new_capacity), (1, 2));
+            assert_eq!(growth.predicted_peak_bytes, 5348);
+            assert!(
+                (5348..=8192).contains(&growth.actual_peak_bytes.ok_or("missing actual peak")?)
+            );
+            verify(&mut backend, &grown_view)?;
+            // Subsequent transitions reuse slots released at installation.
             for (step, fill) in [Some(VoxelValue::Empty), None, Some(occupied.clone()), None]
                 .into_iter()
                 .enumerate()

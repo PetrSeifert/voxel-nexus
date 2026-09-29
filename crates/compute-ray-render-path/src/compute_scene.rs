@@ -81,6 +81,16 @@ impl ComputeVolumeHeader {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BrickmapGrowthObservations {
+    pub trigger_revision: VoxelSceneRevision,
+    pub old_capacity: usize,
+    pub new_capacity: usize,
+    pub predicted_peak_bytes: u64,
+    pub actual_peak_bytes: Option<u64>,
+    pub rebuild_time: std::time::Duration,
+}
+
 #[derive(Clone, Debug)]
 pub struct ComputeSceneBundle {
     representation: crate::ComputeRepresentation,
@@ -90,6 +100,8 @@ pub struct ComputeSceneBundle {
     reserved_slots: Vec<u32>,
     retired_slots: Vec<u32>,
     patch_observations: BrickmapPatchObservations,
+    growth_observations: Option<BrickmapGrowthObservations>,
+    rebuild_base: Option<(VoxelSceneRevision, Arc<()>)>,
     scene_identity: VoxelSceneId,
     revision: VoxelSceneRevision,
     volume_headers: Arc<[ComputeVolumeHeader]>,
@@ -134,8 +146,20 @@ impl ComputeSceneBundle {
         representation: crate::ComputeRepresentation,
         progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
-        let crate::ComputeRepresentation::Brickmap { budget_bytes } = representation else {
+        let crate::ComputeRepresentation::Brickmap { .. } = representation else {
             return Self::from_view(view);
+        };
+        Self::build_brickmap(view, representation, None, progress)
+    }
+
+    fn build_brickmap(
+        view: &VoxelSceneView,
+        representation: crate::ComputeRepresentation,
+        capacity: Option<usize>,
+        progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        let crate::ComputeRepresentation::Brickmap { budget_bytes } = representation else {
+            return Err(ComputeSceneBuildError::PatchBaseMismatch);
         };
         crate::brickmap_validation::validate_view(view, budget_bytes)?;
         let brickmap = crate::BrickmapSceneBundle::from_view_with_progress(view, progress)?;
@@ -172,11 +196,23 @@ impl ComputeSceneBundle {
         let voxel_start = storage_words.len() - voxel_words.len();
         let pool_offset = voxel_start + voxel_words.first().copied().unwrap_or(0) as usize;
         let occupied_slots = (storage_words.len() - pool_offset) / 256;
-        // Bound spare capacity so a mostly empty large scene stays sparse. The budget
-        // can reduce this headroom to zero; later exhaustion is a convergence failure.
-        let cell_count = pool_offset - voxel_start - 1;
-        let spare_slots = usize::try_from((budget_bytes - storage_words.len() as u64 * 4) / 1024)?
-            .min(cell_count.min(64));
+        let capacity = capacity.unwrap_or(occupied_slots + occupied_slots.div_ceil(4));
+        let spare_slots = capacity
+            .checked_sub(occupied_slots)
+            .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+        let total_words = pool_offset
+            .checked_add(
+                capacity
+                    .checked_mul(256)
+                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?,
+            )
+            .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+        crate::brickmap_validation::validate_buffer_sizes(
+            total_words as u64 * 4,
+            budget_bytes,
+            u64::MAX,
+            u64::MAX,
+        )?;
         storage_words
             .try_reserve_exact(spare_slots * 256)
             .map_err(|_| ComputeSceneBuildError::Allocation)?;
@@ -193,6 +229,8 @@ impl ComputeSceneBundle {
             reserved_slots: Vec::new(),
             retired_slots: Vec::new(),
             patch_observations: BrickmapPatchObservations::default(),
+            growth_observations: None,
+            rebuild_base: None,
             scene_identity: view.scene_id().clone(),
             revision: view.revision(),
             volume_headers: volume_headers.into(),
@@ -308,6 +346,8 @@ impl ComputeSceneBundle {
             reserved_slots: Vec::new(),
             retired_slots: Vec::new(),
             patch_observations: BrickmapPatchObservations::default(),
+            growth_observations: None,
+            rebuild_base: None,
             scene_identity: view.scene_id().clone(),
             revision: view.revision(),
             volume_headers: volume_headers.into(),
@@ -362,11 +402,29 @@ impl ComputeSceneBundle {
         self.predecessor
     }
 
+    pub(crate) fn record_growth_allocation(&mut self, peak_bytes: u64) {
+        if let Some(observation) = &mut self.growth_observations {
+            observation.actual_peak_bytes = Some(peak_bytes);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn allocation_witness(&self) -> std::sync::Weak<[u32]> {
+        let mut words = &self.storage_words;
+        loop {
+            match words {
+                SceneWords::Leaf(page) => return Arc::downgrade(page),
+                SceneWords::Branch { left, .. } => words = left,
+            }
+        }
+    }
+
     pub(crate) fn finish_installation(&mut self) {
         Arc::make_mut(&mut self.free_slots).extend(self.retired_slots.drain(..));
         self.reserved_slots.clear();
         self.patches = Arc::new(BTreeMap::new());
         self.predecessor = None;
+        self.rebuild_base = None;
     }
 
     pub(crate) fn patches(&self) -> &BTreeMap<usize, u32> {
@@ -381,7 +439,17 @@ impl ComputeSceneBundle {
         mut block_completed: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
         if self.pool_offset.is_some() {
-            return self.brickmap_successor(view, changes, cancellation_requested, block_completed);
+            return match self.brickmap_successor(
+                view,
+                changes,
+                &mut cancellation_requested,
+                &mut block_completed,
+            ) {
+                Err(ComputeSceneBuildError::PoolCapacityExhausted) => {
+                    self.grow_brickmap(view, cancellation_requested, block_completed)
+                }
+                result => result,
+            };
         }
         let mut revision = self.revision;
         let chain_matches = self.scene_identity() == view.scene_id()
@@ -535,6 +603,13 @@ impl ComputeSceneBundle {
 pub enum ComputeSceneBuildError {
     #[error("the brickmap scene palette exceeds the 65,535 occupied material identity limit")]
     BrickmapMaterialCapacity,
+    #[error(
+        "brickmap growth peak {predicted_peak_bytes} bytes exceeds configured budget {budget_bytes} bytes"
+    )]
+    GrowthBudgetExceeded {
+        predicted_peak_bytes: u64,
+        budget_bytes: u64,
+    },
     #[error("brickmap pool capacity exhausted while reserving a private candidate slot")]
     PoolCapacityExhausted,
     #[error("brickmap patch base revision, allocation, or scene layout does not match")]

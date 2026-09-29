@@ -18,6 +18,11 @@ impl ComputeSceneBundle {
     }
 
     pub(crate) fn patch_base_matches(&self, installed: &Self) -> bool {
+        if let Some((revision, allocation)) = &self.rebuild_base {
+            return *revision == installed.revision
+                && self.scene_identity == installed.scene_identity
+                && Arc::ptr_eq(allocation, &installed.pool_allocation);
+        }
         self.pool_offset.is_none()
             || (self.predecessor == Some(installed.revision)
                 && self.scene_identity == installed.scene_identity
@@ -109,6 +114,8 @@ impl ComputeSceneBundle {
             }
         }
         let mut successor = Self {
+            growth_observations: None,
+            rebuild_base: None,
             revision: view.revision(),
             predecessor: Some(self.revision),
             patches: Arc::new(BTreeMap::new()),
@@ -206,6 +213,89 @@ impl ComputeSceneBundle {
         successor.patch_observations.slots_retired = successor.retired_slots.len();
         successor.patch_observations.uploaded_bytes = successor.patches.len() * 4;
         Ok(successor)
+    }
+
+    pub fn brickmap_growth_observations(&self) -> Option<BrickmapGrowthObservations> {
+        self.growth_observations
+    }
+
+    pub(super) fn grow_brickmap(
+        &self,
+        view: &VoxelSceneView,
+        mut cancelled: impl FnMut() -> bool,
+        mut completed: impl FnMut() -> Result<(), ComputeSceneBuildError>,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        let started = std::time::Instant::now();
+        let mut required = 0usize;
+        // Count before allocating any replacement payload, including edits that skip revisions.
+        for volume in view.volumes() {
+            for batch in view.enumerate_cells(volume.identity(), 8, 64)? {
+                for cell in batch? {
+                    if cancelled() {
+                        return Err(ComputeSceneBuildError::Cancelled);
+                    }
+                    if matches!(cell.content(), VoxelRegionContent::Mixed) {
+                        required = required
+                            .checked_add(1)
+                            .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+                    }
+                    completed()?;
+                }
+            }
+        }
+        let offset = self
+            .pool_offset
+            .ok_or(ComputeSceneBuildError::PatchBaseMismatch)?;
+        let old_capacity = (self.storage_word_count() - offset) / SLOT_WORDS;
+        let mut new_capacity = old_capacity
+            .checked_add(old_capacity.div_ceil(2))
+            .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?
+            .max(1);
+        while new_capacity < required {
+            new_capacity = new_capacity
+                .checked_add(new_capacity.div_ceil(2))
+                .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+        }
+        let new_words = offset
+            .checked_add(
+                new_capacity
+                    .checked_mul(SLOT_WORDS)
+                    .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?,
+            )
+            .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+        u32::try_from(new_words)?;
+        let predicted_peak_bytes = (self.storage_word_count() as u64 * 4)
+            .checked_add(new_words as u64 * 8)
+            .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+        let crate::ComputeRepresentation::Brickmap { budget_bytes } = self.representation else {
+            return Err(ComputeSceneBuildError::PatchBaseMismatch);
+        };
+        if predicted_peak_bytes > budget_bytes {
+            return Err(ComputeSceneBuildError::GrowthBudgetExceeded {
+                predicted_peak_bytes,
+                budget_bytes,
+            });
+        }
+        let mut bundle =
+            Self::build_brickmap(view, self.representation, Some(new_capacity), || {
+                if cancelled() {
+                    return Err(ComputeSceneBuildError::Cancelled);
+                }
+                completed()
+            })?;
+        if cancelled() {
+            return Err(ComputeSceneBuildError::Cancelled);
+        }
+        bundle.rebuild_base = Some((self.revision, self.pool_allocation.clone()));
+        bundle.growth_observations = Some(BrickmapGrowthObservations {
+            trigger_revision: view.revision(),
+            old_capacity,
+            new_capacity,
+            predicted_peak_bytes,
+            actual_peak_bytes: None,
+            rebuild_time: started.elapsed(),
+        });
+        Ok(bundle)
     }
 
     fn write_patch(&mut self, index: usize, word: u32) -> Result<(), ComputeSceneBuildError> {
