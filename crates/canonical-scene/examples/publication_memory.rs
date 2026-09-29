@@ -42,7 +42,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let input = LIVE.load(Ordering::SeqCst) - baseline;
         PEAK.store(LIVE.load(Ordering::SeqCst), Ordering::SeqCst);
         let frontend = VoxelFrontend::new();
-        let view = frontend.publish(scene)?;
+        let view = frontend.publish_sparse(scene)?;
         let retained = LIVE.load(Ordering::SeqCst) - baseline;
         let peak = PEAK.load(Ordering::SeqCst) - baseline;
         println!("{},{input},{retained},{peak}", 64 * scale.factor());

@@ -320,7 +320,7 @@ mod tests {
     fn crosshair_pick_matches_the_oracle_for_the_latest_revision() -> Result<(), String> {
         let frontend = VoxelFrontend::new();
         frontend
-            .publish(
+            .publish_sparse(
                 canonical_scene::generate_canonical_scene(
                     canonical_scene::CanonicalSceneScale::Small,
                 )

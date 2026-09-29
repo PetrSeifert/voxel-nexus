@@ -82,7 +82,7 @@ fn raster_adapter_rejects_an_artifact_from_another_voxel_scene() -> Result<(), S
         generate_canonical_scene(CanonicalSceneScale::Small).map_err(|error| error.to_string())?;
     let volume_identity = canonical.metadata().volume_identity().clone();
     let view = VoxelFrontend::new()
-        .publish(canonical.into_scene())
+        .publish_sparse(canonical.into_scene())
         .map_err(|error| error.to_string())?;
     let artifact =
         derive_raster_artifact(&view, &volume_identity).map_err(|error| error.to_string())?;

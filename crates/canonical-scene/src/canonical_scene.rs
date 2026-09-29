@@ -3,8 +3,9 @@ use std::collections::TryReserveError;
 use semantic_ray_oracle::{SemanticRay, SemanticRayError, SemanticRayProbe, SemanticRayProbeError};
 use thiserror::Error;
 use voxel_frontend::{
-    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
-    VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelSceneRevision, VoxelValue,
+    DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, SparseVoxelBackground, SparseVoxelBatch,
+    SparseVoxelScene, SparseVoxelVolume, VoxelCoordinate, VoxelExtent, VoxelMaterial,
+    VoxelMaterialId, VoxelRegion, VoxelRegionFill, VoxelSceneId, VoxelSceneRevision, VoxelValue,
     VoxelVolumeId, VoxelVolumeMetadata,
 };
 
@@ -124,7 +125,7 @@ impl CanonicalMaterialMetadata {
 }
 
 pub struct CanonicalScene {
-    scene: DenseVoxelScene,
+    fills: Vec<(VoxelRegion, VoxelValue)>,
     metadata: CanonicalSceneMetadata,
 }
 
@@ -133,8 +134,87 @@ impl CanonicalScene {
         &self.metadata
     }
 
-    pub fn into_scene(self) -> DenseVoxelScene {
-        self.scene
+    pub fn into_scene(self) -> SparseVoxelScene {
+        SparseVoxelScene::new(
+            VoxelSceneId::new("canonical-dense-scene"),
+            VoxelSceneRevision::new(1),
+            self.materials(),
+            vec![SparseVoxelVolume::new(
+                self.volume_metadata(),
+                SparseVoxelBackground::Empty,
+                self.fills
+                    .into_iter()
+                    .map(|(region, value)| {
+                        SparseVoxelBatch::Fill(VoxelRegionFill::new(region, value))
+                    })
+                    .collect(),
+            )],
+        )
+    }
+
+    pub fn into_dense_scene(self) -> Result<DenseVoxelScene, CanonicalSceneError> {
+        let [width, height, depth] = self.metadata.dimensions.map(|value| value as usize);
+        let value_count = width
+            .checked_mul(height)
+            .and_then(|count| count.checked_mul(depth))
+            .ok_or(CanonicalSceneError::ArithmeticOverflow)?;
+        let mut values = Vec::new();
+        values
+            .try_reserve_exact(value_count)
+            .map_err(CanonicalSceneError::Allocation)?;
+        values.resize(value_count, VoxelValue::Empty);
+        for (region, value) in &self.fills {
+            let [origin_x, origin_y, origin_z] =
+                region.origin().components().map(|value| value as usize);
+            let [region_width, region_height, region_depth] =
+                region.extent().dimensions().map(|value| value as usize);
+            for z in origin_z..origin_z + region_depth {
+                for y in origin_y..origin_y + region_height {
+                    let start = (z * height + y) * width + origin_x;
+                    values
+                        .get_mut(start..start + region_width)
+                        .expect("canonical fills are within the allocated volume bounds")
+                        .fill(value.clone());
+                }
+            }
+        }
+        let volume_metadata = self.volume_metadata();
+        let extent = volume_metadata.extent();
+        Ok(DenseVoxelScene::new(
+            VoxelSceneId::new("canonical-dense-scene"),
+            VoxelSceneRevision::new(1),
+            self.materials(),
+            vec![DenseVoxelVolume::new(
+                volume_metadata,
+                vec![DenseVoxelBatch::new(
+                    VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                    values,
+                )],
+            )],
+        ))
+    }
+
+    fn materials(&self) -> Vec<VoxelMaterial> {
+        self.metadata
+            .material_catalogue
+            .iter()
+            .map(|material| {
+                VoxelMaterial::new(
+                    VoxelMaterialId::new(material.identity),
+                    material.linear_base_color,
+                )
+            })
+            .collect()
+    }
+
+    fn volume_metadata(&self) -> VoxelVolumeMetadata {
+        let [width, height, depth] = self.metadata.dimensions;
+        VoxelVolumeMetadata::new(
+            self.metadata.volume_identity.clone(),
+            VoxelExtent::new(width, height, depth),
+            SCENE_ORIGIN,
+            self.metadata.voxel_size,
+        )
     }
 }
 
@@ -187,113 +267,101 @@ fn canonical_edit_semantic_ray_probe(
 pub fn generate_canonical_scene(
     scale: CanonicalSceneScale,
 ) -> Result<CanonicalScene, CanonicalSceneError> {
+    let factor = scale.factor();
     let dimensions = scale.dimensions();
-    let [width, height, depth] = dimensions;
-    let value_count = usize::try_from(width)
-        .ok()
-        .and_then(|value| value.checked_mul(usize::try_from(height).ok()?))
-        .and_then(|value| value.checked_mul(usize::try_from(depth).ok()?))
-        .ok_or(CanonicalSceneError::ArithmeticOverflow)?;
-    let scale_factor = i64::from(scale.factor());
-    let material_catalogue = [WARM_MATERIAL, GREEN_MATERIAL, BLUE_MATERIAL];
-    let warm_material_identity = VoxelMaterialId::new(WARM_MATERIAL.identity);
-    let green_material_identity = VoxelMaterialId::new(GREEN_MATERIAL.identity);
-    let blue_material_identity = VoxelMaterialId::new(BLUE_MATERIAL.identity);
-    let mut values = Vec::new();
-    values
-        .try_reserve_exact(value_count)
-        .map_err(CanonicalSceneError::Allocation)?;
+    let warm = VoxelMaterialId::new(WARM_MATERIAL.identity);
+    let green = VoxelMaterialId::new(GREEN_MATERIAL.identity);
+    let blue = VoxelMaterialId::new(BLUE_MATERIAL.identity);
+    let mut fills = Vec::new();
     let mut occupied_count = 0_u64;
     let mut exposed_face_count = 0_u64;
-    for coordinate_z in 0..i64::from(depth) {
-        for coordinate_y in 0..i64::from(height) {
-            for coordinate_x in 0..i64::from(width) {
-                if is_occupied(
-                    coordinate_x,
-                    coordinate_y,
-                    coordinate_z,
-                    scale_factor,
-                    dimensions,
+    // Every geometry and material boundary is a partition plane, so each box is uniform
+    // and its neighbours have constant occupancy across each entire face.
+    let x_boundaries = [0, 8, 24, 28, 34, 40, 48, 50, 56, 64];
+    let y_boundaries = [0, 8, 20, 24, 26, 32];
+    let z_boundaries = [
+        0,
+        4,
+        10,
+        OVERHANG_START_Z,
+        OVERHANG_START_Z + 20,
+        54,
+        60,
+        64,
+    ];
+    for (&minimum_z, &maximum_z) in z_boundaries.iter().zip(z_boundaries.iter().skip(1)) {
+        for (&minimum_y, &maximum_y) in y_boundaries.iter().zip(y_boundaries.iter().skip(1)) {
+            for (&minimum_x, &maximum_x) in x_boundaries.iter().zip(x_boundaries.iter().skip(1)) {
+                if !is_occupied(
+                    minimum_x,
+                    minimum_y,
+                    minimum_z,
+                    1,
+                    CanonicalSceneScale::Small.dimensions(),
                 ) {
-                    occupied_count = occupied_count
-                        .checked_add(1)
-                        .ok_or(CanonicalSceneError::ArithmeticOverflow)?;
-                    for [offset_x, offset_y, offset_z] in [
-                        [-1, 0, 0],
-                        [1, 0, 0],
-                        [0, -1, 0],
-                        [0, 1, 0],
-                        [0, 0, -1],
-                        [0, 0, 1],
-                    ] {
-                        if !is_occupied(
-                            coordinate_x + offset_x,
-                            coordinate_y + offset_y,
-                            coordinate_z + offset_z,
-                            scale_factor,
-                            dimensions,
-                        ) {
-                            exposed_face_count = exposed_face_count
-                                .checked_add(1)
-                                .ok_or(CanonicalSceneError::ArithmeticOverflow)?;
-                        }
-                    }
-                    values.push(VoxelValue::Occupied(material_identity(
-                        coordinate_x,
-                        scale_factor,
-                        &warm_material_identity,
-                        &green_material_identity,
-                        &blue_material_identity,
-                    )));
-                } else {
-                    values.push(VoxelValue::Empty);
+                    continue;
                 }
+                let width = (maximum_x - minimum_x) as u64;
+                let height = (maximum_y - minimum_y) as u64;
+                let depth = (maximum_z - minimum_z) as u64;
+                occupied_count += width * height * depth;
+                for (neighbour, area) in [
+                    ([minimum_x - 1, minimum_y, minimum_z], height * depth),
+                    ([maximum_x, minimum_y, minimum_z], height * depth),
+                    ([minimum_x, minimum_y - 1, minimum_z], width * depth),
+                    ([minimum_x, maximum_y, minimum_z], width * depth),
+                    ([minimum_x, minimum_y, minimum_z - 1], width * height),
+                    ([minimum_x, minimum_y, maximum_z], width * height),
+                ] {
+                    let [neighbour_x, neighbour_y, neighbour_z] = neighbour;
+                    if !is_occupied(
+                        neighbour_x,
+                        neighbour_y,
+                        neighbour_z,
+                        1,
+                        CanonicalSceneScale::Small.dimensions(),
+                    ) {
+                        exposed_face_count += area;
+                    }
+                }
+                fills.push((
+                    VoxelRegion::new(
+                        VoxelCoordinate::new(
+                            minimum_x as i32 * factor as i32,
+                            minimum_y as i32 * factor as i32,
+                            minimum_z as i32 * factor as i32,
+                        ),
+                        VoxelExtent::new(
+                            width as u32 * factor,
+                            height as u32 * factor,
+                            depth as u32 * factor,
+                        ),
+                    ),
+                    VoxelValue::Occupied(material_identity(minimum_x, 1, &warm, &green, &blue)),
+                ));
             }
         }
     }
-    let scale_squared = u64::from(scale.factor())
-        .checked_mul(u64::from(scale.factor()))
-        .ok_or(CanonicalSceneError::ArithmeticOverflow)?;
-    let exposed_face_limit = BASE_EXPOSED_FACE_LIMIT
-        .checked_mul(scale_squared)
-        .ok_or(CanonicalSceneError::ArithmeticOverflow)?;
+    let scale_squared = u64::from(factor).pow(2);
+    occupied_count *= u64::from(factor).pow(3);
+    exposed_face_count *= scale_squared;
+    let exposed_face_limit = BASE_EXPOSED_FACE_LIMIT * scale_squared;
     if exposed_face_count > exposed_face_limit {
         return Err(CanonicalSceneError::ExposedFaceLimit {
             actual: exposed_face_count,
             limit: exposed_face_limit,
         });
     }
-
-    let volume_identity = VoxelVolumeId::new("canonical-volume");
-    let extent = VoxelExtent::new(width, height, depth);
-    let voxel_size = BASE_VOXEL_SIZE / scale.factor() as f32;
-    let materials = vec![
-        VoxelMaterial::new(warm_material_identity, WARM_MATERIAL.linear_base_color),
-        VoxelMaterial::new(green_material_identity, GREEN_MATERIAL.linear_base_color),
-        VoxelMaterial::new(blue_material_identity, BLUE_MATERIAL.linear_base_color),
-    ];
     let metadata = CanonicalSceneMetadata {
         dimensions,
-        voxel_size,
-        material_catalogue,
-        volume_identity: volume_identity.clone(),
+        voxel_size: BASE_VOXEL_SIZE / factor as f32,
+        material_catalogue: [WARM_MATERIAL, GREEN_MATERIAL, BLUE_MATERIAL],
+        volume_identity: VoxelVolumeId::new("canonical-volume"),
         occupied_count,
         exposed_face_count,
         exposed_face_limit,
     };
-    let scene = DenseVoxelScene::new(
-        VoxelSceneId::new("canonical-dense-scene"),
-        VoxelSceneRevision::new(1),
-        materials,
-        vec![DenseVoxelVolume::new(
-            VoxelVolumeMetadata::new(volume_identity, extent, SCENE_ORIGIN, voxel_size),
-            vec![DenseVoxelBatch::new(
-                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
-                values,
-            )],
-        )],
-    );
-    Ok(CanonicalScene { scene, metadata })
+    Ok(CanonicalScene { fills, metadata })
 }
 
 fn material_identity(

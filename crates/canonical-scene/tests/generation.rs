@@ -65,7 +65,7 @@ fn canonical_scene_exposes_material_regions_cavity_overhang_and_boundary_through
 -> Result<(), Box<dyn std::error::Error>> {
     let canonical = generate_canonical_scene(CanonicalSceneScale::Small)?;
     let volume_identity = canonical.metadata().volume_identity().clone();
-    let view = VoxelFrontend::new().publish(canonical.into_scene())?;
+    let view = VoxelFrontend::new().publish_sparse(canonical.into_scene())?;
     let samples = view.read_region(
         &volume_identity,
         VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(64, 32, 64)),
@@ -121,7 +121,7 @@ fn every_canonical_scale_derives_the_recorded_bounded_surface()
         let canonical = generate_canonical_scene(scale)?;
         let volume_identity = canonical.metadata().volume_identity().clone();
         let expected_exposed_faces = canonical.metadata().exposed_face_count();
-        let view = VoxelFrontend::new().publish(canonical.into_scene())?;
+        let view = VoxelFrontend::new().publish_sparse(canonical.into_scene())?;
         let artifact = derive_raster_artifact(&view, &volume_identity)?;
 
         assert_eq!(
@@ -130,6 +130,66 @@ fn every_canonical_scale_derives_the_recorded_bounded_surface()
         );
         assert!(artifact.vertex_count() < artifact.semantic_face_count() * 4);
         assert_eq!(artifact.index_count(), artifact.vertex_count() / 4 * 6);
+    }
+    Ok(())
+}
+
+#[test]
+fn canonical_contents_match_pre_sparse_fingerprints() -> Result<(), Box<dyn std::error::Error>> {
+    for scale in [
+        CanonicalSceneScale::Small,
+        CanonicalSceneScale::Medium,
+        CanonicalSceneScale::Large,
+    ] {
+        // Recorded from the dense generator at 45a78a8 before introducing sparse input.
+        // FNV-1a over x-fastest voxel tags: empty=0, warm=1, green=2, blue=3.
+        for view in [
+            VoxelFrontend::new().publish_sparse(generate_canonical_scene(scale)?.into_scene())?,
+            VoxelFrontend::new().publish(generate_canonical_scene(scale)?.into_dense_scene()?)?,
+        ] {
+            let volume = view.volumes().first().ok_or("missing volume")?;
+            let [width, height, depth] = volume.extent().dimensions();
+            let mut fingerprint = 0xcbf2_9ce4_8422_2325_u64;
+            let mut values = vec![VoxelValue::Empty; (width * height) as usize];
+            for z in 0..depth {
+                view.read_region_into(
+                    volume.identity(),
+                    VoxelRegion::new(
+                        VoxelCoordinate::new(0, 0, z as i32),
+                        VoxelExtent::new(width, height, 1),
+                    ),
+                    &mut values,
+                )?;
+                for value in &values {
+                    let tag = match value {
+                        VoxelValue::Empty => 0,
+                        VoxelValue::Occupied(identity)
+                            if identity == &VoxelMaterialId::new("canonical-warm") =>
+                        {
+                            1
+                        }
+                        VoxelValue::Occupied(identity)
+                            if identity == &VoxelMaterialId::new("canonical-green") =>
+                        {
+                            2
+                        }
+                        VoxelValue::Occupied(identity)
+                            if identity == &VoxelMaterialId::new("canonical-blue") =>
+                        {
+                            3
+                        }
+                        _ => return Err("unexpected material".into()),
+                    };
+                    fingerprint = (fingerprint ^ tag).wrapping_mul(0x100_0000_01b3);
+                }
+            }
+            let expected = match scale {
+                CanonicalSceneScale::Small => 0xfe6e_0c51_b7b9_5865,
+                CanonicalSceneScale::Medium => 0x2ad5_45b6_1942_7925,
+                CanonicalSceneScale::Large => 0xf5bc_6d3d_6c70_9325,
+            };
+            assert_eq!(fingerprint, expected, "{scale:?}");
+        }
     }
     Ok(())
 }

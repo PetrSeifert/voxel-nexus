@@ -23,8 +23,8 @@ fn canonical_storage_tiers_have_identical_observations() -> Result<(), Box<dyn s
         let scene = generate_canonical_scene(scale)?.into_scene();
         let dense_frontend = VoxelFrontend::new();
         let sparse_frontend = VoxelFrontend::new();
-        dense_frontend.publish(scene.clone())?;
-        sparse_frontend.publish(scene.with_storage_tier(StorageTier::SparsePages))?;
+        dense_frontend.publish_sparse(scene.clone())?;
+        sparse_frontend.publish_sparse(scene.with_storage_tier(StorageTier::SparsePages))?;
         for edited in [false, true] {
             if edited {
                 for frontend in [&dense_frontend, &sparse_frontend] {
@@ -89,7 +89,7 @@ fn storage_costs() -> Result<(), Box<dyn std::error::Error>> {
     ] {
         for tier in [StorageTier::Dense, StorageTier::SparsePages] {
             let frontend = VoxelFrontend::new();
-            let view = frontend.publish(
+            let view = frontend.publish_sparse(
                 generate_canonical_scene(scale)?
                     .into_scene()
                     .with_storage_tier(tier),

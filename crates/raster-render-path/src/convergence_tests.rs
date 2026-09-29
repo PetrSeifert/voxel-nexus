@@ -61,7 +61,7 @@ fn changed(frontend: &VoxelFrontend, x: i32) -> Result<VoxelEditOutcome, VoxelFr
 
 fn canonical_frontend() -> Result<VoxelFrontend, Box<dyn std::error::Error>> {
     let frontend = VoxelFrontend::new();
-    frontend.publish(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
+    frontend.publish_sparse(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
     Ok(frontend)
 }
 

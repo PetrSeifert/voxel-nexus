@@ -230,3 +230,105 @@ fn traversal_respects_the_maximum_distance() -> Result<(), Box<dyn std::error::E
     );
     Ok(())
 }
+
+#[test]
+fn traversal_agrees_on_non_aligned_sparse_volumes_after_structural_edits()
+-> Result<(), Box<dyn std::error::Error>> {
+    use voxel_frontend::{
+        SparseVoxelBackground, SparseVoxelBatch, SparseVoxelScene, SparseVoxelVolume, StorageTier,
+        VoxelEditCommand, VoxelRegionFill,
+    };
+    let stone = VoxelMaterialId::new("stone");
+    let moss = VoxelMaterialId::new("moss");
+    let identity = VoxelVolumeId::new("non-aligned");
+    for tier in [StorageTier::Dense, StorageTier::SparsePages] {
+        let frontend = VoxelFrontend::new();
+        let original = frontend.publish_sparse(SparseVoxelScene::new(
+            VoxelSceneId::new("structural-edits"),
+            VoxelSceneRevision::new(1),
+            vec![
+                VoxelMaterial::new(stone.clone(), [1.0; 4]),
+                VoxelMaterial::new(moss.clone(), [0.5; 4]),
+            ],
+            vec![
+                SparseVoxelVolume::new(
+                    VoxelVolumeMetadata::new(
+                        identity.clone(),
+                        VoxelExtent::new(17, 11, 9),
+                        [-2.5, 1.25, 0.5],
+                        0.5,
+                    ),
+                    SparseVoxelBackground::Empty,
+                    vec![SparseVoxelBatch::Fill(VoxelRegionFill::new(
+                        VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(8, 8, 8)),
+                        VoxelValue::Occupied(stone.clone()),
+                    ))],
+                )
+                .with_storage_tier(tier),
+            ],
+        ))?;
+        let rays = [
+            SemanticRay::new([-4.0, 3.0, 2.25], [1.0, 0.0, 0.0], 0.0, 20.0)?,
+            SemanticRay::new([-0.75, 3.0, 2.25], [1.0, 1.0, 1.0], 0.0, 20.0)?,
+            SemanticRay::new([8.0, 6.5, 4.75], [-1.0, 0.0, 0.0], 0.0, 20.0)?,
+            SemanticRay::new([-2.5, 1.25, 0.5], [1.0, 1.0, 1.0], 0.25, 20.0)?,
+        ];
+        for ray in &rays {
+            assert_same_observation(&original, ray)?;
+        }
+        for (coordinate, value) in [
+            (
+                VoxelCoordinate::new(16, 10, 8),
+                VoxelValue::Occupied(stone.clone()),
+            ),
+            (VoxelCoordinate::new(16, 10, 8), VoxelValue::Empty),
+            (VoxelCoordinate::new(3, 3, 3), VoxelValue::Empty),
+            (
+                VoxelCoordinate::new(4, 3, 3),
+                VoxelValue::Occupied(moss.clone()),
+            ),
+            (
+                VoxelCoordinate::new(3, 3, 3),
+                VoxelValue::Occupied(stone.clone()),
+            ),
+        ] {
+            frontend.edit(VoxelEditCommand::new(
+                identity.clone(),
+                coordinate,
+                value.clone(),
+            ))?;
+            let view = frontend.scene_view()?;
+            let [x, y, z] = coordinate.components().map(f64::from);
+            let ray = SemanticRay::new(
+                [
+                    -2.5 + (x + 0.5) * 0.5,
+                    1.25 + (y + 0.5) * 0.5,
+                    0.5 + (z + 0.5) * 0.5,
+                ],
+                [1.0, 0.0, 0.0],
+                0.0,
+                0.1,
+            )?;
+            assert_same_observation(&view, &ray)?;
+            let observation = observe_along_ray(&view, &ray)?;
+            assert_eq!(observation.revision(), view.revision());
+            match (value, observation.result()) {
+                (VoxelValue::Empty, SemanticRayResult::Miss) => {}
+                (VoxelValue::Occupied(material), SemanticRayResult::Contact(contact)) => {
+                    assert_eq!(contact.coordinate(), coordinate);
+                    assert_eq!(contact.material_identity(), &material);
+                    assert_eq!(
+                        contact.classification(),
+                        semantic_ray_oracle::SemanticRayContactClassification::StartedInside
+                    );
+                }
+                unexpected => panic!("unexpected edited observation: {unexpected:?}"),
+            }
+            for ray in &rays {
+                assert_same_observation(&view, ray)?;
+                assert_same_observation(&original, ray)?;
+            }
+        }
+    }
+    Ok(())
+}

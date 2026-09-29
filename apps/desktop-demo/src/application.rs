@@ -311,7 +311,8 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             height: drawable_size.height,
         };
         self.desktop.drawable_extent = initial_drawable_extent;
-        let (scene, occupied_voxels) = match self.desktop.render_configuration.scene {
+        let frontend = VoxelFrontend::new();
+        let (publication, occupied_voxels) = match self.desktop.render_configuration.scene {
             DesktopSceneSelection::WindingDiagnostic => {
                 let (scene, _) = winding_diagnostic_scene();
                 if let Err(error) =
@@ -320,7 +321,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     self.desktop.fail(event_loop, error);
                     return;
                 }
-                (scene, 2)
+                (frontend.publish(scene), 2)
             }
             DesktopSceneSelection::Canonical(scale) => {
                 let canonical = match generate_canonical_scene(scale) {
@@ -341,12 +342,14 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
                     return;
                 }
                 let occupied_voxels = canonical.metadata().occupied_count();
-                (canonical.into_scene(), occupied_voxels)
+                (
+                    frontend.publish_sparse(canonical.into_scene()),
+                    occupied_voxels,
+                )
             }
         };
         self.scenario_state.evidence.occupied_voxels = occupied_voxels;
-        let frontend = VoxelFrontend::new();
-        let view = match frontend.publish(scene) {
+        let view = match publication {
             Ok(view) => view,
             Err(error) => {
                 self.desktop.application_error = Some(format!(

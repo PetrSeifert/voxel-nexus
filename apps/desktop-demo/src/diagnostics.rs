@@ -23,7 +23,7 @@ pub(super) fn background_preparation_failure_diagnostic(
                     format!("could not generate the diagnostic Voxel Scene: {error}")
                 })?;
             let view = VoxelFrontend::new()
-                .publish(canonical.into_scene())
+                .publish_sparse(canonical.into_scene())
                 .map_err(|error| {
                     format!("could not publish the diagnostic Voxel Scene: {error}")
                 })?;

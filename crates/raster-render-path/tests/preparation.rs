@@ -148,7 +148,7 @@ fn parallel_regions_match_sequential_artifacts_exactly() -> Result<(), Box<dyn s
     use raster_render_path::derive_raster_regions;
     use std::time::Duration;
     let view = VoxelFrontend::new()
-        .publish(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
+        .publish_sparse(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
     for extent in [16, 32] {
         let extent = VoxelExtent::new(extent, extent, extent);
         let sequential = derive_raster_regions(&view, extent)?;

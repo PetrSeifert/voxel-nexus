@@ -150,8 +150,8 @@ fn equal_distance_contacts_use_stable_volume_identity_order()
 fn canonical_declared_probes_match_the_oracle_at_revisions_one_and_four()
 -> Result<(), Box<dyn std::error::Error>> {
     let frontend = VoxelFrontend::new();
-    let revision_one =
-        frontend.publish(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
+    let revision_one = frontend
+        .publish_sparse(generate_canonical_scene(CanonicalSceneScale::Large)?.into_scene())?;
     let probes = canonical_edit_semantic_ray_probes()?;
     let revision_one_bundle = ComputeSceneBundle::from_view(&revision_one)?;
     for probe in &probes {
