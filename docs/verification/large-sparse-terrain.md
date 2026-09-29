@@ -112,3 +112,60 @@ volume's 1,073,741,824 values. This is bounded sparse staging, not zero staging.
 The regression test allows fewer than 80 Mi staging values and 320 MiB of
 reported storage. Those are fixture regression bounds, not general frontend
 limits. The full logical dense payload alone would require 4,294,967,296 bytes.
+
+## Predicted GPU footprint
+
+Implements [issue #105](https://github.com/PetrSeifert/voxel-nexus/issues/105).
+Reproduce without a GPU:
+
+```powershell
+cargo run -p compute-ray-render-path --example large_terrain_footprint --release
+```
+
+Measured 2026-09-29 on the same machine and Rust toolchain as above. The example
+publishes the unchanged terrain into `SparsePages`, then builds
+`BrickmapSceneBundle` through its public `from_view` interface. Its fingerprint
+is `58ce86bc1227cf55`. CPU brickmap construction took 1,468.365 ms in this run,
+excluding generation and publication. Timing is descriptive.
+
+| Component | Count or bytes |
+| --- | ---: |
+| Coarse entries, 256 × 32 × 256 | 2,097,152 |
+| Coarse grid, 4 bytes per entry | 8,388,608 |
+| Mixed bricks | 66,560 |
+| Occupied pool, 1,024 bytes per 8³ brick | 68,157,440 |
+| Additional slots, ceil(mixed bricks / 4) | 16,640 |
+| Pool capacity slots with 25% headroom | 83,200 |
+| Pool capacity bytes with 25% headroom | 85,196,800 |
+| Metadata and alignment allowance per representation | 65,536 |
+| One representation, coarse grid + capacity + allowance | 93,650,944 |
+| Visible + complete candidate representations | 187,301,888 |
+| Full candidate staging allowance | 93,650,944 |
+| Predicted peak including staging | 280,952,832 |
+| GPU scene budget, 1 GiB | 1,073,741,824 |
+| Remaining budget | 792,788,992 |
+
+The predicted peak is 267.9375 MiB, or 26.17% of the budget. This charges two
+independent coarse grids and pools, each with capacity for 25% more slots than
+initially occupied, plus a
+third complete padded copy for upload staging. The estimate does not rely on
+sharing slots between visible and candidate representations. No content-density,
+representation, scale, or budget adjustment was needed.
+
+The GPU brickmap ABI and allocator are not implemented yet. The 64 KiB allowance
+per copy is a planning assumption for scene/volume headers, the two material
+colors, and buffer allocation alignment, not an observed allocation size. The
+estimate covers a candidate of the same capacity as the initial terrain. It does
+not bound arbitrary edits or successive 1.5× pool growth. Later GPU work must
+check actual old/new capacities, staging, metadata and allocation requirements,
+and measure the peak. CPU frontend storage and CPU construction scratch are not
+GPU scene memory; render targets and other non-scene resources are also outside
+this scene budget. This prediction is not GPU qualification evidence.
+
+The chosen extent remains 2048×256×2048. A dense 32-bit voxel payload needs
+4,294,967,296 bytes, already one byte above the development RTX 4070's recorded
+`maxStorageBufferRange` of 4,294,967,295 bytes, before headers or materials. The
+device limit comes from [the parent specification, issue #98](https://github.com/PetrSeifert/voxel-nexus/issues/98),
+not a live device query in this CPU example. The example exits with an error if
+the predicted peak exceeds the budget or the dense payload stops exceeding that
+recorded limit.
