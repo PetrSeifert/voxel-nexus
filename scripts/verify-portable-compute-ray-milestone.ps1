@@ -2,6 +2,8 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$EvidenceDirectory,
+    [ValidateSet("dense", "brickmap")]
+    [string]$ComputeRepresentation = "dense",
     [switch]$TimingOnly,
     [switch]$SkipBuild
 )
@@ -263,8 +265,9 @@ try {
         "--portable-compute-ray-milestone-demo"
     }
     $process = Start-Process `
+        -WindowStyle Hidden `
         -FilePath $binaryPath `
-        -ArgumentList @("--scene-scale", "64", $mode) `
+        -ArgumentList @("--scene-scale", "64", $mode, "--compute-representation", $ComputeRepresentation) `
         -RedirectStandardOutput $standardOutputPath `
         -RedirectStandardError $standardErrorPath `
         -PassThru
@@ -280,17 +283,18 @@ try {
         }
         $script:timeline = [System.Collections.Generic.List[object]]::new()
         $script:stopwatch = [Diagnostics.Stopwatch]::StartNew()
-        if (-not $TimingOnly) {
-            $videoCapture = Start-VideoCapture -OutputPath (Join-Path $evidencePath "milestone-proof.mkv")
-        }
 
-        $title = Wait-ForTitle -Process $process -Window $window -Pattern "compute-replacement-requested|Presenter=Raster"
+        $title = Wait-ForTitle -Process $process -Window $window -Pattern "compute-replacement-requested|Presenter=voxel-nexus.raster"
         Add-TimelineEvent -Name "raster_revision_1" -Title $title
         if (-not $TimingOnly) {
             Save-WindowCapture -Window $window -Path (Join-Path $evidencePath "raster-revision-1.png")
         }
 
-        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=ComputeRay.*Required=1 Visible=1.*Control=Space-ready"
+        if (-not $TimingOnly) {
+            $videoCapture = Start-VideoCapture -OutputPath (Join-Path $evidencePath "milestone-proof.mkv")
+        }
+
+        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=voxel-nexus.compute-ray.*Required=1 Visible=1.*Control=Space-ready"
         Add-TimelineEvent -Name "compute_revision_1" -Title $title
         if (-not $TimingOnly) {
             Save-WindowCapture -Window $window -Path (Join-Path $evidencePath "compute-revision-1.png")
@@ -298,27 +302,27 @@ try {
         Send-Key -Window $window -Key ([PortableComputeRayWindow]::SpaceKey) -Name "Space"
         Add-TimelineEvent -Name "edit_burst_requested" -Title ([PortableComputeRayWindow]::Title($window))
 
-        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=ComputeRay.*Required=4 Visible=1"
+        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=voxel-nexus.compute-ray.*Required=4 Visible=1"
         Add-TimelineEvent -Name "compute_required_4_visible_1" -Title $title
         if (-not $TimingOnly) {
             Save-WindowCapture -Window $window -Path (Join-Path $evidencePath "compute-required-4-visible-1.png")
         }
 
-        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=ComputeRay.*Required=4 Visible=4.*Control=Space-complete-Tab-ready"
+        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=voxel-nexus.compute-ray.*Required=4 Visible=4.*Control=Space-complete-Tab-ready"
         Add-TimelineEvent -Name "compute_revision_4" -Title $title
         if (-not $TimingOnly) {
             Save-WindowCapture -Window $window -Path (Join-Path $evidencePath "compute-revision-4.png")
         }
         Send-Key -Window $window -Key ([PortableComputeRayWindow]::TabKey) -Name "Tab"
 
-        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=Raster.*Required=4 Visible=4.*Control=Tab-ready-completed-2"
+        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=voxel-nexus.raster.*Required=4 Visible=4.*Control=Tab-ready-completed-2"
         Add-TimelineEvent -Name "raster_revision_4" -Title $title
         if (-not $TimingOnly) {
             Save-WindowCapture -Window $window -Path (Join-Path $evidencePath "raster-revision-4.png")
         }
         Send-Key -Window $window -Key ([PortableComputeRayWindow]::TabKey) -Name "Tab"
 
-        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=ComputeRay.*Required=4 Visible=4.*Control=Tab-ready-completed-3"
+        $title = Wait-ForTitle -Process $process -Window $window -Pattern "Presenter=voxel-nexus.compute-ray.*Required=4 Visible=4.*Control=Tab-ready-completed-3"
         Add-TimelineEvent -Name "compute_revision_4_final" -Title $title
         if (-not [PortableComputeRayWindow]::PostMessage($window, [PortableComputeRayWindow]::CloseMessage, [IntPtr]::Zero, [IntPtr]::Zero)) {
             throw "Could not close the desktop demo."

@@ -85,10 +85,11 @@ impl ComputeRayRenderPath {
                 range: candidate_range,
             });
             if !incremental {
-                self.record_timing(
+                self.record_timing_with_bytes(
                     ComputeTimingPhase::Upload,
                     candidate_stamp,
                     upload_started_at,
+                    candidate_range,
                 )?;
             }
             self.convergence.mark_hidden_uploaded();
@@ -117,6 +118,7 @@ impl ComputeRayRenderPath {
             .ok_or(ComputeRenderPathError::MissingHiddenCandidate)?;
         if candidate_bundle.predecessor() == Some(self.scene_gpu_revision) {
             let upload_started_at = Instant::now();
+            let uploaded_bytes = candidate_bundle.patches().len() as u64 * 4;
             let ranges = candidate_bundle
                 .patches()
                 .iter()
@@ -137,7 +139,12 @@ impl ComputeRayRenderPath {
             // Timing reporting must not interrupt the CPU/GPU revision commit.
             let elapsed = upload_started_at;
             self.install_incremental_candidate(candidate_revision)?;
-            self.record_timing(ComputeTimingPhase::Upload, candidate_stamp, elapsed)?;
+            self.record_timing_with_bytes(
+                ComputeTimingPhase::Upload,
+                candidate_stamp,
+                elapsed,
+                uploaded_bytes,
+            )?;
             self.record_timing(
                 ComputeTimingPhase::Installation,
                 candidate_stamp,

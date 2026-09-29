@@ -155,15 +155,50 @@ Hit trace_volume(
     )) {
         return miss;
     }
+    bool sparse = (scene.words[1] & 0x80000000u) != 0;
     ivec3 coordinate = coordinate_at(volume, ray_origin + ray_direction * distance);
     while (coordinate_in_volume(volume, coordinate) && distance <= exit_distance) {
         uint voxel_base = scene.words[3] + volume.voxel_word_offset;
-        uint material_word = scene.words[voxel_base + dense_index(volume, coordinate)];
+        uint material_word;
+        int edge = 1;
+        if (sparse) {
+            uvec3 grid = (volume.extent + uvec3(7)) / 8;
+            uvec3 cell = uvec3(coordinate) / 8;
+            uint entry = scene.words[voxel_base + (cell.z * grid.y + cell.y) * grid.x + cell.x];
+            material_word = entry;
+            if ((entry & 0x80000000u) != 0) {
+                uvec3 local = uvec3(coordinate) % 8;
+                uint index = local.x + 8 * local.y + 64 * local.z;
+                uint pool = scene.words[3] + scene.words[scene.words[3]];
+                uint packed = scene.words[pool + (entry & 0x7fffffffu) * 256 + index / 2];
+                material_word = (packed >> (16 * (index % 2))) & 0xffffu;
+            } else if (entry == 0) {
+                edge = 8;
+            }
+        } else {
+            material_word = scene.words[voxel_base + dense_index(volume, coordinate)];
+        }
         if (material_word != 0) {
             vec3 contact_normal = started_inside_volume && distance == ray_minimum
                 ? vec3(0.0)
                 : normal;
-            return Hit(true, distance, volume_index, material_word, coordinate, contact_normal);
+            if (!sparse) {
+                return Hit(true, distance, volume_index, material_word, coordinate, contact_normal);
+            }
+            // Coarse skips can land on an internal voxel boundary in another axis.
+            // Rechecking the voxel excludes corner-only contacts and preserves face ties.
+            Volume voxel = Volume(volume.origin + vec3(coordinate) * volume.voxel_size,
+                volume.voxel_size, uvec3(1), 0);
+            float voxel_entry;
+            float voxel_exit;
+            vec3 voxel_normal;
+            if (half_open_contains(voxel, clipped_start)) {
+                return Hit(true, ray_minimum, volume_index, material_word, coordinate, vec3(0.0));
+            }
+            if (intersect_volume(voxel, ray_origin, ray_direction, ray_minimum, ray_maximum,
+                voxel_entry, voxel_exit, voxel_normal) && voxel_exit > ray_minimum) {
+                return Hit(true, voxel_entry, volume_index, material_word, coordinate, voxel_normal);
+            }
         }
 
         vec3 crossing = vec3(LARGE_DISTANCE);
@@ -172,8 +207,8 @@ Hit trace_volume(
                 continue;
             }
             float boundary_coordinate = ray_direction[axis] > 0.0
-                ? float(coordinate[axis] + 1)
-                : float(coordinate[axis]);
+                ? float(min((coordinate[axis] / edge + 1) * edge, int(volume.extent[axis])))
+                : float(coordinate[axis] / edge * edge);
             float boundary = volume.origin[axis] + boundary_coordinate * volume.voxel_size;
             crossing[axis] = (boundary - ray_origin[axis]) / ray_direction[axis];
         }
@@ -186,11 +221,15 @@ Hit trace_volume(
         uint normal_axis = tied.x ? 0 : (tied.y ? 1 : 2);
         normal = vec3(0.0);
         normal[normal_axis] = ray_direction[normal_axis] > 0.0 ? -1.0 : 1.0;
+        ivec3 next_coordinate = edge == 1 ? coordinate : coordinate_at(volume, ray_origin + ray_direction * next_distance);
         for (uint axis = 0; axis < 3; ++axis) {
             if (tied[axis]) {
-                coordinate[axis] += ray_direction[axis] > 0.0 ? 1 : -1;
+                next_coordinate[axis] = ray_direction[axis] > 0.0
+                    ? min((coordinate[axis] / edge + 1) * edge, int(volume.extent[axis]))
+                    : coordinate[axis] / edge * edge - 1;
             }
         }
+        coordinate = next_coordinate;
         distance = next_distance;
         started_inside_volume = false;
     }

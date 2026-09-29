@@ -100,10 +100,11 @@ impl DesktopRuntime {
         match replacement {
             COMPUTE_RAY_STRATEGY => {
                 let (mut replacement_path, measurement_controller) =
-                    ComputeRayRenderPathAdapter::new_with_measurement(
+                    ComputeRayRenderPathAdapter::new_with_representation_and_measurement(
                         view.clone(),
                         self.camera_state,
                         self.camera_state_revision,
+                        self.render_configuration.compute_representation,
                     )
                     .map_err(|error| {
                         format!("could not cold-build the compute replacement: {error}")

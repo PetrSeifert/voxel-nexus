@@ -24,6 +24,7 @@ fn capable_device() -> RenderPathDeviceCapabilities {
         max_compute_work_group_invocations: 1_024,
         max_compute_work_group_size: [1_024, 1_024, 64],
         max_storage_buffer_range: 1 << 27,
+        max_buffer_size: 1 << 30,
         rgba8_unorm_optimal_tiling_features: vk::FormatFeatureFlags::STORAGE_IMAGE
             | vk::FormatFeatureFlags::SAMPLED_IMAGE,
     }

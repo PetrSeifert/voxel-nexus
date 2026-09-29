@@ -47,6 +47,7 @@ pub(super) enum DesktopSceneSelection {
 #[derive(Clone)]
 pub(super) struct DesktopRenderConfiguration {
     pub(super) scene: DesktopSceneSelection,
+    pub(super) compute_representation: compute_ray_render_path::ComputeRepresentation,
     camera: DesktopCameraSelection,
     pub(super) raster_region_extent: u32,
     pub(super) hold_background_preparation: bool,
@@ -140,6 +141,8 @@ pub(super) fn require_qualification_argument(argument: &str) -> Result<(), Strin
 pub(super) fn parse_render_configuration(
     mut arguments: impl Iterator<Item = String>,
 ) -> Result<(DesktopRenderConfiguration, bool), String> {
+    let mut compute_representation = compute_ray_render_path::ComputeRepresentation::Dense;
+    let mut brickmap_budget_bytes = 128 * 1024 * 1024;
     let mut scene = DesktopSceneSelection::Canonical(CanonicalSceneScale::Large);
     let mut camera = DesktopCameraSelection::Fixed(CanonicalCameraPose::Overview);
     let mut scene_was_selected = false;
@@ -162,6 +165,26 @@ pub(super) fn parse_render_configuration(
     while let Some(argument) = arguments.next() {
         require_qualification_argument(&argument)?;
         match argument.as_str() {
+            "--compute-representation" => {
+                compute_representation = match arguments.next().as_deref() {
+                    Some("dense") => compute_ray_render_path::ComputeRepresentation::Dense,
+                    Some("brickmap") => compute_ray_render_path::ComputeRepresentation::Brickmap {
+                        budget_bytes: brickmap_budget_bytes,
+                    },
+                    _ => {
+                        return Err(
+                            "--compute-representation requires dense or brickmap".to_owned()
+                        );
+                    }
+                };
+            }
+            "--brickmap-budget-bytes" => {
+                brickmap_budget_bytes = arguments
+                    .next()
+                    .ok_or("missing brickmap budget")?
+                    .parse::<u64>()
+                    .map_err(|error| error.to_string())?;
+            }
             "--report-canonical-configuration" => report_only = true,
             "--hold-background-preparation" => hold_background_preparation = true,
             "--hold-post-upload-candidate" => hold_post_upload_candidate = true,
@@ -367,6 +390,14 @@ pub(super) fn parse_render_configuration(
     }
     Ok((
         DesktopRenderConfiguration {
+            compute_representation: match compute_representation {
+                compute_ray_render_path::ComputeRepresentation::Dense => compute_representation,
+                compute_ray_render_path::ComputeRepresentation::Brickmap { .. } => {
+                    compute_ray_render_path::ComputeRepresentation::Brickmap {
+                        budget_bytes: brickmap_budget_bytes,
+                    }
+                }
+            },
             scene,
             camera,
             raster_region_extent,

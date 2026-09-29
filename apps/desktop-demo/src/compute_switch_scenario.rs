@@ -320,10 +320,11 @@ impl ScenarioExecution<'_> {
         let switch_requested_at = Instant::now();
         self.report_compute_timing_events()?;
         let (mut replacement, measurement_controller) =
-            ComputeRayRenderPathAdapter::new_with_measurement(
+            ComputeRayRenderPathAdapter::new_with_representation_and_measurement(
                 view.clone(),
                 self.desktop.camera_state,
                 self.desktop.camera_state_revision,
+                self.desktop.render_configuration.compute_representation,
             )
             .map_err(|error| format!("could not cold-build the compute replacement: {error}"))?;
         self.desktop.compute_measurement_controller = Some(measurement_controller);
