@@ -1,4 +1,12 @@
-    Finished `release` profile [optimized] target(s) in 0.12s
+   Compiling voxel-frontend v0.1.0 (E:\Programming\voxel-nexus\crates\voxel-frontend)
+   Compiling render-backend v0.1.0 (E:\Programming\voxel-nexus\crates\render-backend)
+   Compiling semantic-ray-oracle v0.1.0 (E:\Programming\voxel-nexus\crates\semantic-ray-oracle)
+   Compiling canonical-scene v0.1.0 (E:\Programming\voxel-nexus\crates\canonical-scene)
+   Compiling canonical-inspection v0.1.0 (E:\Programming\voxel-nexus\crates\canonical-inspection)
+   Compiling raster-render-path v0.1.0 (E:\Programming\voxel-nexus\crates\raster-render-path)
+   Compiling compute-ray-render-path v0.1.0 (E:\Programming\voxel-nexus\crates\compute-ray-render-path)
+   Compiling desktop-demo v0.1.0 (E:\Programming\voxel-nexus\apps\desktop-demo)
+    Finished `release` profile [optimized] target(s) in 10.49s
      Running tests\large_sparse_gpu.rs (target\release\deps\large_sparse_gpu-1d4c82610799e0bd.exe)
 
 running 1 test
@@ -17,6 +25,11 @@ phase=0 probe=cavity-wall installed_revision=1 result=Contact(SemanticRayContact
 phase=0 probe=cavity-miss installed_revision=1 result=Miss
 phase=0 probe=edited-roof installed_revision=1 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 64, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 4.0, classification: Entered(NegativeY) })
 phase=0 probe=edited-floor installed_revision=1 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 31, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 8.0, classification: Entered(PositiveY) })
+phase=0 probe=far-corner-face installed_revision=1 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=0 probe=far-corner-edge installed_revision=1 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.4142135381698608, classification: Entered(PositiveX) })
+phase=0 probe=far-corner-contact installed_revision=1 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.732050895690918, classification: Entered(PositiveX) })
+phase=0 probe=far-corner-nearly-axis-aligned installed_revision=1 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=0 probe=far-corner-nearly-vertical installed_revision=1 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.0, classification: Entered(PositiveY) })
 transition=uniform-to-mixed Required=2 Visible=2
 phase=1 probe=long-empty-miss installed_revision=2 result=Miss
 phase=1 probe=long-empty-hit installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 0, y: 80, z: 0 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 2048.0, classification: Entered(NegativeX) })
@@ -26,6 +39,11 @@ phase=1 probe=cavity-wall installed_revision=2 result=Contact(SemanticRayContact
 phase=1 probe=cavity-miss installed_revision=2 result=Miss
 phase=1 probe=edited-roof installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 65, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 5.0, classification: Entered(NegativeY) })
 phase=1 probe=edited-floor installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 31, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 8.0, classification: Entered(PositiveY) })
+phase=1 probe=far-corner-face installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=1 probe=far-corner-edge installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.4142135381698608, classification: Entered(PositiveX) })
+phase=1 probe=far-corner-contact installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.732050895690918, classification: Entered(PositiveX) })
+phase=1 probe=far-corner-nearly-axis-aligned installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=1 probe=far-corner-nearly-vertical installed_revision=2 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.0, classification: Entered(PositiveY) })
 transition=mixed-to-uniform Required=3 Visible=3
 phase=2 probe=long-empty-miss installed_revision=3 result=Miss
 phase=2 probe=long-empty-hit installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 0, y: 80, z: 0 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 2048.0, classification: Entered(NegativeX) })
@@ -35,6 +53,11 @@ phase=2 probe=cavity-wall installed_revision=3 result=Contact(SemanticRayContact
 phase=2 probe=cavity-miss installed_revision=3 result=Miss
 phase=2 probe=edited-roof installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 64, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 4.0, classification: Entered(NegativeY) })
 phase=2 probe=edited-floor installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 31, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 8.0, classification: Entered(PositiveY) })
+phase=2 probe=far-corner-face installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=2 probe=far-corner-edge installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.4142135381698608, classification: Entered(PositiveX) })
+phase=2 probe=far-corner-contact installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.732050895690918, classification: Entered(PositiveX) })
+phase=2 probe=far-corner-nearly-axis-aligned installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=2 probe=far-corner-nearly-vertical installed_revision=3 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.0, classification: Entered(PositiveY) })
 transition=empty-to-mixed Required=4 Visible=4
 phase=3 probe=long-empty-miss installed_revision=4 result=Miss
 phase=3 probe=long-empty-hit installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 0, y: 80, z: 0 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 2048.0, classification: Entered(NegativeX) })
@@ -44,6 +67,11 @@ phase=3 probe=cavity-wall installed_revision=4 result=Contact(SemanticRayContact
 phase=3 probe=cavity-miss installed_revision=4 result=Miss
 phase=3 probe=edited-roof installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 64, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 4.0, classification: Entered(NegativeY) })
 phase=3 probe=edited-floor installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 32, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 7.0, classification: Entered(PositiveY) })
+phase=3 probe=far-corner-face installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=3 probe=far-corner-edge installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.4142135381698608, classification: Entered(PositiveX) })
+phase=3 probe=far-corner-contact installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.732050895690918, classification: Entered(PositiveX) })
+phase=3 probe=far-corner-nearly-axis-aligned installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=3 probe=far-corner-nearly-vertical installed_revision=4 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.0, classification: Entered(PositiveY) })
 transition=mixed-to-empty Required=5 Visible=5
 phase=4 probe=long-empty-miss installed_revision=5 result=Miss
 phase=4 probe=long-empty-hit installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 0, y: 80, z: 0 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 2048.0, classification: Entered(NegativeX) })
@@ -53,6 +81,11 @@ phase=4 probe=cavity-wall installed_revision=5 result=Contact(SemanticRayContact
 phase=4 probe=cavity-miss installed_revision=5 result=Miss
 phase=4 probe=edited-roof installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 64, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 4.0, classification: Entered(NegativeY) })
 phase=4 probe=edited-floor installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 800, y: 31, z: 800 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 8.0, classification: Entered(PositiveY) })
+phase=4 probe=far-corner-face installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=4 probe=far-corner-edge installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.4142135381698608, classification: Entered(PositiveX) })
+phase=4 probe=far-corner-contact installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.732050895690918, classification: Entered(PositiveX) })
+phase=4 probe=far-corner-nearly-axis-aligned installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 79, z: 2047 }, material_identity: VoxelMaterialId("terrain-stone"), distance: 1.0, classification: Entered(PositiveX) })
+phase=4 probe=far-corner-nearly-vertical installed_revision=5 result=Contact(SemanticRayContact { volume_identity: VoxelVolumeId("large-terrain"), coordinate: VoxelCoordinate { x: 2047, y: 80, z: 2047 }, material_identity: VoxelMaterialId("terrain-grass"), distance: 1.0, classification: Entered(PositiveY) })
 test large_sparse_terrain_gpu_qualification ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 1.98s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 2.24s

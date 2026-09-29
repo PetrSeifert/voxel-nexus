@@ -175,6 +175,7 @@ fn verify(
         LargeSparseRecord::Verified {
             phase: name.into(),
             probe_count: fixtures.len(),
+            installed_revision: view.revision().to_string().parse()?,
         },
     )
 }
@@ -210,7 +211,24 @@ fn run(window: &Window, output: &mut File, first_frame_only: bool) -> RunResult 
             },
         )?;
     let preparation_peak = heap_peak(preparation_baseline);
-    let (preparation_ms, _) = phase_timing(&measurement, ComputeTimingPhase::Preparation)?;
+    let initial_events = measurement.drain()?;
+    let initial_timing = |phase| -> RunResult<f64> {
+        let events = initial_events
+            .iter()
+            .filter(|event| event.phase() == phase)
+            .collect::<Vec<_>>();
+        if events.len() != 1 {
+            return Err(format!("expected one {phase:?} event").into());
+        }
+        Ok(events
+            .first()
+            .ok_or("missing initial timing")?
+            .elapsed_milliseconds())
+    };
+    let preparation_ms = initial_timing(ComputeTimingPhase::Preparation)?;
+    let enumeration_ms = initial_timing(ComputeTimingPhase::Enumeration)?;
+    let construction_ms = initial_timing(ComputeTimingPhase::Construction)?;
+    let serialization_ms = initial_timing(ComputeTimingPhase::Serialization)?;
     let semantic = path.enable_semantic_ray_observation();
     let convergence = path.enable_convergence_control();
     let lifecycle = path.enable_lifecycle_control();
@@ -267,6 +285,13 @@ fn run(window: &Window, output: &mut File, first_frame_only: bool) -> RunResult 
                 fingerprint,
             },
         )?;
+        record(
+            output,
+            LargeSparseRecord::ValidationAllocation {
+                allocated_bytes: counters.validation.allocated_bytes as u64,
+                peak_working_bytes: counters.validation.peak_working_bytes as u64,
+            },
+        )?;
         for (name, value) in [
             ("first_correct_frame", first_ms),
             ("publication", publication_ms),
@@ -275,6 +300,9 @@ fn run(window: &Window, output: &mut File, first_frame_only: bool) -> RunResult 
                 counters.validation.elapsed.as_secs_f64() * 1000.0,
             ),
             ("preparation", preparation_ms),
+            ("enumeration", enumeration_ms),
+            ("construction", construction_ms),
+            ("serialization", serialization_ms),
             ("upload", upload_ms),
         ] {
             timing(output, name, value)?;
@@ -282,7 +310,6 @@ fn run(window: &Window, output: &mut File, first_frame_only: bool) -> RunResult 
         verify(&mut backend, &semantic, &view, 0, output, "initial")?;
 
         let enumeration_baseline = heap_start();
-        let enumeration_started = Instant::now();
         let mut output_bytes = 0;
         let mut working_bytes = 0;
         let (enumeration, enumeration_counters) = count_storage_work(|| -> RunResult {
@@ -298,9 +325,7 @@ fn run(window: &Window, output: &mut File, first_frame_only: bool) -> RunResult 
             Ok(())
         });
         enumeration?;
-        let enumeration_ms = elapsed(enumeration_started);
         let enumeration_peak = heap_peak(enumeration_baseline);
-        timing(output, "enumeration_replay", enumeration_ms)?;
         record(
             output,
             LargeSparseRecord::Memory {

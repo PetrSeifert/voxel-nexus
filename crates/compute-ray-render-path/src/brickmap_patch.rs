@@ -264,6 +264,8 @@ impl ComputeSceneBundle {
             )
             .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
         u32::try_from(new_words)?;
+        // This lower bound rejects impossible growth before CPU rebuilding. Upload
+        // replaces it with the device's allocation requirements before allocating.
         let predicted_peak_bytes = (self.storage_word_count() as u64 * 4)
             .checked_add(new_words as u64 * 8)
             .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;

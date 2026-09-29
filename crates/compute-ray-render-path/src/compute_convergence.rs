@@ -958,6 +958,34 @@ impl ComputeConvergence {
         }
     }
 
+    pub(crate) fn prepare_hidden_allocation(
+        &mut self,
+        old_allocation_bytes: u64,
+        new_allocation_bytes: u64,
+        staging_bytes: u64,
+    ) -> Result<(), ComputeSceneBuildError> {
+        let candidate = self
+            .hidden
+            .as_mut()
+            .ok_or(ComputeSceneBuildError::PatchBaseMismatch)?;
+        match candidate.bundle.predict_allocation_peak(
+            old_allocation_bytes,
+            new_allocation_bytes,
+            staging_bytes,
+        ) {
+            Ok(predicted_peak_bytes) => {
+                candidate
+                    .bundle
+                    .record_growth_prediction(predicted_peak_bytes);
+                Ok(())
+            }
+            Err(error) => {
+                self.fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
+                Err(error)
+            }
+        }
+    }
+
     pub(crate) fn mark_hidden_uploaded(&mut self) {
         if let Some(candidate) = &self.hidden {
             self.events
@@ -1629,6 +1657,56 @@ mod tests {
             );
             assert_eq!(convergence.installed_bundle().storage_words(), visible);
             assert!(convergence.status().hidden().is_none());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn rounded_growth_allocation_rejection_preserves_visible_revision()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("rounded-growth-budget", 0, VoxelExtent::new(32, 8, 8))?;
+        changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?;
+        let mut convergence = brickmap_convergence(&frontend, 8444)?;
+        install_brickmap_edit(
+            &mut convergence,
+            changed_edit(&frontend, VoxelCoordinate::new(8, 0, 0))?,
+        )?;
+        let visible = convergence.installed_bundle().storage_words();
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(16, 0, 0))?)?;
+        for retry in [false, true] {
+            if retry {
+                convergence.request_retry()?;
+            }
+            drain_until_ready(&mut convergence, VoxelSceneRevision::new(3))?;
+            convergence.retain_ready_candidate();
+            // Packed data fits exactly, but two rounded Vulkan allocations add 24 bytes.
+            let error = convergence
+                .prepare_hidden_allocation(2144, 3168, 3156)
+                .unwrap_err();
+            let ComputeSceneBuildError::GrowthBudgetExceeded {
+                predicted_peak_bytes,
+                budget_bytes,
+            } = error
+            else {
+                return Err("expected a typed growth-budget rejection".into());
+            };
+            assert_eq!((predicted_peak_bytes, budget_bytes), (8468, 8444));
+            let events = convergence.drain_events();
+            assert!(events.iter().any(|event| matches!(event, ComputeConvergenceEvent::Failure(failure)
+                if failure.phase() == ComputeConvergenceFailurePhase::Upload
+                    && failure.visible_revision() == VoxelSceneRevision::new(2)
+                    && failure.source() == "brickmap growth peak 8468 bytes exceeds configured budget 8444 bytes")));
+            assert_eq!(
+                convergence.status().visible_revision(),
+                VoxelSceneRevision::new(2)
+            );
+            assert_eq!(convergence.installed_bundle().storage_words(), visible);
+            assert!(convergence.status().hidden().is_none());
+            if !retry {
+                println!(
+                    "{{\"event\":\"predicted_rejection\",\"predicted_bytes\":{predicted_peak_bytes},\"budget_bytes\":{budget_bytes},\"rejected\":true}}"
+                );
+            }
         }
         Ok(())
     }

@@ -262,7 +262,13 @@ impl ComputeRayRenderPath {
         &mut self,
         device: &RenderPathDeviceContext<'_>,
     ) -> Result<(), ComputeRenderPathError> {
-        let resources = create_scene_gpu_resources(device, self.convergence.installed_bundle(), 0)?;
+        let bundle = self.convergence.installed_bundle();
+        let resources =
+            create_scene_gpu_resources(device, bundle, |allocation_bytes, staging_bytes| {
+                bundle
+                    .predict_allocation_peak(0, allocation_bytes, staging_bytes)
+                    .map(|_| ())
+            })?;
         self.scene_buffer = resources.buffer;
         self.scene_memory = resources.memory;
         self.scene_allocation_bytes = resources.allocation_bytes;
@@ -1013,7 +1019,7 @@ pub(super) fn scene_storage_byte_size(
 pub(super) fn create_scene_gpu_resources(
     device: &RenderPathDeviceContext<'_>,
     bundle: &ComputeSceneBundle,
-    old_allocation_bytes: u64,
+    predict_allocation: impl FnOnce(u64, u64) -> Result<(), crate::ComputeSceneBuildError>,
 ) -> Result<ComputeSceneGpuResources, ComputeRenderPathError> {
     let byte_size = scene_storage_byte_size(device, bundle)?;
     let buffer_info = vk::BufferCreateInfo::default()
@@ -1025,19 +1031,9 @@ pub(super) fn create_scene_gpu_resources(
     let requirements = unsafe { device.buffer_memory_requirements(buffer) };
     // Vulkan may round the requested buffer size up. Check its actual allocation
     // requirement before allocating either device memory or upload staging.
-    if let crate::ComputeRepresentation::Brickmap { budget_bytes } = bundle.representation() {
-        let peak = old_allocation_bytes
-            .saturating_add(requirements.size)
-            .saturating_add(byte_size);
-        if peak > budget_bytes {
-            unsafe { device.destroy_buffer(buffer) };
-            return Err(crate::BrickmapValidationError::BufferLimit {
-                limit: "configured peak budget",
-                required: peak,
-                available: budget_bytes,
-            }
-            .into());
-        }
+    if let Err(error) = predict_allocation(requirements.size, byte_size) {
+        unsafe { device.destroy_buffer(buffer) };
+        return Err(error.into());
     }
     let Some(memory_type_index) = device.memory_type_index(
         requirements.memory_type_bits,

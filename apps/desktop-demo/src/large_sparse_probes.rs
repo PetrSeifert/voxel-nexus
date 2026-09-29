@@ -108,6 +108,68 @@ pub fn probes(
             ),
         ),
     ];
+    fixtures.extend([
+        (
+            "far-corner-face",
+            [2049.0, 79.5, 2047.5],
+            [-1.0, 0.0, 0.0],
+            4.0,
+            contact(
+                [2047, 79, 2047],
+                "terrain-stone",
+                1.0,
+                Entered(AxisNormal::PositiveX),
+            ),
+        ),
+        (
+            "far-corner-edge",
+            [2049.0, 79.5, 2049.0],
+            [-1.0, 0.0, -1.0],
+            4.0,
+            contact(
+                [2047, 79, 2047],
+                "terrain-stone",
+                2.0_f64.sqrt(),
+                Entered(AxisNormal::PositiveX),
+            ),
+        ),
+        (
+            "far-corner-contact",
+            [2049.0, 82.0, 2049.0],
+            [-1.0, -1.0, -1.0],
+            4.0,
+            contact(
+                [2047, 80, 2047],
+                "terrain-grass",
+                3.0_f64.sqrt(),
+                Entered(AxisNormal::PositiveX),
+            ),
+        ),
+        (
+            "far-corner-nearly-axis-aligned",
+            [2049.0, 79.5, 2047.5],
+            [-1.0, 0.000001, -0.000001],
+            4.0,
+            contact(
+                [2047, 79, 2047],
+                "terrain-stone",
+                (1.0_f64 + 2.0e-12).sqrt(),
+                Entered(AxisNormal::PositiveX),
+            ),
+        ),
+        (
+            "far-corner-nearly-vertical",
+            [2047.5, 82.0, 2047.5],
+            [-0.000001, -1.0, 0.000001],
+            4.0,
+            contact(
+                [2047, 80, 2047],
+                "terrain-grass",
+                (1.0_f64 + 2.0e-12).sqrt(),
+                Entered(AxisNormal::PositiveY),
+            ),
+        ),
+    ]);
     if phase == 5 {
         fixtures.push((
             "grown-pool",

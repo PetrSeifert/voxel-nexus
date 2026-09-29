@@ -25,6 +25,10 @@ fn measured_budget_is_enforced_independently_of_prediction() {
 fn complete_run() -> Vec<LargeSparseRecord> {
     use measurement_evidence::large_sparse::{TIMINGS, TRANSITIONS};
     let mut records = vec![
+        LargeSparseRecord::ValidationAllocation {
+            allocated_bytes: 32,
+            peak_working_bytes: 32,
+        },
         LargeSparseRecord::Completed {
             validation_errors: 0,
             validation_warnings: 0,
@@ -43,7 +47,7 @@ fn complete_run() -> Vec<LargeSparseRecord> {
         LargeSparseRecord::Growth {
             old_capacity: 83_200,
             new_capacity: 124_800,
-            predicted_peak_bytes: 300,
+            predicted_peak_bytes: 340,
             actual_peak_bytes: 320,
         },
         LargeSparseRecord::PredictedRejection {
@@ -92,7 +96,15 @@ fn complete_run() -> Vec<LargeSparseRecord> {
     ] {
         records.push(LargeSparseRecord::Verified {
             phase: phase.into(),
-            probe_count: if phase == "growth" { 9 } else { 8 },
+            probe_count: if phase == "growth" { 14 } else { 13 },
+            installed_revision: match phase {
+                "initial" => 1,
+                "uniform_to_mixed" => 2,
+                "mixed_to_uniform" => 3,
+                "empty_to_mixed" => 4,
+                "mixed_to_empty" => 5,
+                _ => 6,
+            },
         });
     }
     records
@@ -166,6 +178,44 @@ fn contradictory_growth_memory_is_rejected() {
 }
 
 #[test]
+fn measured_growth_cannot_exceed_prediction() {
+    let mut run = complete_run();
+    for record in &mut run {
+        if let LargeSparseRecord::Growth {
+            predicted_peak_bytes,
+            ..
+        } = record
+        {
+            *predicted_peak_bytes = 319;
+        }
+    }
+    assert!(validate(&[run.clone(), run.clone(), run]).is_err());
+}
+
+#[test]
+fn predicted_rejection_uses_observed_values() {
+    let mut run = complete_run();
+    for record in &mut run {
+        if let LargeSparseRecord::PredictedRejection {
+            predicted_bytes,
+            budget_bytes,
+            ..
+        } = record
+        {
+            *predicted_bytes = 8468;
+            *budget_bytes = 8444;
+        }
+    }
+    assert!(validate(&[run.clone(), run.clone(), run.clone()]).is_ok());
+    for record in &mut run {
+        if let LargeSparseRecord::PredictedRejection { budget_bytes, .. } = record {
+            *budget_bytes = 8468;
+        }
+    }
+    assert!(validate(&[run.clone(), run.clone(), run]).is_err());
+}
+
+#[test]
 fn evidence_requires_successful_validation_and_shutdown() {
     let mut run = complete_run();
     run.push(LargeSparseRecord::Completed {
@@ -182,8 +232,13 @@ fn budget_boundary_is_inclusive_and_device_limit_is_exact() {
     for record in &mut run {
         match record {
             LargeSparseRecord::Growth {
-                actual_peak_bytes, ..
-            } => *actual_peak_bytes = 1_073_741_824,
+                actual_peak_bytes,
+                predicted_peak_bytes,
+                ..
+            } => {
+                *actual_peak_bytes = 1_073_741_824;
+                *predicted_peak_bytes = 1_073_741_824;
+            }
             LargeSparseRecord::Memory {
                 phase,
                 visible_candidate_gpu_bytes,
@@ -212,4 +267,50 @@ fn budget_boundary_is_inclusive_and_device_limit_is_exact() {
         }
     }
     assert!(validate(&[run.clone(), run.clone(), run]).is_err());
+}
+#[test]
+fn actual_first_preparation_timings_are_required() {
+    let run = complete_run();
+    let report = validate(&[run.clone(), run.clone(), run.clone()]).unwrap();
+    for name in ["enumeration", "construction", "serialization"] {
+        assert!(report.timings.contains_key(name), "missing {name}");
+        let missing = run.iter().filter(|record| !matches!(record, LargeSparseRecord::Timing { name: recorded, .. } if recorded == name)).cloned().collect::<Vec<_>>();
+        assert!(validate(&[missing, run.clone(), run.clone()]).is_err());
+    }
+}
+
+#[test]
+fn verification_requires_the_installed_revision_and_validation_allocation() {
+    for replacement in [
+        LargeSparseRecord::Verified {
+            phase: "initial".into(),
+            probe_count: 13,
+            installed_revision: 2,
+        },
+        LargeSparseRecord::ValidationAllocation {
+            allocated_bytes: 32,
+            peak_working_bytes: 33,
+        },
+        LargeSparseRecord::ValidationAllocation {
+            allocated_bytes: 0,
+            peak_working_bytes: 0,
+        },
+    ] {
+        let mut run = complete_run();
+        for record in &mut run {
+            if matches!((&*record, &replacement),
+                (LargeSparseRecord::Verified { phase, .. }, LargeSparseRecord::Verified { .. }) if phase == "initial")
+                || matches!(
+                    (&*record, &replacement),
+                    (
+                        LargeSparseRecord::ValidationAllocation { .. },
+                        LargeSparseRecord::ValidationAllocation { .. }
+                    )
+                )
+            {
+                *record = replacement.clone();
+            }
+        }
+        assert!(validate(&[run.clone(), run.clone(), run]).is_err());
+    }
 }

@@ -200,6 +200,36 @@ impl BrickGrid {
         ]
     }
 
+    // A subtree covers consecutive row-major keys. Find the first queried brick at or
+    // after its start without walking the rows or layers of the query.
+    fn intersects_keys(&self, bounds: &[Range<usize>; 3], first: usize, last: usize) -> bool {
+        let Some([first_x, first_y, first_z]) = self.position(first) else {
+            return false;
+        };
+        let [x, y, z] = bounds;
+        let mut brick_z = first_z.max(z.start);
+        let mut brick_y = if brick_z == first_z {
+            first_y.max(y.start)
+        } else {
+            y.start
+        };
+        let mut brick_x = if brick_z == first_z && brick_y == first_y {
+            first_x.max(x.start)
+        } else {
+            x.start
+        };
+        if brick_x >= x.end {
+            brick_x = x.start;
+            brick_y += 1;
+        }
+        if brick_y >= y.end {
+            brick_x = x.start;
+            brick_y = y.start;
+            brick_z += 1;
+        }
+        brick_z < z.end && self.key([brick_x, brick_y, brick_z]) <= last
+    }
+
     fn locate(&self, coordinate: VoxelCoordinate) -> Option<BrickLocation> {
         let [x, y, z] = coordinate.components();
         let [x, y, z] = [
@@ -475,35 +505,45 @@ impl Storage for SparseStorage {
         if x.is_empty() || y.is_empty() || z.is_empty() {
             return uniform;
         }
-        for brick_z in z.start / BRICK_EDGE..z.end.div_ceil(BRICK_EDGE) {
-            for brick_y in y.start / BRICK_EDGE..y.end.div_ceil(BRICK_EDGE) {
-                for brick_x in x.start / BRICK_EDGE..x.end.div_ceil(BRICK_EDGE) {
-                    let brick = [brick_x, brick_y, brick_z];
-                    record_brick_examined();
-                    match self.bricks.get(&self.grid.key(brick)) {
-                        None => merge_uniform(&mut uniform, MaterialIndex::EMPTY)?,
-                        Some(Brick::Uniform(value)) => merge_uniform(&mut uniform, *value)?,
-                        Some(Brick::Mixed(values)) => {
-                            let [brick_width, brick_height, _] = self.grid.brick_extent(brick);
-                            for local_z in brick_local(&z, brick_z) {
-                                for local_y in brick_local(&y, brick_y) {
-                                    let row = (local_z * brick_height + local_y) * brick_width;
-                                    for local_x in brick_local(&x, brick_x) {
-                                        record_voxel_value_examined();
-                                        merge_uniform(
-                                            &mut uniform,
-                                            values
-                                                .get(row + local_x)
-                                                .copied()
-                                                .unwrap_or(MaterialIndex::EMPTY),
-                                        )?;
-                                    }
+        let brick_bounds =
+            [&x, &y, &z].map(|range| range.start / BRICK_EDGE..range.end.div_ceil(BRICK_EDGE));
+        // The grid's checked brick count bounds this product even when the voxel count
+        // of the region is too large to represent.
+        let covered_bricks = brick_bounds.iter().map(Range::len).product::<usize>();
+        let mut resident_bricks = 0;
+        self.bricks.visit_intersecting(
+            |first, last| self.grid.intersects_keys(&brick_bounds, first, last),
+            |key, brick| {
+                resident_bricks += 1;
+                record_brick_examined();
+                match brick {
+                    Brick::Uniform(value) => merge_uniform(&mut uniform, *value)?,
+                    Brick::Mixed(values) => {
+                        let [brick_x, brick_y, brick_z] = self.grid.position(key)?;
+                        let [brick_width, brick_height, _] =
+                            self.grid.brick_extent([brick_x, brick_y, brick_z]);
+                        for local_z in brick_local(&z, brick_z) {
+                            for local_y in brick_local(&y, brick_y) {
+                                let row = (local_z * brick_height + local_y) * brick_width;
+                                for local_x in brick_local(&x, brick_x) {
+                                    record_voxel_value_examined();
+                                    merge_uniform(
+                                        &mut uniform,
+                                        values
+                                            .get(row + local_x)
+                                            .copied()
+                                            .unwrap_or(MaterialIndex::EMPTY),
+                                    )?;
                                 }
                             }
                         }
                     }
                 }
-            }
+                Some(())
+            },
+        )?;
+        if resident_bricks < covered_bricks {
+            merge_uniform(&mut uniform, MaterialIndex::EMPTY)?;
         }
         uniform
     }

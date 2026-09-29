@@ -173,3 +173,47 @@ fn accepted_edits_advance_required_without_changing_the_visible_installation()
     assert_eq!(adapter.convergence_status().worker_count(), 1);
     Ok(())
 }
+
+#[test]
+fn first_brickmap_preparation_reports_separate_revision_attributed_phases()
+-> Result<(), Box<dyn std::error::Error>> {
+    let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("brickmap-measurement"),
+        VoxelSceneRevision::new(9),
+        Vec::new(),
+        Vec::new(),
+    ))?;
+    let camera = CameraState::new([2.0; 3], [0.0; 3], [0.0, 1.0, 0.0], 50.0, 0.1, 100.0)?;
+    let (_, measurement) = ComputeRayRenderPathAdapter::new_with_representation_and_measurement(
+        view,
+        camera,
+        CameraStateRevision::new(3),
+        compute_ray_render_path::ComputeRepresentation::Brickmap {
+            budget_bytes: 1 << 30,
+        },
+    )?;
+    let events = measurement.drain()?;
+    assert_eq!(events.len(), 4);
+    for phase in [
+        ComputeTimingPhase::Preparation,
+        ComputeTimingPhase::Enumeration,
+        ComputeTimingPhase::Construction,
+        ComputeTimingPhase::Serialization,
+    ] {
+        let matching = events
+            .iter()
+            .filter(|event| event.phase() == phase)
+            .collect::<Vec<_>>();
+        assert_eq!(matching.len(), 1);
+        let event = matching.first().unwrap();
+        assert_eq!(event.revision(), VoxelSceneRevision::new(9));
+        assert_eq!(
+            event.scene_identity(),
+            &VoxelSceneId::new("brickmap-measurement")
+        );
+        assert!(event.elapsed_milliseconds().is_finite());
+        assert!(event.elapsed_milliseconds() >= 0.0);
+    }
+    assert!(measurement.drain()?.is_empty());
+    Ok(())
+}

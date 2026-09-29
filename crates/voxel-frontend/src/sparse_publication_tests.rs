@@ -237,6 +237,55 @@ fn overlap_validation_sweeps_a_horizontal_axis_across_terrain_columns() -> Resul
 }
 
 #[test]
+fn validation_allocation_follows_input_batches_without_following_volume_extent()
+-> Result<(), Box<dyn Error>> {
+    let mut previous: Option<(usize, (usize, usize))> = None;
+    for batch_count in [8_usize, 128, 4096] {
+        let mut allocations = Vec::new();
+        for extent in [[8192; 3], [HUGE_AXIS; 3]] {
+            let batches = (0..batch_count)
+                .map(|x| {
+                    fill(
+                        [i32::try_from(x * 2).unwrap(), 0, 0],
+                        [1; 3],
+                        VoxelValue::Empty,
+                    )
+                })
+                .collect();
+            let (view, counters) = count_storage_work(|| {
+                VoxelFrontend::new().publish_sparse(sparse_scene(
+                    extent,
+                    batches,
+                    StorageTier::SparsePages,
+                ))
+            });
+            view?;
+            assert_eq!(counters.validation.batches_validated, batch_count);
+            assert_eq!(counters.publication.staged_values_allocated, 0);
+            let validation = counters.validation;
+            assert!(validation.allocated_bytes > 0);
+            assert!(validation.peak_working_bytes > 0);
+            assert!(validation.peak_working_bytes <= validation.allocated_bytes);
+            allocations.push((validation.allocated_bytes, validation.peak_working_bytes));
+        }
+        assert_eq!(allocations.first(), allocations.get(1));
+        let allocated = allocations.first().copied().ok_or("missing measurement")?;
+        if let Some((previous_count, previous_allocated)) = previous {
+            assert_eq!(
+                allocated.0 * previous_count,
+                previous_allocated.0 * batch_count
+            );
+            assert_eq!(
+                allocated.1 * previous_count,
+                previous_allocated.1 * batch_count
+            );
+        }
+        previous = Some((batch_count, allocated));
+    }
+    Ok(())
+}
+
+#[test]
 fn huge_extent_scene_stays_within_time_and_memory_limits() -> Result<(), Box<dyn Error>> {
     let mut child = Command::new(std::env::current_exe()?)
         .args([
@@ -302,6 +351,46 @@ fn huge_extent_scene_child() -> Result<(), Box<dyn Error>> {
             Ordering::Relaxed,
         );
     }
+    let empty_frontend = VoxelFrontend::new();
+    let empty = empty_frontend.publish_sparse(sparse_scene(
+        [HUGE_AXIS; 3],
+        vec![],
+        StorageTier::SparsePages,
+    ))?;
+    let whole_volume = region([0; 3], [HUGE_AXIS; 3]);
+    let (content, classification) =
+        count_storage_work(|| empty.region_content(&volume_identity(), whole_volume));
+    assert_eq!(content?, VoxelRegionContent::Uniform(VoxelValue::Empty));
+    assert_eq!(classification.bricks_examined, 0);
+    assert_eq!(classification.voxel_values_examined, 0);
+    assert_eq!(classification.classification_nodes_visited, 1);
+    let edited = empty_frontend.edit(VoxelEditCommand::from_edits(vec![VoxelEdit::new(
+        volume_identity(),
+        VoxelCoordinate::new(0, 0, 0),
+        stone(),
+    )]))?;
+    let (content, classification) = count_storage_work(|| {
+        edited
+            .view()
+            .region_content(&volume_identity(), whole_volume)
+    });
+    assert_eq!(content?, VoxelRegionContent::Mixed);
+    assert_eq!(classification.bricks_examined, 1);
+    assert!(classification.voxel_values_examined <= 2);
+    assert!(classification.classification_nodes_visited <= 9);
+    let (content, classification) = count_storage_work(|| {
+        edited
+            .view()
+            .region_content(&volume_identity(), region([1 << 21; 3], [1 << 21; 3]))
+    });
+    assert_eq!(content?, VoxelRegionContent::Uniform(VoxelValue::Empty));
+    assert_eq!(classification.bricks_examined, 0);
+    assert_eq!(classification.voxel_values_examined, 0);
+    assert!(classification.classification_nodes_visited <= 9);
+    assert!(matches!(
+        empty.read_region(&volume_identity(), whole_volume),
+        Err(VoxelFrontendError::InvalidRegionBounds { identity }) if identity == volume_identity()
+    ));
     let far = i32::try_from(HUGE_AXIS)? - 2;
     let batches = || {
         vec![
@@ -341,12 +430,28 @@ fn huge_extent_scene_child() -> Result<(), Box<dyn Error>> {
     assert_eq!(counters.validation.batches_validated, 4);
     assert_eq!(counters.validation.voxel_values_validated, 8);
     assert_eq!(counters.validation.candidate_pairs_examined, 1);
+    assert!(counters.validation.allocated_bytes > 0);
+    assert!(counters.validation.allocated_bytes < 4096, "{counters:?}");
+    assert!(counters.validation.peak_working_bytes > 0);
+    assert!(
+        counters.validation.peak_working_bytes < 4096,
+        "{counters:?}"
+    );
     assert_eq!(counters.publication.bricks_visited, 3);
     assert_eq!(
         counters.publication.staged_values_allocated,
         2 * 16 * 16 * 16
     );
     assert_eq!(counters.publication.voxel_values_written, 3 * 5 * 7 + 8);
+    for edge in [256, 1 << 12, HUGE_AXIS] {
+        let (content, classification) = count_storage_work(|| {
+            view.region_content(&volume_identity(), region([0; 3], [edge; 3]))
+        });
+        assert_eq!(content?, VoxelRegionContent::Mixed);
+        assert!(classification.bricks_examined <= 3, "{classification:?}");
+        assert!(classification.classification_nodes_visited <= 1 + 3 * 8);
+        assert!(classification.voxel_values_examined <= 16 * 16 * 16);
+    }
     assert_eq!(
         view.region_content(&volume_identity(), region([0, 0, 0], [16, 16, 16]))?,
         VoxelRegionContent::Uniform(stone())
@@ -401,15 +506,11 @@ fn huge_extent_scene_child() -> Result<(), Box<dyn Error>> {
             (counters.copied_nodes, counters.copied_brick_payloads),
             (0, 0)
         );
-        // Classifying the whole volume would visit every brick, so only cells smaller
-        // than the volume are compared with region classification.
-        if cell_edge < HUGE_AXIS {
-            for cell in &cells {
-                assert_eq!(
-                    &view.region_content(&volume, cell.region())?,
-                    cell.content()
-                );
-            }
+        for cell in &cells {
+            assert_eq!(
+                &view.region_content(&volume, cell.region())?,
+                cell.content()
+            );
         }
     }
 

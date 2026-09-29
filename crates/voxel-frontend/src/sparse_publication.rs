@@ -1,5 +1,5 @@
 use super::storage_counters::{
-    record_batch_validated, record_candidate_pair_examined, record_sweep_axis,
+    ValidationMemory, record_batch_validated, record_candidate_pair_examined, record_sweep_axis,
     record_values_validated,
 };
 use super::*;
@@ -86,6 +86,7 @@ pub(super) fn validate(
 ) -> Result<Vec<ValidatedBatch>, VoxelFrontendError> {
     #[cfg(any(test, feature = "qualification"))]
     let _timer = super::storage_counters::ValidationTimer(std::time::Instant::now());
+    let memory = ValidationMemory::default();
     let identity = &volume.metadata.identity;
     let mut batches = Vec::new();
     batches
@@ -93,6 +94,7 @@ pub(super) fn validate(
         .map_err(|_| VoxelFrontendError::VolumeAllocation {
             identity: identity.clone(),
         })?;
+    memory.retain_vector(&batches);
     for (batch_index, batch) in volume.batches.iter().enumerate() {
         record_batch_validated();
         let (bounds, content) = match batch {
@@ -115,6 +117,7 @@ pub(super) fn validate(
                         identity: identity.clone(),
                     }
                 })?;
+                memory.retain_vector(&values);
                 for (value, coordinate) in detail.values.iter().zip(bounds.coordinates()) {
                     values.push(material_index(value, materials, identity, coordinate)?);
                 }
@@ -141,7 +144,7 @@ pub(super) fn validate(
             content,
         });
     }
-    if let Some((first_batch_index, second_batch_index)) = find_overlap(&batches) {
+    if let Some((first_batch_index, second_batch_index)) = find_overlap(&batches, &memory) {
         return Err(VoxelFrontendError::OverlappingBatches {
             identity: identity.clone(),
             first_batch_index,
@@ -173,17 +176,20 @@ fn material_index(
 /// Sweep and prune along the axis whose projections overlap least, followed by exact box
 /// intersection of the surviving candidate pairs. Ties prefer horizontal axes, because
 /// terrain batches stacked in columns share their vertical projections.
-fn find_overlap(batches: &[ValidatedBatch]) -> Option<(usize, usize)> {
+fn find_overlap(batches: &[ValidatedBatch], memory: &ValidationMemory) -> Option<(usize, usize)> {
     let order = [0, 2, 1]
         .into_iter()
         .map(|axis| {
             let mut order: Vec<(usize, &ValidatedBatch)> = batches.iter().enumerate().collect();
-            order.sort_by_key(|(index, batch)| (batch.start[axis], *index));
+            let allocation = memory.temporary_vector(&order);
+            // The batch index makes each key unique, so an in-place unstable sort preserves
+            // the same order while avoiding an unaccounted sorting buffer.
+            order.sort_unstable_by_key(|(index, batch)| (batch.start[axis], *index));
             let overlapping_pairs = overlapping_projection_pairs(&order, axis);
-            (overlapping_pairs, axis, order)
+            (overlapping_pairs, axis, order, allocation)
         })
-        .min_by_key(|(overlapping_pairs, _, _)| *overlapping_pairs);
-    let (_, axis, order) = order?;
+        .min_by_key(|(overlapping_pairs, _, _, _)| *overlapping_pairs);
+    let (_, axis, order, _allocation) = order?;
     record_sweep_axis(axis);
     for (position, (first_index, first)) in order.iter().enumerate() {
         let later = order.get(position + 1..).unwrap_or_default();

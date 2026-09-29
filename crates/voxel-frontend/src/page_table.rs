@@ -1,4 +1,6 @@
-use crate::storage_counters::{record_copied_node, record_enumeration_node_visited};
+use crate::storage_counters::{
+    record_classification_node_visited, record_copied_node, record_enumeration_node_visited,
+};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -64,6 +66,15 @@ impl<T: Clone> PageTable<T> {
 
     pub(super) fn values(&self) -> impl Iterator<Item = &T> {
         self.iter().map(|(_, value)| value)
+    }
+
+    pub(super) fn visit_intersecting(
+        &self,
+        intersects: impl Fn(usize, usize) -> bool,
+        mut visit: impl FnMut(usize, &T) -> Option<()>,
+    ) -> Option<()> {
+        self.root
+            .visit_intersecting(0, self.shift, &intersects, &mut visit)
     }
 
     pub(super) fn storage_bytes(&self) -> usize {
@@ -170,6 +181,41 @@ impl<T: Clone> Node<T> {
                 child.iter(prefix | (slot << shift), shift - LEVEL_BITS)
             })),
         }
+    }
+
+    fn visit_intersecting(
+        &self,
+        prefix: usize,
+        shift: u32,
+        intersects: &impl Fn(usize, usize) -> bool,
+        visit: &mut impl FnMut(usize, &T) -> Option<()>,
+    ) -> Option<()> {
+        let last = prefix | (LEVEL_MASK << shift) | ((1usize << shift) - 1);
+        if !intersects(prefix, last) {
+            return Some(());
+        }
+        record_classification_node_visited();
+        match self {
+            Self::Leaf(values) => {
+                for (slot, value) in values {
+                    let key = prefix | slot;
+                    if intersects(key, key) {
+                        visit(key, value)?;
+                    }
+                }
+            }
+            Self::Branch(children) => {
+                for (slot, child) in children {
+                    child.visit_intersecting(
+                        prefix | (slot << shift),
+                        shift - LEVEL_BITS,
+                        intersects,
+                        visit,
+                    )?;
+                }
+            }
+        }
+        Some(())
     }
 
     fn storage_bytes(&self) -> usize {

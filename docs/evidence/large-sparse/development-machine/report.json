@@ -3,95 +3,107 @@
   "gpu_scene_budget_bytes": 1073741824,
   "measured_peak_bytes": 365953300,
   "timings": {
+    "construction": {
+      "count": 3,
+      "median": 1555.9028,
+      "p95": 1987.4383,
+      "maximum": 1987.4383
+    },
     "empty_to_mixed": {
       "count": 3,
-      "median": 7.4334,
-      "p95": 7.488200000000001,
-      "maximum": 7.488200000000001
+      "median": 12.4171,
+      "p95": 13.6325,
+      "maximum": 13.6325
     },
-    "enumeration_replay": {
+    "enumeration": {
       "count": 3,
-      "median": 357.4971,
-      "p95": 367.6002,
-      "maximum": 367.6002
+      "median": 507.6018,
+      "p95": 598.9658,
+      "maximum": 598.9658
     },
     "first_correct_frame": {
       "count": 3,
-      "median": 2112.1181,
-      "p95": 2125.5815,
-      "maximum": 2125.5815
+      "median": 2836.9403,
+      "p95": 3631.2694,
+      "maximum": 3631.2694
     },
     "growth": {
       "count": 3,
-      "median": 3204.2663,
-      "p95": 4460.6588,
-      "maximum": 4460.6588
+      "median": 4613.1513,
+      "p95": 5464.2327000000005,
+      "maximum": 5464.2327000000005
     },
     "growth_rebuild": {
       "count": 3,
-      "median": 2404.978,
-      "p95": 3684.4704,
-      "maximum": 3684.4704
+      "median": 3560.8955,
+      "p95": 4307.293,
+      "maximum": 4307.293
     },
     "growth_upload": {
       "count": 3,
-      "median": 31.0646,
-      "p95": 31.393400000000003,
-      "maximum": 31.393400000000003
+      "median": 74.13459999999999,
+      "p95": 85.5635,
+      "maximum": 85.5635
     },
     "mixed_to_empty": {
       "count": 3,
-      "median": 7.5825,
-      "p95": 9.669,
-      "maximum": 9.669
+      "median": 10.2791,
+      "p95": 14.8211,
+      "maximum": 14.8211
     },
     "mixed_to_uniform": {
       "count": 3,
-      "median": 7.2038,
-      "p95": 11.2988,
-      "maximum": 11.2988
+      "median": 12.0385,
+      "p95": 13.8079,
+      "maximum": 13.8079
     },
     "preparation": {
       "count": 3,
-      "median": 1584.5728,
-      "p95": 1588.0822,
-      "maximum": 1588.0822
+      "median": 2133.5694,
+      "p95": 2670.5399,
+      "maximum": 2670.5399
     },
     "publication": {
       "count": 3,
-      "median": 272.0419,
-      "p95": 272.6807,
-      "maximum": 272.6807
+      "median": 346.21930000000003,
+      "p95": 535.0737,
+      "maximum": 535.0737
+    },
+    "serialization": {
+      "count": 3,
+      "median": 76.5148,
+      "p95": 92.7041,
+      "maximum": 92.7041
     },
     "steady_cpu": {
       "count": 180,
-      "median": 1.69245,
-      "p95": 2.444,
-      "maximum": 3.7492
+      "median": 2.13225,
+      "p95": 4.2601,
+      "maximum": 7.5727
     },
     "steady_gpu": {
       "count": 180,
-      "median": 1.11816,
-      "p95": 1.703232,
-      "maximum": 2.227168
+      "median": 1.1191200000000001,
+      "p95": 2.713856,
+      "maximum": 4.40896
     },
     "uniform_to_mixed": {
       "count": 3,
-      "median": 7.4639,
-      "p95": 7.6642,
-      "maximum": 7.6642
+      "median": 8.2491,
+      "p95": 14.6099,
+      "maximum": 14.6099
     },
     "upload": {
       "count": 3,
-      "median": 19.3051,
-      "p95": 19.8208,
-      "maximum": 19.8208
+      "median": 24.6577,
+      "p95": 25.2909,
+      "maximum": 25.2909
     },
     "validation": {
       "count": 3,
-      "median": 113.5306,
-      "p95": 119.9854,
-      "maximum": 119.9854
+      "median": 147.8854,
+      "p95": 232.0707,
+      "maximum": 232.0707
     }
   }
 }

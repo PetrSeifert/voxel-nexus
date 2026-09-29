@@ -312,6 +312,7 @@ fn check_sparse_envelope(window: &Window) -> TestResult {
 enum BrickmapLifecycleScenario {
     Transitions,
     CapacityExhaustion,
+    RoundedAllocationRejection,
     PartialWriteFailure,
 }
 
@@ -348,10 +349,10 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
         camera,
         CameraStateRevision::new(1),
         ComputeRepresentation::Brickmap {
-            budget_bytes: if scenario == BrickmapLifecycleScenario::CapacityExhaustion {
-                3000
-            } else {
-                8192
+            budget_bytes: match scenario {
+                BrickmapLifecycleScenario::CapacityExhaustion => 3000,
+                BrickmapLifecycleScenario::RoundedAllocationRejection => 2276,
+                _ => 8192,
             },
         },
     )?;
@@ -412,6 +413,16 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
         convergence.submit(first)?;
         for _ in 0..1000 {
             backend.draw_frame()?;
+            if scenario == BrickmapLifecycleScenario::RoundedAllocationRejection
+                && convergence.drain_events()?.iter().any(|event| matches!(event, ComputeConvergenceEvent::Failure(failure)
+                    if failure.phase() == compute_ray_render_path::ComputeConvergenceFailurePhase::Upload
+                        && failure.source().contains("exceeds configured budget 2276 bytes")))
+            {
+                assert_eq!(convergence.status()?.visible_revision(), initial.revision());
+                assert!(convergence.status()?.hidden().is_none());
+                verify(&mut backend, &initial)?;
+                return Ok(());
+            }
             if convergence.post_upload_revision()?.is_some() {
                 break;
             }
@@ -438,9 +449,10 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
                 .ok_or("missing growth")?;
             assert_eq!((growth.old_capacity, growth.new_capacity), (0, 1));
             assert_eq!(growth.trigger_revision, VoxelSceneRevision::new(1));
-            assert_eq!(growth.predicted_peak_bytes, 2276);
+            assert!((2276..=3000).contains(&growth.predicted_peak_bytes));
             assert!(
-                (2276..=3000).contains(&growth.actual_peak_bytes.ok_or("missing actual peak")?)
+                growth.actual_peak_bytes.ok_or("missing actual peak")?
+                    <= growth.predicted_peak_bytes
             );
         }
         verify(&mut backend, &initial)?;
@@ -506,9 +518,10 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
                 .ok_or("missing installed growth")?;
             assert_eq!(growth.trigger_revision, grown_view.revision());
             assert_eq!((growth.old_capacity, growth.new_capacity), (1, 2));
-            assert_eq!(growth.predicted_peak_bytes, 5348);
+            assert!((5348..=8192).contains(&growth.predicted_peak_bytes));
             assert!(
-                (5348..=8192).contains(&growth.actual_peak_bytes.ok_or("missing actual peak")?)
+                growth.actual_peak_bytes.ok_or("missing actual peak")?
+                    <= growth.predicted_peak_bytes
             );
             verify(&mut backend, &grown_view)?;
             // Subsequent transitions reuse slots released at installation.
@@ -571,6 +584,7 @@ fn run_fixtures(window: &Window) -> TestResult {
     for scenario in [
         BrickmapLifecycleScenario::Transitions,
         BrickmapLifecycleScenario::CapacityExhaustion,
+        BrickmapLifecycleScenario::RoundedAllocationRejection,
         BrickmapLifecycleScenario::PartialWriteFailure,
     ] {
         check_brickmap_lifecycle(window, scenario)?;
