@@ -1,0 +1,82 @@
+{
+  "verdict": "FAIL",
+  "failed_phase": "GPU frame progress after Raster-to-Brickmap route handoff; host required restart",
+  "caps_status": "provisional, not ratified",
+  "caps": {
+    "cpu_materialization": {
+      "formula": "19*S + (P-S)",
+      "S": 413448,
+      "P": 2858304,
+      "bytes": 10300368
+    },
+    "raster_cpu": {
+      "formula": "54*R + 6*H + R_peak",
+      "R": 1055136,
+      "H": 149952,
+      "R_peak": 1176992,
+      "bytes": 59054048
+    },
+    "brickmap_cpu": {
+      "formula": "54*B + 9*B_peak",
+      "B": 100856,
+      "B_peak": 385368,
+      "bytes": 8914536
+    },
+    "raster_gpu": {
+      "formula": "54*G_raster",
+      "G_raster": 18160,
+      "bytes": 980640
+    },
+    "brickmap_gpu": {
+      "formula": "54*G_brickmap",
+      "G_brickmap": 88160,
+      "bytes": 4760640
+    }
+  },
+  "baseline_bytes": {
+    "cpu_materialization": 101568512,
+    "raster_cpu": 262029440,
+    "brickmap_cpu": 22547240,
+    "raster_gpu": 4382720,
+    "brickmap_gpu": 21504064
+  },
+  "fixed_bounds": {
+    "control_heap_bytes": 16777216,
+    "metadata_heap_bytes": 262144,
+    "history_heap_bytes": 16384,
+    "fixed_application_gpu_bytes": 26543904,
+    "metadata_entries": 256,
+    "historical_views": 2,
+    "edited_coordinates": 6,
+    "source_recipes": 1,
+    "swapchain_images": 3,
+    "renderer_owners": 3,
+    "audit_entries": 65536
+  },
+  "cpu_lifecycle": {
+    "peak_copies": 19,
+    "settled_copies": 9,
+    "repeated_plateau": true,
+    "cleanup": "zero",
+    "metadata_live_bytes": 22584,
+    "history_peak_bytes": 928,
+    "residency_peak_bytes": [
+      9983264,
+      18609768,
+      4020448
+    ]
+  },
+  "captured_gpu_prefix": {
+    "crossings_completed": 3,
+    "maximum_crossing_seconds": 0.250649201,
+    "maximum_switch_seconds": 0.2453271,
+    "residency_gpu_peak_bytes": [
+      311280,
+      756064
+    ],
+    "complete_route": false,
+    "full_coverage_stall_count": "unmeasured",
+    "rendered_plateau": "unmeasured",
+    "final_retirement_cleanup": "unmeasured"
+  }
+}

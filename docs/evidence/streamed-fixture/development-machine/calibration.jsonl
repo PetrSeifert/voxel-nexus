@@ -1,0 +1,33 @@
+{"api_version":4211017,"device_id":10118,"driver_version":2497200128,"kind":"device","max_memory_allocation_count":4294967295,"max_storage_buffer_range":4294967295,"name":"NVIDIA GeForce RTX 4070","vendor_id":4318}
+{"edge":64,"edited_fingerprint":"478ee4a9737e1ad7","generated_fingerprint":"9660d9308d69ede5","kind":"fixture","mode":"calibration","qualification":"incomplete: allocation calibration only","recipe":"streamed-qualification-v1"}
+{"heap":{"live_bytes":396360,"milliseconds":9.1305,"peak_bytes":2302988},"kind":"publication","state":"generated","volumes":1}
+{"buffer_count":117,"faces":17472,"heap":{"live_bytes":1016616,"milliseconds":8.4797,"peak_bytes":1171524},"index_payload_bytes":6960,"isolated_vulkan_allocation_bytes_sum":17120,"kind":"raster","regions":64,"state":"generated","vertex_payload_bytes":9280,"volumes":1}
+{"buffer_count":1,"heap":{"live_bytes":87648,"milliseconds":1.5247,"peak_bytes":307288},"isolated_vulkan_allocation_bytes_sum":84064,"kind":"brickmap","serialized_payload_bytes":84052,"state":"generated","volumes":1}
+{"heap":{"live_bytes":51636,"milliseconds":0.025599999999999998,"peak_bytes":68320},"kind":"edit","state":"edited"}
+{"buffer_count":120,"faces":17490,"heap":{"live_bytes":1019256,"milliseconds":9.3858,"peak_bytes":1174164},"index_payload_bytes":7392,"isolated_vulkan_allocation_bytes_sum":18160,"kind":"raster","regions":64,"state":"edited","vertex_payload_bytes":9856,"volumes":1}
+{"buffer_count":1,"heap":{"live_bytes":91744,"milliseconds":1.5815,"peak_bytes":384088},"isolated_vulkan_allocation_bytes_sum":88160,"kind":"brickmap","serialized_payload_bytes":88148,"state":"edited","volumes":1}
+{"heap":{"live_bytes":35236,"milliseconds":0.032499999999999994,"peak_bytes":51920},"kind":"edit","state":"restored"}
+{"buffer_count":117,"faces":17472,"heap":{"live_bytes":1016616,"milliseconds":7.8851,"peak_bytes":1171524},"index_payload_bytes":6960,"isolated_vulkan_allocation_bytes_sum":17120,"kind":"raster","regions":64,"state":"restored","vertex_payload_bytes":9280,"volumes":1}
+{"buffer_count":1,"heap":{"live_bytes":87648,"milliseconds":1.4902,"peak_bytes":307288},"isolated_vulkan_allocation_bytes_sum":84064,"kind":"brickmap","serialized_payload_bytes":84052,"state":"restored","volumes":1}
+{"heap":{"live_bytes":396360,"milliseconds":8.791,"peak_bytes":2302988},"kind":"publication","state":"edited-current-only","volumes":1}
+{"kind":"installed-cpu","live_bytes":413424,"state":"edited-current-only","volumes":1}
+{"buffer_count":120,"faces":17490,"heap":{"live_bytes":1019256,"milliseconds":7.9188,"peak_bytes":1174164},"index_payload_bytes":7392,"isolated_vulkan_allocation_bytes_sum":18160,"kind":"raster","regions":64,"state":"edited-current-only","vertex_payload_bytes":9856,"volumes":1}
+{"buffer_count":1,"heap":{"live_bytes":91744,"milliseconds":1.5553,"peak_bytes":384088},"isolated_vulkan_allocation_bytes_sum":88160,"kind":"brickmap","serialized_payload_bytes":88148,"state":"edited-current-only","volumes":1}
+{"kind":"view-retention","live_bytes":413424,"state":"edited-current-only","volumes_pinned_after_frontend_drop":1}
+{"heap":{"live_bytes":396360,"milliseconds":9.0894,"peak_bytes":2302988},"kind":"publication","state":"restored-current-only","volumes":1}
+{"kind":"installed-cpu","live_bytes":397024,"state":"restored-current-only","volumes":1}
+{"buffer_count":117,"faces":17472,"heap":{"live_bytes":1016616,"milliseconds":8.451699999999999,"peak_bytes":1171524},"index_payload_bytes":6960,"isolated_vulkan_allocation_bytes_sum":17120,"kind":"raster","regions":64,"state":"restored-current-only","vertex_payload_bytes":9280,"volumes":1}
+{"buffer_count":1,"heap":{"live_bytes":87648,"milliseconds":1.4742,"peak_bytes":307288},"isolated_vulkan_allocation_bytes_sum":84064,"kind":"brickmap","serialized_payload_bytes":84052,"state":"restored-current-only","volumes":1}
+{"kind":"view-retention","live_bytes":397024,"state":"restored-current-only","volumes_pinned_after_frontend_drop":1}
+{"heap":{"live_bytes":5120,"milliseconds":0.017,"peak_bytes":5664},"kind":"catalog","side":8,"volumes":64}
+{"heap":{"live_bytes":3561812,"milliseconds":82.97200000000001,"peak_bytes":10705560},"kind":"publication","state":"matched-8x8-selection","volumes":9}
+{"kind":"installed-cpu","live_bytes":3578876,"state":"matched-8x8-selection","volumes":9}
+{"buffer_count":1056,"faces":157266,"heap":{"live_bytes":9184440,"milliseconds":76.0639,"peak_bytes":9339348},"index_payload_bytes":63072,"isolated_vulkan_allocation_bytes_sum":155120,"kind":"raster","regions":576,"state":"matched-8x8-selection","vertex_payload_bytes":84096,"volumes":9}
+{"buffer_count":1,"heap":{"live_bytes":786808,"milliseconds":14.720600000000001,"peak_bytes":3226768},"isolated_vulkan_allocation_bytes_sum":760160,"kind":"brickmap","serialized_payload_bytes":760148,"state":"matched-8x8-selection","volumes":9}
+{"kind":"view-retention","live_bytes":3578876,"state":"matched-8x8-selection","volumes_pinned_after_frontend_drop":9}
+{"heap":{"live_bytes":20480,"milliseconds":0.0432,"peak_bytes":22560},"kind":"catalog","side":16,"volumes":256}
+{"heap":{"live_bytes":3561812,"milliseconds":84.4993,"peak_bytes":10705560},"kind":"publication","state":"matched-16x16-selection","volumes":9}
+{"kind":"installed-cpu","live_bytes":3578876,"state":"matched-16x16-selection","volumes":9}
+{"buffer_count":1056,"faces":157266,"heap":{"live_bytes":9184440,"milliseconds":73.36439999999999,"peak_bytes":9339348},"index_payload_bytes":63072,"isolated_vulkan_allocation_bytes_sum":155120,"kind":"raster","regions":576,"state":"matched-16x16-selection","vertex_payload_bytes":84096,"volumes":9}
+{"buffer_count":1,"heap":{"live_bytes":786808,"milliseconds":15.7331,"peak_bytes":3226768},"isolated_vulkan_allocation_bytes_sum":760160,"kind":"brickmap","serialized_payload_bytes":760148,"state":"matched-16x16-selection","volumes":9}
+{"kind":"view-retention","live_bytes":3578876,"state":"matched-16x16-selection","volumes_pinned_after_frontend_drop":9}

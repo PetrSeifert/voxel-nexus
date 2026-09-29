@@ -1,0 +1,52 @@
+{
+  "captured_utc": "2026-09-29T21:24:59.1507395Z",
+  "base_revision": "ca579dfc3fde5265e4dee2ac558f6ce1e8ebef21",
+  "compiler": [
+    "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
+    "binary: rustc",
+    "commit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8",
+    "commit-date: 2026-07-08",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.99.0-nightly",
+    "LLVM version: 22.1.8"
+  ],
+  "cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)",
+  "operating_system": {
+    "Caption": "Microsoft Windows 11 Pro",
+    "Version": "10.0.26200",
+    "BuildNumber": "26200"
+  },
+  "processor": "AMD Ryzen 5 7600 6-Core Processor              ",
+  "source_sha256": [
+    {
+      "path": "apps/desktop-demo/src/streamed_fixture_profile.rs",
+      "sha256": "3BABBB0CD3F9BF7D782FE68C65E40D16720DEBBD49E26D0A22981117F1662FC4"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_fixture_recipe.rs",
+      "sha256": "1D057B400AE8AA88E8BCA073E4F0E78D7E3D7C64A4FA4356CD51B8606731A59D"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_fixture_vulkan.rs",
+      "sha256": "797DD4E8F779D422559B442039425ECE3205AFDBD8939302E4B44244E56A4730"
+    },
+    {
+      "path": "crates/canonical-scene/examples/support/allocation.rs",
+      "sha256": "4503B37A1AF23653814C91D3362CB680D75DAA70849333898D443E9CBB1DB209"
+    },
+    {
+      "path": "scripts/profile-streamed-fixture.ps1",
+      "sha256": "096ACF8CA0667F2F051129A78550A697301249BD280CA4449F67531DA359451E"
+    }
+  ],
+  "evidence_sha256": [
+    {
+      "path": "calibration.jsonl",
+      "sha256": "FA121F2C27FBC3885DE62A744980A8A28E7175498AF476F11CDB00F7BC89F64F"
+    },
+    {
+      "path": "baseline.jsonl",
+      "sha256": "3C1F2613D7BBACC1416E8806688736684458994F752D4FD4508E8A34355FEEDC"
+    }
+  ]
+}

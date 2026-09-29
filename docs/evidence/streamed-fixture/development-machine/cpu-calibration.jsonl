@@ -1,0 +1,9 @@
+{"artifact_cache_entries":1,"copies":1,"cpu_allocations":[26,40,4,267,107,258,1],"cpu_live":[1336,396592,160,1025448,96680,22584,80],"cpu_peak":[66088,1302232,1539496,1174312,308568,22584,80],"derivation_workers_peak":1,"discarded":0,"generated":1,"generation_workers_peak":1,"kind":"cpu-residency","peak_copies":1,"phase":"generated","query_copies":0,"reused":0}
+{"fingerprint":"9660d9308d69ede5","kind":"fingerprint","phase":"generated"}
+{"kind":"cpu-released","live":[0,0,0,0,0,0],"phase":"generated"}
+{"artifact_cache_entries":1,"copies":1,"cpu_allocations":[26,42,4,272,107,258,3],"cpu_live":[1328,413288,160,1028128,100776,22584,296],"cpu_peak":[66088,1318840,1539464,1176992,385368,22584,296],"derivation_workers_peak":1,"discarded":0,"generated":1,"generation_workers_peak":1,"kind":"cpu-residency","peak_copies":1,"phase":"edited","query_copies":0,"reused":0}
+{"fingerprint":"478ee4a9737e1ad7","kind":"fingerprint","phase":"edited"}
+{"kind":"cpu-released","live":[0,0,0,0,0,0],"phase":"edited"}
+{"artifact_cache_entries":1,"copies":1,"cpu_allocations":[26,40,4,267,107,258,3],"cpu_live":[1328,396592,160,1025448,96680,22584,296],"cpu_peak":[66088,1302232,1539496,1174312,308568,22584,296],"derivation_workers_peak":1,"discarded":0,"generated":1,"generation_workers_peak":1,"kind":"cpu-residency","peak_copies":1,"phase":"restored","query_copies":0,"reused":0}
+{"fingerprint":"9660d9308d69ede5","kind":"fingerprint","phase":"restored"}
+{"kind":"cpu-released","live":[0,0,0,0,0,0],"phase":"restored"}

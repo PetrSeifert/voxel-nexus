@@ -9,6 +9,10 @@ mod cell_enumeration;
 #[cfg(test)]
 mod cell_enumeration_tests;
 mod page_table;
+#[cfg(feature = "qualification")]
+mod qualification_views;
+#[cfg(feature = "qualification")]
+pub use qualification_views::QualificationViewError;
 #[cfg(test)]
 mod sharing_tests;
 mod sparse_publication;

@@ -1,7 +1,14 @@
 use ash::{Entry, vk};
 use std::ffi::CStr;
 
+#[cfg(feature = "qualification")]
+mod allocation_qualification;
 mod render_path_switching;
+#[cfg(feature = "qualification")]
+pub use allocation_qualification::{
+    GpuAllocationClass, GpuAllocationQualification, GpuAllocationQualificationError,
+    GpuAllocationSnapshot, with_gpu_allocation_owner,
+};
 
 pub use render_path_switching::{
     CameraStateRevision, RenderPathHandoffControl, RenderPathHandoffMismatch, RenderPathReadiness,
@@ -56,6 +63,12 @@ impl BackendFrameSequences {
 }
 
 impl RenderBackend {
+    #[cfg(feature = "qualification")]
+    pub fn qualification_presentation_image_count(&self) -> usize {
+        self.rendering.as_ref().map_or(0, |rendering| {
+            rendering.render_path_target().attachments().count()
+        })
+    }
     pub fn initialize(
         application_name: &CStr,
         adapter: &impl PresentationAdapter,

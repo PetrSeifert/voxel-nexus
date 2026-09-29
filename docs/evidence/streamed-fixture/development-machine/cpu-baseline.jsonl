@@ -1,0 +1,3 @@
+{"artifact_cache_entries":256,"copies":256,"cpu_allocations":[26,10240,1024,66567,24959,258,1],"cpu_live":[18104,101527552,40960,262029440,22547240,22584,80],"cpu_peak":[23576,102433192,1580296,264881472,78696096,23608,80],"derivation_workers_peak":1,"discarded":0,"generated":256,"generation_workers_peak":1,"kind":"cpu-residency","peak_copies":256,"phase":"cpu-baseline","query_copies":0,"reused":0}
+{"cpu_only":true,"gpu_dispatched":false,"kind":"context","metadata_entries":256,"mode":"cpu-baseline"}
+{"kind":"cpu-released","live":[0,0,0,0,0,0],"phase":"cpu-baseline"}

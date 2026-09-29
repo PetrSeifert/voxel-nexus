@@ -406,6 +406,16 @@ pub fn observe_along_ray(
     })
 }
 
+pub fn observe_probe_along_ray(
+    view: &VoxelSceneView,
+    probe: &SemanticRayProbe,
+) -> Result<SemanticRayProbeObservation, SemanticRayOracleError> {
+    Ok(SemanticRayProbeObservation {
+        probe_identity: probe.identity.clone(),
+        observation: observe_along_ray(view, probe.ray())?,
+    })
+}
+
 /// Returns contacts in the same z, y, x order that [`observe`] visits them, so equal-distance
 /// precedence resolves identically.
 fn traversed_contacts(

@@ -1,0 +1,15 @@
+{
+  "status": "host-gpu-stall",
+  "trace": "residency-raster.jsonl",
+  "last_progress_utc": "2026-09-29T22:00:14Z",
+  "observed_no_progress_utc": "2026-09-29T22:06:40.1667223Z",
+  "minimum_no_progress_seconds": 386.1667223,
+  "last_presenting_path": "Brickmap",
+  "last_selection_center": [6, 4],
+  "completed_route_crossings": 3,
+  "user_report": "Display froze; initially only the cursor moved, then a complete freeze required restarting the machine. Stopping the qualification process did not recover the display.",
+  "recovery": "user restarted machine",
+  "root_cause": "not diagnosed; graphics execution/frame progress is the observed failing phase",
+  "captured_gpu_executable_sha256": "CE2B147C95DE1B4259815B3FD56788281124D4AB2EF23836C3E84C952BD26CFF",
+  "provenance_limit": "Exploratory GPU runs preceded the final Metadata/History tags, CPU-only mode, explicit GPU opt-in and additional disjoint-renderer/churn cases. Earlier GPU calibration used dynamically growing allocation-ledger bookkeeping charged to the invoking renderer; the stalled route preallocated that bookkeeping as Control. CPU-only evidence is captured from the final source tree. No complete GPU qualification or shader root cause is claimed."
+}

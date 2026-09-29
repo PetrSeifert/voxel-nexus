@@ -167,6 +167,8 @@ impl RenderPathDeviceContext<'_> {
         &self,
         create_info: &vk::BufferCreateInfo<'_>,
     ) -> Result<vk::Buffer, vk::Result> {
+        #[cfg(feature = "qualification")]
+        super::allocation_qualification::buffer(create_info.size);
         unsafe { self.device.create_buffer(create_info, None) }
     }
 
@@ -182,7 +184,10 @@ impl RenderPathDeviceContext<'_> {
         &self,
         allocate_info: &vk::MemoryAllocateInfo<'_>,
     ) -> Result<vk::DeviceMemory, vk::Result> {
-        unsafe { self.device.allocate_memory(allocate_info, None) }
+        let memory = unsafe { self.device.allocate_memory(allocate_info, None) }?;
+        #[cfg(feature = "qualification")]
+        super::allocation_qualification::allocated(memory, allocate_info.allocation_size);
+        Ok(memory)
     }
 
     /// # Safety
@@ -277,6 +282,8 @@ impl RenderPathDeviceContext<'_> {
     /// # Safety
     /// `memory` must belong to this device and no live resource may remain bound to it.
     pub unsafe fn free_memory(&self, memory: vk::DeviceMemory) {
+        #[cfg(feature = "qualification")]
+        super::allocation_qualification::freed(memory);
         unsafe { self.device.free_memory(memory, None) };
     }
 
@@ -286,6 +293,8 @@ impl RenderPathDeviceContext<'_> {
         &self,
         create_info: &vk::ImageCreateInfo<'_>,
     ) -> Result<vk::Image, vk::Result> {
+        #[cfg(feature = "qualification")]
+        super::allocation_qualification::image();
         unsafe { self.device.create_image(create_info, None) }
     }
 

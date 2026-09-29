@@ -1,0 +1,160 @@
+{
+  "captured_utc": "2026-09-29T22:23:18.2998958Z",
+  "base_revision": "ca579dfc3fde5265e4dee2ac558f6ce1e8ebef21",
+  "cpu_toolchain": [
+    "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
+    "binary: rustc",
+    "commit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8",
+    "commit-date: 2026-07-08",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.99.0-nightly",
+    "LLVM version: 22.1.8"
+  ],
+  "cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)",
+  "operating_system": {
+    "Caption": "Microsoft Windows 11 Pro",
+    "Version": "10.0.26200",
+    "BuildNumber": "26200"
+  },
+  "processor": "AMD Ryzen 5 7600 6-Core Processor              ",
+  "captured_gpu_device": {
+    "api_version": 4211017,
+    "device_id": 10118,
+    "driver_version": 2497200128,
+    "kind": "device",
+    "max_memory_allocation_count": 4294967295,
+    "max_storage_buffer_range": 4294967295,
+    "name": "NVIDIA GeForce RTX 4070",
+    "vendor_id": 4318
+  },
+  "current_cpu_executable_sha256": "22F74C80FD4D846CA9B380B881200BCCD89850685A829CDBA49D9000D938B450",
+  "gpu_provenance": "Exploratory pre-final-source captures; see host-failure.json for route binary hash and bookkeeping differences. GPU was not rerun after the host restart.",
+  "source_sha256": [
+    {
+      "path": "apps/desktop-demo/Cargo.toml",
+      "sha256": "8312DB71BFA0D5FE260418A1019137BE7726A9841E942BFA48B20656B63AE8E4"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_fixture_allocations.rs",
+      "sha256": "57AE7B1E361BFA0EA28CFA37B29B8260C988B47EC2C28C3904F31D8AD82743DF"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_fixture_recipe.rs",
+      "sha256": "A5EB396B85D559F077F126C6887C6CF95C8D967D086C1FC05BB35DCAB7F76038"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_residency_prototype.rs",
+      "sha256": "DAAFDFE8A49FDFB2A9D1D4F68FD8D3FF07BE3051298C3090588BA24A192F8FF8"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_residency_source.rs",
+      "sha256": "084B06BD633719E6BB7BAB2F49203C7BD177E1C533FFE5B87854D7C6E43DCEC9"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_residency_cpu.rs",
+      "sha256": "C4D244B3B604FB757AA74DF6E975B653DFD6484E87783744FC6DBF4A4E9C83A5"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_residency_paths.rs",
+      "sha256": "CE4C59C6A8ED69C2BD5E165153989D2DBADB1E766806D9CD3A2952B27B23F8DD"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_residency_route.rs",
+      "sha256": "1C4C957705CB20EC11DF91D5AADF128B7CA9396EE3FE2EC6A1B62A5D35B1D2C2"
+    },
+    {
+      "path": "apps/desktop-demo/src/streamed_residency_runner.rs",
+      "sha256": "68367C36F8D415242132A2E4A55ECB618FA5E3B0DB07CEDCFD8FAD451B86462F"
+    },
+    {
+      "path": "crates/voxel-frontend/src/qualification_views.rs",
+      "sha256": "3347A4702572B8C4E2D75319E469DEA8E343FC62ABBA7980DCDD27AC35C20029"
+    },
+    {
+      "path": "crates/raster-render-path/src/meshing.rs",
+      "sha256": "80D0B34FE4685E850ADD73E65FAE901E3092FED7959D69642C7B0FD377D43AA4"
+    },
+    {
+      "path": "crates/compute-ray-render-path/src/compute_scene.rs",
+      "sha256": "0984A5B86D27301EA031EB16808098A4A303594F03E6D483AF7963CBC5F9219E"
+    },
+    {
+      "path": "crates/compute-ray-render-path/src/compute_ray_render_path.rs",
+      "sha256": "A6FDF4EC8ECDBEE8E11B81F48D0108AEEDA087D4A719B65990D6E8A2D061AB74"
+    },
+    {
+      "path": "crates/compute-ray-render-path/shaders/dense_dda.comp",
+      "sha256": "32C396BEF1BC11FEF5B31B773F0D7798D950DA10531D064B22F28DF944F69A31"
+    },
+    {
+      "path": "crates/semantic-ray-oracle/src/semantic_ray_oracle.rs",
+      "sha256": "B143CAA9381C8BA24A9315E7A1E7EF0136776C6F73A236A57AB42F8873062B82"
+    },
+    {
+      "path": "crates/render-backend/src/allocation_qualification.rs",
+      "sha256": "E5384F69F2D6F319791D1C826F2C3E35CD863BB27058C074A33FAD0518F4852C"
+    },
+    {
+      "path": "crates/render-backend/src/render_path.rs",
+      "sha256": "9738ADCDDAE0590067DD95B539D0A419F69E710A44AD08CECC74CA66F1D4239D"
+    },
+    {
+      "path": "crates/render-backend/src/render_backend.rs",
+      "sha256": "7D8172D3AA2A5E410AC400834021CBED62EDAED2D6F33ACC5F3027E0E9A6EA3C"
+    },
+    {
+      "path": "scripts/verify-streamed-residency.ps1",
+      "sha256": "0A2B0AB153DC681D172D82CD14CD30BAE0D0369F5D20EBE7B73F79C9EFDA3DFC"
+    }
+  ],
+  "evidence_sha256": [
+    {
+      "path": "cpu-calibration.jsonl",
+      "sha256": "5A12AE00220ADA3FCC70EA50E1DBFA1BF29B837070D0ED102134F320AC9E1217"
+    },
+    {
+      "path": "cpu-baseline.jsonl",
+      "sha256": "E879FD68FCC9B789389171E89A3649760ECD86D49B5DA5095520772AE36CDEC2"
+    },
+    {
+      "path": "cpu-matched-8.jsonl",
+      "sha256": "EEBB62B62ECE8391069A320D04ED0EC4A6454911BDB6D439E3CD31CE873FC6F1"
+    },
+    {
+      "path": "cpu-matched-16.jsonl",
+      "sha256": "BF77D18F71E75D40B80AEE0A3646E0BBA42B82CAD3793629AE5A57E4FF8F47FD"
+    },
+    {
+      "path": "cpu-lifecycle.jsonl",
+      "sha256": "4D5EC15771EAFE3DBB70522A01E9CD46F623E22C16E4B4354A4454D69C67A232"
+    },
+    {
+      "path": "residency-calibration.jsonl",
+      "sha256": "045B1EA0CA6F5BDD401E700284D6136B77CCF1E986C8EB25F17DE55673CCDBA1"
+    },
+    {
+      "path": "residency-baseline.jsonl",
+      "sha256": "F91C87B2605236D0EC0F0C725030052E121D5806AF000C3CDC7D91B7F20846E8"
+    },
+    {
+      "path": "residency-matched-8.jsonl",
+      "sha256": "1026E5FE6FC86910BDF479735ED1D559E86F4E83B3451FA85F651F30F2678342"
+    },
+    {
+      "path": "residency-matched-16.jsonl",
+      "sha256": "A55385AFC840A312B4F3113F44A7991525273A7E8B30394203A82B7D222FED1B"
+    },
+    {
+      "path": "residency-raster.jsonl",
+      "sha256": "4867FF338CE92406465CFC82C268005D9996C34D645048D226FF473409F56C97"
+    },
+    {
+      "path": "residency-summary.json",
+      "sha256": "52760D967E1A1800262075C285D80C19F1ECB1448AA4D032612763FA8E9E0222"
+    },
+    {
+      "path": "host-failure.json",
+      "sha256": "203818136A92A0C9F51FCA149482A2C93C2E7AE057BEFFFDD1A5AA2F3A2C5F2F"
+    }
+  ]
+}

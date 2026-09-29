@@ -1,0 +1,73 @@
+{
+  "allocation_calibration": "pass",
+  "qualification": "incomplete",
+  "existing_view_residency": "fail",
+  "cap_status": "proposed, not qualified",
+  "limits": {
+    "materialized_copies": 19,
+    "settled_copies": 9,
+    "query_only_copies": 1,
+    "render_owners": 3,
+    "copies_per_render_owner": 18,
+    "generation_workers": 1,
+    "derivation_workers": 1,
+    "maximum_derivation_volumes": 9,
+    "scene_metadata_entries": 256,
+    "source_recipes": 1,
+    "materials": 2,
+    "edited_coordinates": 6,
+    "historical_views": 2
+  },
+  "caps": {
+    "cpu_materialization": {
+      "formula": "19 * S + P",
+      "per_volume_bytes": 413424,
+      "scratch_bytes": 2302988,
+      "bytes": 10158044
+    },
+    "raster_cpu": {
+      "formula": "54 * R + 6 * H_raster + R_peak",
+      "per_volume_bytes": 1019256,
+      "selection_overhead_bytes": 32256,
+      "scratch_bytes": 1174164,
+      "bytes": 56407524
+    },
+    "brickmap_cpu": {
+      "formula": "54 * B + 9 * B_peak",
+      "per_volume_bytes": 91744,
+      "scratch_bytes": 3456792,
+      "bytes": 8410968
+    },
+    "raster_gpu": {
+      "formula": "54 * G_raster",
+      "per_volume_bytes": 18160,
+      "bytes": 980640
+    },
+    "brickmap_gpu": {
+      "formula": "54 * G_brickmap",
+      "per_volume_bytes": 88160,
+      "bytes": 4760640
+    }
+  },
+  "fully_resident_bytes": {
+    "cpu_materialization": 101316348,
+    "raster_cpu": 260256336,
+    "brickmap_cpu": 22343504,
+    "raster_gpu": 4383760,
+    "brickmap_gpu": 21508160
+  },
+  "retained_view_bytes": 101316348,
+  "nine_volume_publication_peak_bytes": 10705560,
+  "whole_selection_source_staging": "fail",
+  "pending": [
+    "streamed source/history reconstruction",
+    "global materialization admission and draining",
+    "presenting/replacement/retiring ownership",
+    "actual simultaneous GPU peaks and fixed graphics resources",
+    "fixed-route crossing installation and zero coverage stalls",
+    "fence-safe switch latency",
+    "query overlap and repeated-travel plateaus",
+    "covered rendered/oracle probes",
+    "typed streamed/dense rejection"
+  ]
+}

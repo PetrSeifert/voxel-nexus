@@ -11,5 +11,8 @@ ash = "0.38.0"
 thiserror = "2.0.18"
 voxel-frontend = { path = "../voxel-frontend" }
 
+[features]
+qualification = []
+
 [lints]
 workspace = true
