@@ -12,7 +12,8 @@ fn region_read_timing() -> Result<(), Box<dyn std::error::Error>> {
         CanonicalSceneScale::Medium,
         CanonicalSceneScale::Large,
     ] {
-        let view = VoxelFrontend::new().publish(generate_canonical_scene(scale)?.into_scene())?;
+        let view =
+            VoxelFrontend::new().publish_sparse(generate_canonical_scene(scale)?.into_scene())?;
         let artifact = derive_raster_regions(&view, VoxelExtent::new(16, 16, 16))?;
         println!(
             "{scale:?}: vertex_bytes={}, index_bytes={}",

@@ -7,7 +7,8 @@ use voxel_frontend::VoxelFrontend;
 #[ignore = "manual release-mode timing"]
 fn region_read_timing() -> Result<(), Box<dyn std::error::Error>> {
     for scale in [CanonicalSceneScale::Small, CanonicalSceneScale::Large] {
-        let view = VoxelFrontend::new().publish(generate_canonical_scene(scale)?.into_scene())?;
+        let view =
+            VoxelFrontend::new().publish_sparse(generate_canonical_scene(scale)?.into_scene())?;
         for _ in 0..3 {
             black_box(ComputeSceneBundle::from_view(&view)?);
         }

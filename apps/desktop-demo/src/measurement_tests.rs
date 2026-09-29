@@ -313,8 +313,8 @@ fn space_requests_are_detected_even_when_compute_burst_admission_will_reject_the
 fn compute_edit_burst_admission_requires_an_idle_compute_presenter_and_awaiting_plan()
 -> Result<(), Box<dyn std::error::Error>> {
     let frontend = VoxelFrontend::new();
-    let view =
-        frontend.publish(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
+    let view = frontend
+        .publish_sparse(generate_canonical_scene(CanonicalSceneScale::Small)?.into_scene())?;
     let compute = compute_ray_render_path::ComputeRayRenderPathAdapter::new(
         view,
         CanonicalCameraPose::Overview.pose()?,
@@ -397,7 +397,7 @@ fn fixed_edit_burst_has_three_ordered_value_changing_commands_and_checked_final_
         CanonicalSceneScale::Large,
     ] {
         let frontend = VoxelFrontend::new();
-        let view = frontend.publish(generate_canonical_scene(scale)?.into_scene())?;
+        let view = frontend.publish_sparse(generate_canonical_scene(scale)?.into_scene())?;
         let mut plan = fixed_edit_burst(&view, 16)?;
         assert_eq!(plan.commands.len(), 3);
         assert_eq!(plan.expected_final_revision, VoxelSceneRevision::new(4));
