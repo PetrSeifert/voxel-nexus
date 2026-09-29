@@ -42,6 +42,7 @@ impl DesktopCameraSelection {
 pub(super) enum DesktopSceneSelection {
     Canonical(CanonicalSceneScale),
     WindingDiagnostic,
+    LargeSparse,
 }
 
 #[derive(Clone)]
@@ -74,6 +75,15 @@ pub(super) enum ComputeShutdownQualification {
 impl DesktopRenderConfiguration {
     pub(super) fn camera_pose(&self) -> Result<CameraPose, String> {
         match self.scene {
+            DesktopSceneSelection::LargeSparse => CameraPose::new(
+                [32.5, 88.0, 32.5],
+                [40.5, 80.0, 40.5],
+                [0.0, 1.0, 0.0],
+                60.0,
+                0.1,
+                4096.0,
+            )
+            .map_err(|error| error.to_string()),
             DesktopSceneSelection::Canonical(_) => self.camera.pose(),
             DesktopSceneSelection::WindingDiagnostic => CameraPose::new(
                 [0.5, 0.5, 4.0],
@@ -87,12 +97,24 @@ impl DesktopRenderConfiguration {
         }
     }
 
+    pub(super) fn compute_only(&self) -> bool {
+        matches!(self.scene, DesktopSceneSelection::LargeSparse)
+    }
+
+    pub(super) fn admit_path_switch(&self) -> Result<(), String> {
+        if self.compute_only() {
+            return Err("LargeSparseSceneRequiresCompute".to_owned());
+        }
+        Ok(())
+    }
+
     pub(super) fn render_path_switching_enabled(&self) -> bool {
         self.compute_switch_demo || self.interactive
     }
 
     pub(super) fn camera_identity(&self) -> String {
         match self.scene {
+            DesktopSceneSelection::LargeSparse => "large-sparse-start".to_owned(),
             DesktopSceneSelection::Canonical(_) => self.camera.report_identity(),
             DesktopSceneSelection::WindingDiagnostic => "winding-diagnostic".to_owned(),
         }
@@ -141,7 +163,11 @@ pub(super) fn require_qualification_argument(argument: &str) -> Result<(), Strin
 pub(super) fn parse_render_configuration(
     mut arguments: impl Iterator<Item = String>,
 ) -> Result<(DesktopRenderConfiguration, bool), String> {
+    let mut large_sparse = false;
+    let mut large_sparse_conflict = false;
+    let mut explicit_dense = false;
     let mut compute_representation = compute_ray_render_path::ComputeRepresentation::Dense;
+    let mut budget_was_selected = false;
     let mut brickmap_budget_bytes = 128 * 1024 * 1024;
     let mut scene = DesktopSceneSelection::Canonical(CanonicalSceneScale::Large);
     let mut camera = DesktopCameraSelection::Fixed(CanonicalCameraPose::Overview);
@@ -164,10 +190,34 @@ pub(super) fn parse_render_configuration(
     let mut measurement_output = None;
     while let Some(argument) = arguments.next() {
         require_qualification_argument(&argument)?;
+        large_sparse_conflict |= matches!(
+            argument.as_str(),
+            "--interactive"
+                | "--scene-scale"
+                | "--winding-diagnostic"
+                | "--camera-pose"
+                | "--camera-move-step"
+                | "--raster-region-extent"
+                | "--hold-background-preparation"
+                | "--hold-post-upload-candidate"
+                | "--inject-raster-upload-failure"
+                | "--edit-burst-demo"
+                | "--compute-switch-demo"
+                | "--compute-switch-lifecycle-demo"
+                | "--portable-compute-ray-milestone-demo"
+                | "--portable-compute-ray-milestone-timing"
+                | "--compute-shutdown-qualification"
+                | "--measurement-mode"
+                | "--measurement-output"
+        );
         match argument.as_str() {
+            "--large-sparse-scene" => large_sparse = true,
             "--compute-representation" => {
                 compute_representation = match arguments.next().as_deref() {
-                    Some("dense") => compute_ray_render_path::ComputeRepresentation::Dense,
+                    Some("dense") => {
+                        explicit_dense = true;
+                        compute_ray_render_path::ComputeRepresentation::Dense
+                    }
                     Some("brickmap") => compute_ray_render_path::ComputeRepresentation::Brickmap {
                         budget_bytes: brickmap_budget_bytes,
                     },
@@ -179,6 +229,7 @@ pub(super) fn parse_render_configuration(
                 };
             }
             "--brickmap-budget-bytes" => {
+                budget_was_selected = true;
                 brickmap_budget_bytes = arguments
                     .next()
                     .ok_or("missing brickmap budget")?
@@ -345,6 +396,19 @@ pub(super) fn parse_render_configuration(
             }
             unknown => return Err(format!("unknown desktop demo argument {unknown:?}")),
         }
+    }
+    if large_sparse {
+        if large_sparse_conflict || explicit_dense {
+            return Err("--large-sparse-scene requires brickmap compute and cannot combine with other demo modes, --scene-scale, camera selections, or raster-only options".to_owned());
+        }
+        if !budget_was_selected {
+            brickmap_budget_bytes = 1 << 30;
+        }
+        scene = DesktopSceneSelection::LargeSparse;
+        interactive = true;
+        compute_representation = compute_ray_render_path::ComputeRepresentation::Brickmap {
+            budget_bytes: brickmap_budget_bytes,
+        };
     }
     let measurement = match (measurement_mode, measurement_output) {
         (Some(mode), Some(output)) => Some(MeasurementConfiguration { mode, output }),
@@ -517,6 +581,12 @@ pub(super) fn report_render_configuration(
     configuration: &DesktopRenderConfiguration,
 ) -> Result<(), String> {
     match configuration.scene {
+        DesktopSceneSelection::LargeSparse => {
+            println!(
+                "Large sparse scene: dimensions=2048x256x2048 storage=sparse-pages representation=brickmap presenter=compute-ray camera={}",
+                configuration.camera_identity()
+            );
+        }
         DesktopSceneSelection::WindingDiagnostic => {
             report_winding_diagnostic_configuration(configuration)?;
         }
@@ -544,6 +614,90 @@ mod tests {
 
     fn parse(arguments: &[&str]) -> Result<(DesktopRenderConfiguration, bool), String> {
         parse_render_configuration(arguments.iter().map(|argument| (*argument).to_owned()))
+    }
+
+    #[test]
+    fn large_sparse_rejects_incompatible_arguments_in_either_order() {
+        for options in [
+            vec!["--interactive"],
+            vec!["--scene-scale", "64"],
+            vec!["--winding-diagnostic"],
+            vec!["--camera-pose", "overview"],
+            vec!["--camera-move-step", "0"],
+            vec!["--raster-region-extent", "32"],
+            vec!["--compute-representation", "dense"],
+            vec!["--hold-background-preparation"],
+            vec!["--hold-post-upload-candidate"],
+            vec!["--inject-raster-upload-failure"],
+            vec!["--edit-burst-demo"],
+            vec!["--compute-switch-demo"],
+            vec!["--compute-switch-lifecycle-demo"],
+            vec!["--portable-compute-ray-milestone-demo"],
+            vec!["--portable-compute-ray-milestone-timing"],
+            vec!["--compute-shutdown-qualification", "presenting"],
+            vec![
+                "--measurement-mode",
+                "steady-state",
+                "--measurement-output",
+                "unused.json",
+            ],
+        ] {
+            for first in [true, false] {
+                let mut arguments = options.clone();
+                arguments.insert(
+                    if first { 0 } else { arguments.len() },
+                    "--large-sparse-scene",
+                );
+                assert!(parse(&arguments).is_err(), "{arguments:?}");
+            }
+        }
+        assert!(
+            parse(&["--interactive"])
+                .unwrap()
+                .0
+                .admit_path_switch()
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn large_sparse_accepts_explicit_brickmap_budget_and_report() -> Result<(), String> {
+        let (configuration, report) = parse(&[
+            "--large-sparse-scene",
+            "--compute-representation",
+            "brickmap",
+            "--brickmap-budget-bytes",
+            "123456789",
+            "--report-canonical-configuration",
+        ])?;
+        assert!(report);
+        assert!(matches!(
+            configuration.compute_representation,
+            compute_ray_render_path::ComputeRepresentation::Brickmap {
+                budget_bytes: 123456789
+            }
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn large_sparse_selects_interactive_brickmap_with_one_gib_budget() -> Result<(), String> {
+        let (configuration, report_only) = parse(&["--large-sparse-scene"])?;
+        assert!(configuration.interactive);
+        assert!(configuration.compute_only());
+        assert!(!report_only);
+        assert!(matches!(
+            configuration.compute_representation,
+            compute_ray_render_path::ComputeRepresentation::Brickmap {
+                budget_bytes: 1_073_741_824
+            }
+        ));
+        assert_eq!(
+            configuration.admit_path_switch().unwrap_err(),
+            "LargeSparseSceneRequiresCompute"
+        );
+        assert!(configuration.camera_pose()?.far_plane() >= 2048.0);
+        Ok(())
     }
 
     #[test]

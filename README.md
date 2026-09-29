@@ -40,6 +40,48 @@ The target is the voxel under the screen center. The overlay and window title sh
 
 Edits are rejected while a Render Path switch is preparing its replacement (`Break-rejected-switching`). They're accepted again once the replacement starts presenting. Tab is rejected while a switch is in progress or while the Presenting Render Path is still converging. Rejected requests aren't queued. Wait for Required and Visible to match, then press Tab again.
 
+### Large sparse terrain
+
+```powershell
+cargo run --release --locked --package desktop-demo -- --large-sparse-scene
+```
+
+This selects a deterministic 2048×256×2048 terrain, publishes sparse input into
+SparsePages, and starts directly in compute-ray with the brickmap representation.
+No raster preparation runs. The starting camera is just above the terrain near
+`32,88,32`. The enclosed cavity spans `768..1024` in X/Z and `32..64` in Y.
+
+Use the free-fly controls above: click to capture the mouse, WASD to move, Q/E to
+move vertically, Shift for faster flight, Escape to release capture, left click
+to break, and right click to place. Keys 1 and 2 select stone and grass. Picking
+uses `observe_along_ray`. The overlay shows Required and Visible revisions;
+after an edit, Visible catches up when the complete revision is installed.
+
+Tab reports `Tab-rejected-LargeSparseSceneRequiresCompute` and queues nothing.
+The flag cannot combine with `--interactive`, other demo modes, `--scene-scale`,
+canonical camera selections, raster options, or dense compute. It accepts
+`--compute-representation brickmap` and `--brickmap-budget-bytes`; the default
+large-scene budget is 1 GiB. The restriction belongs to the demo configuration.
+
+A Windows Vulkan 1.3 device with the compute-path capabilities is required.
+It must support the brickmap storage buffers and have enough GPU memory for
+visible and candidate scene data together, plus presentation resources. Plan
+for the 1 GiB scene budget and additional process RAM for terrain generation.
+Startup reports device capability or allocation failures. Debug qualification
+also requires the Vulkan validation layer.
+
+Run the large-scene GPU qualification explicitly on a capable device:
+
+```powershell
+cargo test --release --locked -p desktop-demo --test large_sparse_gpu large_sparse_terrain_gpu_qualification -- --ignored --nocapture
+```
+
+Ordinary test runs skip this qualification. It checks long empty rays, fill
+interiors, mixed surfaces, cavity hits and misses, and all four structural
+transitions using the interactive break/place command code. Every GPU result
+reports its installed revision and is compared with `observe_along_ray` and
+analytical expectations. The run requires zero validation warnings or errors.
+
 ### Compute switch qualification demo
 
 Launch the fixed Render Path switching demo with the small scene:

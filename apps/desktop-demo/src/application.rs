@@ -313,6 +313,16 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.desktop.drawable_extent = initial_drawable_extent;
         let frontend = VoxelFrontend::new();
         let (publication, occupied_voxels) = match self.desktop.render_configuration.scene {
+            DesktopSceneSelection::LargeSparse => {
+                let terrain = match canonical_scene::generate_large_terrain() {
+                    Ok(terrain) => terrain,
+                    Err(error) => {
+                        self.desktop.fail(event_loop, error);
+                        return;
+                    }
+                };
+                (frontend.publish_sparse(terrain.into_scene()), 0)
+            }
             DesktopSceneSelection::WindingDiagnostic => {
                 let (scene, _) = winding_diagnostic_scene();
                 if let Err(error) =
@@ -374,22 +384,41 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             self.desktop.fail(event_loop, error);
             return;
         }
-        let (mut render_path, artifact_installer, _) =
-            RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
-                self.desktop.camera_state,
-                self.desktop.camera_state_revision,
-                view.scene_id().clone(),
-                published_revision,
-            );
-        self.scenarios().configure_raster_qualification(
-            event_loop,
-            &mut render_path,
-            &artifact_installer,
-            &view,
-        );
-        if event_loop.exiting() {
-            return;
-        }
+        let (render_path, artifact_installer): (Box<dyn render_backend::SwitchableRenderPath>, _) =
+            if self.desktop.render_configuration.compute_only() {
+                let mut path = match compute_ray_render_path::ComputeRayRenderPathAdapter::new_with_representation(
+                    view.clone(), self.desktop.camera_state, self.desktop.camera_state_revision,
+                    self.desktop.render_configuration.compute_representation,
+                ) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        self.desktop.fail(event_loop, error);
+                        return;
+                    }
+                };
+                self.desktop.compute_convergence_controller =
+                    Some(path.enable_convergence_control());
+                self.desktop.compute_lifecycle_controller = Some(path.enable_lifecycle_control());
+                (Box::new(path), None)
+            } else {
+                let (mut render_path, artifact_installer, _) =
+                    RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
+                        self.desktop.camera_state,
+                        self.desktop.camera_state_revision,
+                        view.scene_id().clone(),
+                        published_revision,
+                    );
+                self.scenarios().configure_raster_qualification(
+                    event_loop,
+                    &mut render_path,
+                    &artifact_installer,
+                    &view,
+                );
+                if event_loop.exiting() {
+                    return;
+                }
+                (Box::new(render_path), Some(artifact_installer))
+            };
         let options = if self.desktop.render_configuration.portable_milestone_timing {
             RenderBackendOptions {
                 validation_enabled: false,
@@ -412,7 +441,7 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         } else {
             RenderBackendOptions::default()
         };
-        let render_path = RenderPathSwitchOwner::new(Box::new(render_path));
+        let render_path = RenderPathSwitchOwner::new(render_path);
         let render_path_handoff_control = render_path.handoff_control();
         if self
             .desktop
@@ -492,9 +521,19 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.desktop.backend = Some(backend);
         self.desktop.text_overlay = text_overlay;
         self.desktop.window = Some(window);
-        self.desktop.artifact_installer = Some(artifact_installer);
+        self.desktop.artifact_installer = artifact_installer;
         self.desktop.render_path_handoff_control = Some(render_path_handoff_control);
         self.desktop.published_revision = Some(published_revision);
+        if self.desktop.render_configuration.compute_only() {
+            if let Err(error) = self.scenarios().set_render_path_overlay() {
+                self.desktop.fail(event_loop, error);
+                return;
+            }
+            if let Some(window) = &self.desktop.window {
+                window.request_redraw();
+            }
+            return;
+        }
         #[cfg(feature = "qualification")]
         let (barrier, preparation_release) = if self
             .desktop

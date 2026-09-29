@@ -38,6 +38,7 @@ impl DesktopRuntime {
     }
 
     pub(super) fn admit_render_path_switch(&self) -> Result<AdmittedRenderPathSwitch, String> {
+        self.render_configuration.admit_path_switch()?;
         // The previous switch still owes its retirement bookkeeping even once the roles are idle.
         if self.interactive_switch.is_some() {
             return Err(RenderPathSwitchRequestError::SwitchInProgress.to_string());
