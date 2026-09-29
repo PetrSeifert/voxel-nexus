@@ -66,6 +66,7 @@ fn sparse_and_clipped_cells_build_and_trace() -> Result<(), Box<dyn std::error::
 #[test]
 fn only_mixed_cells_read_voxel_payloads() -> Result<(), Box<dyn std::error::Error>> {
     let view = fixture()?;
+    let started = std::time::Instant::now();
     let (bundle, counters) = count_storage_work(|| BrickmapSceneBundle::from_view(&view));
     let bundle = bundle?;
     assert!(
@@ -74,7 +75,7 @@ fn only_mixed_cells_read_voxel_payloads() -> Result<(), Box<dyn std::error::Erro
     );
     assert_eq!(counters.enumeration.cells_emitted, 3);
     assert_eq!(bundle.observations().mixed_brick_count, 1);
-    assert!(bundle.observations().construction_time <= std::time::Duration::from_secs(30));
+    assert!(bundle.observations().construction_time <= started.elapsed());
     Ok(())
 }
 

@@ -553,22 +553,12 @@ pub(crate) fn trace_volume_with(
     materials: &[VoxelMaterialId],
     sample: impl Fn(VoxelCoordinate) -> Option<(u32, i32)>,
 ) -> Option<SemanticRayContact> {
-    let clipped_start = point_at_distance(ray, ray.minimum_distance());
-    let starts_inside_volume = half_open_volume_contains(header, clipped_start);
-    let (distance, exit_distance, _) = if starts_inside_volume {
-        (
-            ray.minimum_distance(),
-            volume_exit_distance(header, ray)?,
-            AxisNormal::NegativeX,
-        )
-    } else {
-        intersect_volume(header, ray)?
-    };
+    let (distance, exit_distance, _) = intersect_volume(header, ray)?;
     let initial = volume_coordinate_at(header, ray, distance)?.components();
     // Slab intersection proves the entry is in bounds; rounding may put it just outside.
     let dimensions = header.extent.dimensions();
     let initial: [i32; 3] =
-        std::array::from_fn(|axis| initial[axis].clamp(0, dimensions[axis] as i32 - 1));
+        std::array::from_fn(|axis| initial[axis].clamp(0, (dimensions[axis] - 1) as i32));
     let mut coordinate = VoxelCoordinate::new(initial[0], initial[1], initial[2]);
 
     loop {
@@ -628,26 +618,7 @@ fn voxel_contact(
             SemanticRayContactClassification::StartedInside,
         ));
     }
-    let mut entry = f64::NEG_INFINITY;
-    let mut exit = f64::INFINITY;
-    let mut normal = AxisNormal::NegativeX;
-    for axis in Axis::ALL {
-        let direction = axis.component(ray.direction());
-        let origin = axis.component(ray.origin());
-        if direction == 0.0 {
-            if origin < axis.component(minimum) || origin >= axis.component(maximum) {
-                return None;
-            }
-            continue;
-        }
-        let near = (axis.component(minimum) - origin) / direction;
-        let far = (axis.component(maximum) - origin) / direction;
-        if near.min(far) > entry {
-            entry = near.min(far);
-            normal = axis.entered_normal(ray.direction());
-        }
-        exit = exit.min(near.max(far));
-    }
+    let (entry, exit, normal) = intersect_bounds(minimum, maximum, ray)?;
     if exit <= entry || exit <= ray.minimum_distance() || entry > ray.maximum_distance() {
         return None;
     }
@@ -680,6 +651,25 @@ fn intersect_volume(
         minimum[1] + f64::from(height) * voxel_size,
         minimum[2] + f64::from(depth) * voxel_size,
     ];
+    let (entry_distance, exit_distance, entry_normal) = intersect_bounds(minimum, maximum, ray)?;
+    if exit_distance <= entry_distance
+        || exit_distance < ray.minimum_distance()
+        || entry_distance > ray.maximum_distance()
+    {
+        return None;
+    }
+    Some((
+        entry_distance.max(ray.minimum_distance()),
+        exit_distance.min(ray.maximum_distance()),
+        entry_normal,
+    ))
+}
+
+fn intersect_bounds(
+    minimum: [f64; 3],
+    maximum: [f64; 3],
+    ray: &SemanticRay,
+) -> Option<(f64, f64, AxisNormal)> {
     let mut entry_distance = f64::NEG_INFINITY;
     let mut exit_distance = f64::INFINITY;
     let mut entry_normal = AxisNormal::NegativeX;
@@ -707,49 +697,7 @@ fn intersect_volume(
         }
         exit_distance = exit_distance.min(axis_exit);
     }
-    if exit_distance <= entry_distance
-        || exit_distance < ray.minimum_distance()
-        || entry_distance > ray.maximum_distance()
-    {
-        return None;
-    }
-    Some((
-        entry_distance.max(ray.minimum_distance()),
-        exit_distance.min(ray.maximum_distance()),
-        entry_normal,
-    ))
-}
-
-fn volume_exit_distance(header: &ComputeVolumeHeader, ray: &SemanticRay) -> Option<f64> {
-    intersect_volume_from_inside(header, ray).map(|(_, exit)| exit.min(ray.maximum_distance()))
-}
-
-fn intersect_volume_from_inside(
-    header: &ComputeVolumeHeader,
-    ray: &SemanticRay,
-) -> Option<(f64, f64)> {
-    let minimum = header.scene_origin.map(f64::from);
-    let [width, height, depth] = header.extent.dimensions();
-    let voxel_size = f64::from(header.voxel_size);
-    let maximum = [
-        minimum[0] + f64::from(width) * voxel_size,
-        minimum[1] + f64::from(height) * voxel_size,
-        minimum[2] + f64::from(depth) * voxel_size,
-    ];
-    let mut exit_distance = f64::INFINITY;
-    for axis in Axis::ALL {
-        let direction = axis.component(ray.direction());
-        if direction == 0.0 {
-            continue;
-        }
-        let boundary = if direction > 0.0 {
-            axis.component(maximum)
-        } else {
-            axis.component(minimum)
-        };
-        exit_distance = exit_distance.min((boundary - axis.component(ray.origin())) / direction);
-    }
-    Some((ray.minimum_distance(), exit_distance))
+    Some((entry_distance, exit_distance, entry_normal))
 }
 
 fn volume_coordinate_at(
@@ -859,18 +807,6 @@ fn point_at_distance(ray: &SemanticRay, distance: f64) -> [f64; 3] {
     ]
 }
 
-fn half_open_volume_contains(header: &ComputeVolumeHeader, point: [f64; 3]) -> bool {
-    let minimum = header.scene_origin.map(f64::from);
-    let [width, height, depth] = header.extent.dimensions();
-    let voxel_size = f64::from(header.voxel_size);
-    let maximum = [
-        minimum[0] + f64::from(width) * voxel_size,
-        minimum[1] + f64::from(height) * voxel_size,
-        minimum[2] + f64::from(depth) * voxel_size,
-    ];
-    (0..3).all(|axis| point[axis] >= minimum[axis] && point[axis] < maximum[axis])
-}
-
 #[derive(Clone, Copy)]
 enum Axis {
     X,
@@ -914,14 +850,6 @@ impl Axis {
             Self::X => AxisNormal::PositiveX,
             Self::Y => AxisNormal::PositiveY,
             Self::Z => AxisNormal::PositiveZ,
-        }
-    }
-
-    fn entered_normal(self, direction: [f64; 3]) -> AxisNormal {
-        if self.component(direction) > 0.0 {
-            self.negative_normal()
-        } else {
-            self.positive_normal()
         }
     }
 }
