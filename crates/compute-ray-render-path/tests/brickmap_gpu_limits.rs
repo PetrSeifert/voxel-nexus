@@ -149,15 +149,15 @@ fn mixed_pool_counts_toward_budget_and_device_limits() -> Result<(), Box<dyn std
     ))?;
     let bundle = compute_ray_render_path::ComputeSceneBundle::from_view_with_representation(
         &view,
-        ComputeRepresentation::Brickmap { budget_bytes: 1100 },
+        ComputeRepresentation::Brickmap { budget_bytes: 2124 },
     )?;
-    bundle.validate_device_limits(1100, 1100)?;
-    assert!(bundle.validate_device_limits(1099, 1100).is_err());
-    assert!(bundle.validate_device_limits(1100, 1099).is_err());
+    bundle.validate_device_limits(2124, 2124)?;
+    assert!(bundle.validate_device_limits(2123, 2124).is_err());
+    assert!(bundle.validate_device_limits(2124, 2123).is_err());
     assert!(
         compute_ray_render_path::ComputeSceneBundle::from_view_with_representation(
             &view,
-            ComputeRepresentation::Brickmap { budget_bytes: 1099 },
+            ComputeRepresentation::Brickmap { budget_bytes: 2123 },
         )
         .is_err()
     );

@@ -73,7 +73,8 @@ impl ComputeRayRenderPath {
             let candidate_resources = match if incremental {
                 Ok(None)
             } else {
-                create_scene_gpu_resources(device, candidate_bundle).map(Some)
+                create_scene_gpu_resources(device, candidate_bundle, self.scene_allocation_bytes)
+                    .map(Some)
             } {
                 Ok(resources) => resources,
                 Err(error) => {
@@ -82,6 +83,11 @@ impl ComputeRayRenderPath {
                     return Err(error);
                 }
             };
+            if let Some(resources) = &candidate_resources {
+                self.convergence.record_growth_allocation(
+                    self.scene_allocation_bytes + resources.allocation_bytes + candidate_range,
+                );
+            }
             self.hidden_scene_gpu_resources = Some(ComputeHiddenSceneGpuResources {
                 stamp: candidate_stamp,
                 resources: candidate_resources,

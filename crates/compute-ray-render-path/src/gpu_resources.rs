@@ -262,7 +262,7 @@ impl ComputeRayRenderPath {
         &mut self,
         device: &RenderPathDeviceContext<'_>,
     ) -> Result<(), ComputeRenderPathError> {
-        let resources = create_scene_gpu_resources(device, self.convergence.installed_bundle())?;
+        let resources = create_scene_gpu_resources(device, self.convergence.installed_bundle(), 0)?;
         self.scene_buffer = resources.buffer;
         self.scene_memory = resources.memory;
         self.scene_allocation_bytes = resources.allocation_bytes;
@@ -1013,9 +1013,8 @@ pub(super) fn scene_storage_byte_size(
 pub(super) fn create_scene_gpu_resources(
     device: &RenderPathDeviceContext<'_>,
     bundle: &ComputeSceneBundle,
+    old_allocation_bytes: u64,
 ) -> Result<ComputeSceneGpuResources, ComputeRenderPathError> {
-    let storage_words = bundle.storage_words();
-    let bytes = u32_bytes(&storage_words);
     let byte_size = scene_storage_byte_size(device, bundle)?;
     let buffer_info = vk::BufferCreateInfo::default()
         .size(byte_size)
@@ -1024,6 +1023,22 @@ pub(super) fn create_scene_gpu_resources(
     let buffer = unsafe { device.create_buffer(&buffer_info) }
         .map_err(ComputeRenderPathError::CreateSceneBuffer)?;
     let requirements = unsafe { device.buffer_memory_requirements(buffer) };
+    // Vulkan may round the requested buffer size up. Check its actual allocation
+    // requirement before allocating either device memory or upload staging.
+    if let crate::ComputeRepresentation::Brickmap { budget_bytes } = bundle.representation() {
+        let peak = old_allocation_bytes
+            .saturating_add(requirements.size)
+            .saturating_add(byte_size);
+        if peak > budget_bytes {
+            unsafe { device.destroy_buffer(buffer) };
+            return Err(crate::BrickmapValidationError::BufferLimit {
+                limit: "configured peak budget",
+                required: peak,
+                available: budget_bytes,
+            }
+            .into());
+        }
+    }
     let Some(memory_type_index) = device.memory_type_index(
         requirements.memory_type_bits,
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
@@ -1052,6 +1067,8 @@ pub(super) fn create_scene_gpu_resources(
         );
         return Err(ComputeRenderPathError::BindSceneMemory(error));
     }
+    let storage_words = bundle.storage_words();
+    let bytes = u32_bytes(&storage_words);
     if let Err(error) = unsafe { device.write_memory(memory, bytes) } {
         release_scene_gpu_resources(
             device,

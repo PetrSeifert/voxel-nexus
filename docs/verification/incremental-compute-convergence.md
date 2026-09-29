@@ -44,11 +44,11 @@ Local runtime logs and the summary are in `artifacts/issue-89-validation`. The v
 
 ## Brickmap convergence, issue #107
 
-Brickmap preparation maps every changed region to its intersecting 8³ cells and deduplicates them before classification. Missing revisions conservatively invalidate the entire cell grid. Both cases produce patches against the installed allocation, with no rebuild fallback. The packed CPU words use the existing persistent page tree, so a small edit does not clone a scene-sized grid.
+Brickmap preparation maps every changed region to its intersecting 8³ cells and deduplicates them before classification. Missing revisions conservatively invalidate the entire cell grid. Both cases first attempt patches against the installed allocation. Issue #108 adds a budget-checked rebuild when private reservations exhaust that pool. The packed CPU words use the existing persistent page tree, so a small edit does not clone a scene-sized grid.
 
 The convergence owner retains pool state in its installed bundle and private candidate snapshots. A candidate removes reserved slots only from its private free set and records retired slots separately. Dropping or cancelling the candidate discards those reservations without changing installed ownership. Candidates may name the same free slot because their payloads stay in CPU memory until installation. The owner releases retired slots only when installation commits after the preceding frame has finished. Revision and allocation identity must still match before any GPU write.
 
-Initial construction reserves up to one spare slot per coarse cell, capped at 64 spare slots and the remaining byte budget. Every slot occupies 1,024 bytes. The material table includes the scene's currently unused materials so later edits can reference them without moving the grid or pool. Pool growth is not implemented. Exhaustion reports a preparation failure while the installed revision continues presenting.
+Initial construction reserves the required mixed bricks plus 25% headroom, rounded up. An empty pool starts at zero. Every slot occupies 1,024 bytes. The material table includes the scene's currently unused materials so later edits can reference them without moving the grid or pool.
 
 Hidden candidates expose dirty-cell, reserved-slot, retired-slot, and upload-byte counts through `ComputeConvergenceStatus::hidden_patch`. The installed counts remain available through `installed_patch` and `ComputeSceneBundle::brickmap_patch_observations`. Upload timings continue to report the actual patch payload size. An error during mutation permanently stops frame recording and convergence for that Render Path; the qualification hook deterministically writes the first range and then reports failure.
 
@@ -67,3 +67,20 @@ pwsh -NoProfile -File scripts/verify-portable-compute-ray-milestone.ps1 -Evidenc
 cargo fmt --all
 cargo clippy --workspace --all-targets --all-features
 ```
+
+
+## Brick pool growth, issue #108
+
+When private patch reservations exhaust capacity, the convergence owner counts the newest view's mixed cells before allocating replacement payloads. Capacity grows by rounded-up 1.5× steps until it fits, starting at one for an empty pool. A full rebuild gets a separate allocation and installs at the existing frame boundary. Its base revision and allocation identity must still match.
+
+The memory budget covers the old and replacement packed GPU scene buffers, including metadata and coarse grids, plus a full replacement upload staging buffer. CPU planning rejects an over-budget peak before building the replacement. Before Vulkan memory allocation or upload staging, the adapter checks again using the device's memory requirements and the installed allocation's actual size. Initial upload also checks allocation plus staging. Persistent frontend views and CPU scene trees are outside this GPU/upload budget.
+
+The owner retains at most one prepared rebuild or active preparation. It drops a superseded prepared bundle before starting the next worker, and joins a cancelled worker before starting pending work. The adapter releases superseded GPU resources before allocating another replacement. Failed growth keeps the installed revision presenting and supports explicit retry.
+
+`ComputeConvergenceStatus::hidden_growth` and `installed_growth`, and `ComputeSceneBundle::brickmap_growth_observations`, expose trigger revision, old/new slot capacities, predicted peak bytes, optional actual peak bytes, and CPU rebuild duration. CPU preparation reports the packed-size prediction. GPU upload separately checks Vulkan allocation requirements and records the actual allocation-plus-staging peak, preserving the original CPU prediction for comparison. Actual peak remains absent for a candidate that has not uploaded. Patch observations remain separate.
+
+Verification includes exact-budget acceptance, repeatable one-byte-over-budget rejection, skipped edits, allocation release after supersession and shutdown, and bounded candidate retention. The Vulkan adapter test installs growth from zero to one and from one to two slots, checks growth observations, and compares installed rays with the semantic oracle. It also checks hidden-state isolation, rejection preserving presentation, structural transitions, and partial-write failure.
+
+The 2026-09-29 Vulkan run passed on the RTX 4070 with zero validation warnings or errors. The milestone run completed 15 semantic qualifications and three switches; only revisions 1 and 4 became visible during the edit burst. Shutdown ownership counts were zero. Evidence is in `artifacts/issue-108-gpu-final.log` and `artifacts/issue-108-brickmap/runtime-summary.json`.
+
+`cargo test --workspace --all-features`, `cargo check --workspace --all-features`, `cargo fmt --all`, and `cargo clippy --workspace --all-targets --all-features` passed. The full test log is `artifacts/issue-108-tests.log`. Separate standards and spec reviews reported no findings.
