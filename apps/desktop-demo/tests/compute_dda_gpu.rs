@@ -172,7 +172,227 @@ fn check_gpu_representation(
     result
 }
 
+#[cfg(feature = "qualification")]
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum BrickmapLifecycleScenario {
+    Transitions,
+    CapacityExhaustion,
+    PartialWriteFailure,
+}
+
+#[cfg(feature = "qualification")]
+fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario) -> TestResult {
+    use compute_ray_render_path::ComputeConvergenceEvent;
+    use voxel_frontend::{VoxelEdit, VoxelEditCommand};
+    let frontend = VoxelFrontend::new();
+    let extent = VoxelExtent::new(16, 8, 8);
+    let initial = frontend.publish(DenseVoxelScene::new(
+        VoxelSceneId::new("brickmap-lifecycle"),
+        VoxelSceneRevision::new(0),
+        vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
+        vec![DenseVoxelVolume::new(
+            VoxelVolumeMetadata::new(VoxelVolumeId::new("volume"), extent, [0.0; 3], 1.0),
+            vec![DenseVoxelBatch::new(
+                VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                vec![VoxelValue::Empty; 1024],
+            )],
+        )],
+    ))?;
+    let camera = CameraState::new([0.0, 0.0, 5.0], [0.0; 3], [0.0, 1.0, 0.0], 50.0, 0.1, 100.0)?;
+    let mut path = ComputeRayRenderPathAdapter::new_with_representation(
+        initial.clone(),
+        camera,
+        CameraStateRevision::new(1),
+        ComputeRepresentation::Brickmap {
+            budget_bytes: if scenario == BrickmapLifecycleScenario::PartialWriteFailure {
+                2124
+            } else {
+                1100
+            },
+        },
+    )?;
+    let convergence = path.enable_convergence_control_with_hold(true);
+    let controller = path.enable_semantic_ray_observation();
+    let size = window.inner_size();
+    let mut backend = RenderBackend::initialize_with_options(
+        c"Brickmap lifecycle regression",
+        &windows_adapter::WindowsPresentationAdapter::new(window),
+        vk::Extent2D {
+            width: size.width,
+            height: size.height,
+        },
+        path,
+        RenderBackendOptions {
+            validation_enabled: true,
+            presentation_throttling_enabled: false,
+            gpu_timestamps_enabled: false,
+        },
+    )?;
+    let probes = [0.5, 1.5, 8.5]
+        .into_iter()
+        .enumerate()
+        .map(|(index, x)| {
+            Ok(SemanticRayProbe::new(
+                format!("lifecycle-{index}"),
+                SemanticRay::new([x, 0.5, -1.0], [0.0, 0.0, 1.0], 0.0, 20.0)?,
+            )?)
+        })
+        .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    let result = (|| -> TestResult {
+        let verify = |backend: &mut RenderBackend, view: &VoxelSceneView| -> TestResult {
+            controller.request(probes.clone())?;
+            let mut actual = Vec::new();
+            for _ in 0..8 {
+                backend.draw_frame()?;
+                actual.extend(controller.drain()?);
+                if actual.len() == probes.len() {
+                    break;
+                }
+            }
+            assert_eq!(actual.len(), probes.len());
+            for (probe, actual) in probes.iter().zip(actual) {
+                assert!(actual.observation().agrees_with(
+                    &observe(view, probe.ray())?,
+                    SemanticRayDistanceTolerance::new(1.0e-6)?
+                ));
+            }
+            Ok(())
+        };
+        verify(&mut backend, &initial)?;
+        let occupied = VoxelValue::Occupied(VoxelMaterialId::new("stone"));
+        let first = frontend.edit(VoxelEditCommand::new(
+            VoxelVolumeId::new("volume"),
+            VoxelCoordinate::new(0, 0, 0),
+            occupied.clone(),
+        ))?;
+        convergence.submit(first)?;
+        for _ in 0..1000 {
+            backend.draw_frame()?;
+            if convergence.post_upload_revision()?.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(
+            convergence.post_upload_revision()?,
+            Some(VoxelSceneRevision::new(1))
+        );
+        assert_eq!(convergence.status()?.visible_revision(), initial.revision());
+        assert_eq!(
+            convergence
+                .status()?
+                .hidden_patch
+                .ok_or("missing patch observation")?
+                .slots_reserved,
+            1
+        );
+        verify(&mut backend, &initial)?;
+        convergence.release_post_upload()?;
+        backend.draw_frame()?;
+        let visible = frontend.scene_view()?;
+        verify(&mut backend, &visible)?;
+        if scenario != BrickmapLifecycleScenario::Transitions {
+            let partial = scenario == BrickmapLifecycleScenario::PartialWriteFailure;
+            if partial {
+                convergence.inject_partial_write_failure()?;
+            }
+            let outcome = frontend.edit(VoxelEditCommand::new(
+                VoxelVolumeId::new("volume"),
+                VoxelCoordinate::new(if partial { 1 } else { 8 }, 0, 0),
+                occupied,
+            ))?;
+            convergence.submit(outcome)?;
+            let mut failed = false;
+            for _ in 0..1000 {
+                let frame = backend.draw_frame();
+                if partial && frame.is_err() {
+                    failed = true;
+                    break;
+                }
+                frame?;
+                if convergence
+                    .drain_events()?
+                    .iter()
+                    .any(|event| matches!(event, ComputeConvergenceEvent::Failure(_)))
+                {
+                    failed = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(failed);
+            assert_eq!(convergence.status()?.visible_revision(), visible.revision());
+            if partial {
+                for _ in 0..3 {
+                    assert!(backend.draw_frame().is_err());
+                }
+            } else {
+                verify(&mut backend, &visible)?;
+            }
+        } else {
+            // With one slot, every mixed successor after retirement must reuse it.
+            for (step, fill) in [Some(VoxelValue::Empty), None, Some(occupied.clone()), None]
+                .into_iter()
+                .enumerate()
+            {
+                let outcome = if let Some(value) = fill {
+                    frontend.edit(VoxelEditCommand::from_edits(
+                        (0..512)
+                            .map(|index| {
+                                VoxelEdit::new(
+                                    VoxelVolumeId::new("volume"),
+                                    VoxelCoordinate::new(index % 8, index / 8 % 8, index / 64),
+                                    value.clone(),
+                                )
+                            })
+                            .collect(),
+                    ))?
+                } else {
+                    frontend.edit(VoxelEditCommand::new(
+                        VoxelVolumeId::new("volume"),
+                        VoxelCoordinate::new(0, 0, 0),
+                        if step == 1 {
+                            occupied.clone()
+                        } else {
+                            VoxelValue::Empty
+                        },
+                    ))?
+                };
+                convergence.submit(outcome)?;
+                let view = frontend.scene_view()?;
+                for _ in 0..1000 {
+                    backend.draw_frame()?;
+                    if convergence.status()?.visible_revision() == view.revision() {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                assert_eq!(convergence.status()?.visible_revision(), view.revision());
+                let patch = convergence.status()?.installed_patch;
+                assert_eq!(
+                    (patch.slots_reserved, patch.slots_retired),
+                    if step % 2 == 0 { (0, 1) } else { (1, 0) }
+                );
+                verify(&mut backend, &view)?;
+            }
+        }
+        Ok(())
+    })();
+    backend.shutdown()?;
+    assert_eq!(backend.validation_error_count(), 0);
+    assert_eq!(backend.validation_warning_count(), 0);
+    result
+}
+
 fn run_fixtures(window: &Window) -> TestResult {
+    #[cfg(feature = "qualification")]
+    for scenario in [
+        BrickmapLifecycleScenario::Transitions,
+        BrickmapLifecycleScenario::CapacityExhaustion,
+        BrickmapLifecycleScenario::PartialWriteFailure,
+    ] {
+        check_brickmap_lifecycle(window, scenario)?;
+    }
     check_gpu(
         window,
         scene(1.0, VoxelExtent::new(16, 8, 1), 8 + 16 * 4)?,

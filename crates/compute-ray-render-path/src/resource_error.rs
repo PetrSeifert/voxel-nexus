@@ -9,6 +9,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub(super) enum ComputeRenderPathError {
+    #[error("presentation stopped after a scene memory mutation failure")]
+    PresentationStopped,
     #[error(transparent)]
     BrickmapValidation(#[from] crate::BrickmapValidationError),
     #[error(transparent)]

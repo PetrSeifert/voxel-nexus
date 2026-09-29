@@ -109,6 +109,7 @@ struct ComputeConvergenceControlState {
     pending_outcome: Option<VoxelEditOutcome>,
     retry_requested: bool,
     pending_failure: Option<ComputeConvergenceFailurePhase>,
+    partial_write_failure: bool,
     status: ComputeConvergenceStatus,
     events: VecDeque<ComputeConvergenceEvent>,
     preparation_barrier: Option<Arc<ComputePreparationBarrierShared>>,
@@ -141,12 +142,32 @@ pub enum ComputeConvergenceControlError {
 }
 
 impl ComputeConvergenceController {
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn inject_partial_write_failure(&self) -> Result<(), ComputeConvergenceControlError> {
+        self.state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?
+            .partial_write_failure = true;
+        Ok(())
+    }
+
+    pub(super) fn take_partial_write_failure(
+        &self,
+    ) -> Result<bool, ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        Ok(std::mem::take(&mut state.partial_write_failure))
+    }
+
     fn new(status: ComputeConvergenceStatus, hold_post_upload: bool) -> Self {
         Self {
             state: Arc::new(Mutex::new(ComputeConvergenceControlState {
                 pending_outcome: None,
                 retry_requested: false,
                 pending_failure: None,
+                partial_write_failure: false,
                 status,
                 events: VecDeque::new(),
                 preparation_barrier: None,
@@ -519,6 +540,8 @@ pub struct ComputeConvergenceStatus {
     retained_event_count: usize,
     dropped_event_count: u64,
     worker_count: usize,
+    pub installed_patch: crate::BrickmapPatchObservations,
+    pub hidden_patch: Option<crate::BrickmapPatchObservations>,
 }
 
 impl ComputeConvergenceStatus {
@@ -581,6 +604,8 @@ pub(crate) enum ComputeConvergenceShutdownError {
 
 #[derive(Debug, Error)]
 pub enum ComputeConvergenceError {
+    #[error("brickmap patch base revision or pool allocation changed before installation")]
+    PatchBaseMismatch,
     #[error(
         "changed outcome Voxel Scene identity mismatch: expected {expected:?}, change set {change_set:?}, view {view:?}"
     )]
@@ -629,13 +654,13 @@ impl ComputePreparationTarget {
 }
 
 enum ComputePreparationCompletion {
-    Completed(Result<ComputeSceneBundle, ComputeSceneBuildError>),
+    Completed(Result<Box<ComputeSceneBundle>, ComputeSceneBuildError>),
     WorkerTerminated,
 }
 
 enum ComputeActivePreparationStatus {
     Running,
-    Ready(ComputeSceneBundle),
+    Ready(Box<ComputeSceneBundle>),
 }
 
 struct ComputeActivePreparation {
@@ -762,6 +787,10 @@ impl ComputeConvergence {
             cleanup_debt: None,
             retained_event_count: self.events.retained.len(),
             dropped_event_count: self.events.dropped,
+            installed_patch: self.installed_bundle.brickmap_patch_observations(),
+            hidden_patch: self
+                .hidden_bundle()
+                .map(ComputeSceneBundle::brickmap_patch_observations),
             worker_count: usize::from(
                 self.active
                     .as_ref()
@@ -909,7 +938,7 @@ impl ComputeConvergence {
         self.hidden = Some(ComputeHiddenCandidate {
             generation: active.generation,
             target: active.target,
-            bundle,
+            bundle: *bundle,
         });
     }
 
@@ -926,6 +955,17 @@ impl ComputeConvergence {
         }
     }
 
+    pub(crate) fn validate_hidden_base(&self) -> Result<(), ComputeConvergenceError> {
+        if self
+            .hidden
+            .as_ref()
+            .is_some_and(|candidate| !candidate.bundle.patch_base_matches(&self.installed_bundle))
+        {
+            return Err(ComputeConvergenceError::PatchBaseMismatch);
+        }
+        Ok(())
+    }
+
     pub(crate) fn install_hidden(
         &mut self,
         actual_visible_revision: VoxelSceneRevision,
@@ -937,6 +977,7 @@ impl ComputeConvergence {
             });
         }
         self.reject_stale_hidden();
+        self.validate_hidden_base()?;
         let Some(candidate) = self.hidden.take() else {
             return Ok(None);
         };
@@ -1143,7 +1184,7 @@ impl ComputeConvergence {
                     result
                     };
                     if completion_sender
-                        .send(ComputePreparationCompletion::Completed(result))
+                        .send(ComputePreparationCompletion::Completed(result.map(Box::new)))
                         .is_err()
                     {
                         eprintln!(
@@ -1457,6 +1498,288 @@ mod tests {
             thread::yield_now();
         }
         Err(format!("{phase:?} failure was not observed").into())
+    }
+
+    fn brickmap_convergence(
+        frontend: &VoxelFrontend,
+        budget_bytes: u64,
+    ) -> Result<ComputeConvergence, Box<dyn std::error::Error>> {
+        Ok(ComputeConvergence::new(
+            ComputeSceneBundle::from_view_with_representation(
+                &frontend.scene_view()?,
+                crate::ComputeRepresentation::Brickmap { budget_bytes },
+            )?,
+        ))
+    }
+
+    fn fill_cell(
+        frontend: &VoxelFrontend,
+        value: VoxelValue,
+    ) -> Result<VoxelEditOutcome, voxel_frontend::VoxelFrontendError> {
+        frontend.edit(VoxelEditCommand::from_edits(
+            (0..512)
+                .map(|index| {
+                    voxel_frontend::VoxelEdit::new(
+                        VoxelVolumeId::new("terrain"),
+                        VoxelCoordinate::new(index % 8, index / 8 % 8, index / 64),
+                        value.clone(),
+                    )
+                })
+                .collect(),
+        ))
+    }
+
+    fn install_brickmap_edit(
+        convergence: &mut ComputeConvergence,
+        outcome: VoxelEditOutcome,
+    ) -> Result<crate::BrickmapPatchObservations, Box<dyn std::error::Error>> {
+        convergence.accept(outcome)?;
+        drain_until_ready(convergence, convergence.required_revision)?;
+        convergence.retain_ready_candidate();
+        let observation = convergence
+            .hidden_bundle()
+            .ok_or("missing candidate")?
+            .brickmap_patch_observations();
+        convergence
+            .install_hidden(convergence.status().visible_revision())?
+            .ok_or("missing installation")?;
+        Ok(observation)
+    }
+
+    #[test]
+    fn brickmap_structural_transitions_and_retirement() -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("transitions", 0, VoxelExtent::new(16, 8, 8))?;
+        let mut convergence = brickmap_convergence(&frontend, 8192)?;
+        let mixed = install_brickmap_edit(
+            &mut convergence,
+            changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?,
+        )?;
+        assert_eq!(
+            (
+                mixed.dirty_cells,
+                mixed.slots_reserved,
+                mixed.slots_retired,
+                mixed.uploaded_bytes
+            ),
+            (1, 1, 0, 1028)
+        );
+        let empty =
+            install_brickmap_edit(&mut convergence, fill_cell(&frontend, VoxelValue::Empty)?)?;
+        assert_eq!(
+            (
+                empty.slots_reserved,
+                empty.slots_retired,
+                empty.uploaded_bytes
+            ),
+            (0, 1, 4)
+        );
+        install_brickmap_edit(
+            &mut convergence,
+            changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?,
+        )?;
+        let uniform = install_brickmap_edit(
+            &mut convergence,
+            fill_cell(
+                &frontend,
+                VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+            )?,
+        )?;
+        assert_eq!(
+            (
+                uniform.dirty_cells,
+                uniform.slots_reserved,
+                uniform.slots_retired
+            ),
+            (1, 0, 1)
+        );
+        let mixed = install_brickmap_edit(
+            &mut convergence,
+            frontend.edit(VoxelEditCommand::new(
+                VoxelVolumeId::new("terrain"),
+                VoxelCoordinate::new(0, 0, 0),
+                VoxelValue::Empty,
+            ))?,
+        )?;
+        assert_eq!((mixed.slots_reserved, mixed.slots_retired), (1, 0));
+        let ray =
+            semantic_ray_oracle::SemanticRay::new([-1.0, 0.5, 0.5], [1.0, 0.0, 0.0], 0.0, 20.0)?;
+        assert_eq!(
+            convergence.installed_bundle().observe(&ray),
+            semantic_ray_oracle::observe(&frontend.scene_view()?, &ray)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn brickmap_exhaustion_preserves_visible_and_retirement_waits_for_installation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("capacity", 0, VoxelExtent::new(16, 8, 8))?;
+        let mut convergence = brickmap_convergence(&frontend, 1100)?;
+        install_brickmap_edit(
+            &mut convergence,
+            changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?,
+        )?;
+        let visible = convergence.installed_bundle().storage_words();
+        let outcome = frontend.edit(VoxelEditCommand::from_edits(vec![
+            voxel_frontend::VoxelEdit::new(
+                VoxelVolumeId::new("terrain"),
+                VoxelCoordinate::new(0, 0, 0),
+                VoxelValue::Empty,
+            ),
+            voxel_frontend::VoxelEdit::new(
+                VoxelVolumeId::new("terrain"),
+                VoxelCoordinate::new(8, 0, 0),
+                VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+            ),
+        ]))?;
+        convergence.accept(outcome)?;
+        let events = drain_until_failure(
+            &mut convergence,
+            ComputeConvergenceFailurePhase::Preparation,
+        )?;
+        assert!(events.iter().any(|event| matches!(event, ComputeConvergenceEvent::Failure(failure) if failure.source().contains("capacity exhausted"))));
+        assert_eq!(
+            convergence.status().visible_revision(),
+            VoxelSceneRevision::new(1)
+        );
+        assert_eq!(convergence.installed_bundle().storage_words(), visible);
+        let empty = frontend.edit(VoxelEditCommand::new(
+            VoxelVolumeId::new("terrain"),
+            VoxelCoordinate::new(8, 0, 0),
+            VoxelValue::Empty,
+        ))?;
+        install_brickmap_edit(&mut convergence, empty)?;
+        let reused = install_brickmap_edit(
+            &mut convergence,
+            changed_edit(&frontend, VoxelCoordinate::new(8, 0, 0))?,
+        )?;
+        assert_eq!(reused.slots_reserved, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn brickmap_supersession_and_skipped_revisions_release_private_reservations()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("supersession", 0, VoxelExtent::new(16, 8, 8))?;
+        let mut convergence = brickmap_convergence(&frontend, 1100)?;
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(1))?;
+        convergence.retain_ready_candidate();
+        let original = convergence.installed_bundle().storage_words();
+        frontend.edit(VoxelEditCommand::new(
+            VoxelVolumeId::new("terrain"),
+            VoxelCoordinate::new(0, 0, 0),
+            VoxelValue::Empty,
+        ))?;
+        let newest = changed_edit(&frontend, VoxelCoordinate::new(8, 0, 0))?;
+        let observation = install_brickmap_edit(&mut convergence, newest)?;
+        assert_eq!(observation.dirty_cells, 2);
+        assert_eq!(observation.slots_reserved, 1);
+        assert_eq!(
+            convergence.status().visible_revision(),
+            VoxelSceneRevision::new(3)
+        );
+        assert_ne!(convergence.installed_bundle().storage_words(), original);
+        Ok(())
+    }
+
+    #[test]
+    fn brickmap_cancellation_releases_only_private_slots() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let frontend = frontend("cancel-slots", 0, VoxelExtent::new(16, 8, 8))?;
+        let mut convergence = brickmap_convergence(&frontend, 2124)?;
+        install_brickmap_edit(
+            &mut convergence,
+            changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?,
+        )?;
+        let control = convergence.enable_control(false);
+        control.hold_next_preparation_after_blocks(1)?;
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(8, 0, 0))?)?;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while control
+            .preparation_barrier_observation()?
+            .and_then(|observation| observation.reached_revision())
+            .is_none()
+        {
+            assert!(Instant::now() < deadline);
+            thread::yield_now();
+        }
+        let visible = convergence.installed_bundle().storage_words();
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(9, 0, 0))?)?;
+        control.release_preparation_barrier()?;
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(3))?;
+        convergence.retain_ready_candidate();
+        assert_eq!(convergence.installed_bundle().storage_words(), visible);
+        let patch = convergence
+            .hidden_bundle()
+            .ok_or("missing candidate")?
+            .brickmap_patch_observations();
+        assert_eq!((patch.slots_reserved, patch.slots_retired), (1, 0));
+        convergence.install_hidden(VoxelSceneRevision::new(1))?;
+        Ok(())
+    }
+
+    #[test]
+    fn brickmap_rejects_changed_base_revision_or_pool_allocation()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for replace_revision in [false, true] {
+            let frontend = frontend("stale", 0, VoxelExtent::new(16, 8, 8))?;
+            let initial = frontend.scene_view()?;
+            let mut convergence = brickmap_convergence(&frontend, 8192)?;
+            convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+            drain_until_ready(&mut convergence, VoxelSceneRevision::new(1))?;
+            convergence.retain_ready_candidate();
+            let view = if replace_revision {
+                frontend.scene_view()?
+            } else {
+                initial
+            };
+            convergence.installed_bundle = if replace_revision {
+                // Preserve allocation identity to isolate the revision-base check.
+                convergence
+                    .hidden_bundle()
+                    .ok_or("missing candidate")?
+                    .clone()
+            } else {
+                ComputeSceneBundle::from_view_with_representation(
+                    &view,
+                    crate::ComputeRepresentation::Brickmap { budget_bytes: 8192 },
+                )?
+            };
+            assert!(matches!(
+                convergence.install_hidden(view.revision()),
+                Err(ComputeConvergenceError::PatchBaseMismatch)
+            ));
+            assert_eq!(convergence.installed_bundle().revision(), view.revision());
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn brickmap_edit_reserves_a_private_slot_without_rebuilding()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = frontend("brickmap", 0, VoxelExtent::new(16, 8, 8))?;
+        let bundle = ComputeSceneBundle::from_view_with_representation(
+            &frontend.scene_view()?,
+            crate::ComputeRepresentation::Brickmap { budget_bytes: 8192 },
+        )?;
+        let original = bundle.storage_words();
+        let mut convergence = ComputeConvergence::new(bundle);
+        convergence.accept(changed_edit(&frontend, VoxelCoordinate::new(0, 0, 0))?)?;
+        drain_until_ready(&mut convergence, VoxelSceneRevision::new(1))?;
+        convergence.retain_ready_candidate();
+        let candidate = convergence.hidden_bundle().ok_or("missing candidate")?;
+        assert_eq!(candidate.predecessor(), Some(VoxelSceneRevision::new(0)));
+        assert_eq!(candidate.patches().len(), 257);
+        assert_eq!(convergence.installed_bundle().storage_words(), original);
+        convergence
+            .install_hidden(VoxelSceneRevision::new(0))?
+            .ok_or("missing installation")?;
+        assert_eq!(
+            convergence.status().visible_revision(),
+            VoxelSceneRevision::new(1)
+        );
+        Ok(())
     }
 
     #[test]

@@ -39,6 +39,7 @@ pub(super) struct ComputeRayRenderPath {
     pub(super) scene_memory: vk::DeviceMemory,
     pub(super) scene_allocation_bytes: u64,
     pub(super) scene_gpu_revision: VoxelSceneRevision,
+    pub(super) presentation_stopped: bool,
     pub(super) hidden_scene_gpu_resources: Option<ComputeHiddenSceneGpuResources>,
     pub(super) convergence_control: Option<ComputeConvergenceController>,
     pub(super) lifecycle_controller: Option<ComputeLifecycleController>,
@@ -88,6 +89,7 @@ impl ComputeRayRenderPath {
             scene_memory: vk::DeviceMemory::null(),
             scene_allocation_bytes: 0,
             scene_gpu_revision,
+            presentation_stopped: false,
             hidden_scene_gpu_resources: None,
             convergence_control: None,
             lifecycle_controller: None,
@@ -738,6 +740,9 @@ impl ComputeRayRenderPath {
         &mut self,
         frame: &RenderPathFrameContext<'_>,
     ) -> Result<(), ComputeRenderPathError> {
+        if self.presentation_stopped {
+            return Err(ComputeRenderPathError::PresentationStopped);
+        }
         let target = frame.target();
         if self.configuration_id != Some(target.configuration_id())
             || self.output_extent != target.extent()

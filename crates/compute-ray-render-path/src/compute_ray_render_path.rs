@@ -477,3 +477,5 @@ mod installation;
 
 #[cfg(test)]
 mod tests;
+
+pub use compute_scene::BrickmapPatchObservations;
