@@ -43,8 +43,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use voxel_frontend::{VoxelEditOutcome, VoxelSceneView};
 
+mod brickmap_scene;
 mod compute_convergence;
 mod compute_scene;
+pub use brickmap_scene::{BrickmapBuildError, BrickmapObservations, BrickmapSceneBundle};
 mod scene_words;
 
 pub use compute_convergence::{

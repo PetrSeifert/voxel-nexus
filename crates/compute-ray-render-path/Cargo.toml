@@ -21,6 +21,7 @@ voxel-frontend = { path = "../voxel-frontend" }
 shaderc = "0.10.1"
 
 [dev-dependencies]
+voxel-frontend = { path = "../voxel-frontend", features = ["qualification"] }
 canonical-scene = { path = "../canonical-scene" }
 raster-render-path = { path = "../raster-render-path" }
 

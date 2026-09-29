@@ -28,6 +28,16 @@ pub struct ComputeVolumeHeader {
 }
 
 impl ComputeVolumeHeader {
+    pub(crate) fn for_brickmap(volume: &VoxelVolumeMetadata) -> Self {
+        Self {
+            identity: volume.identity().clone(),
+            scene_origin: volume.scene_origin(),
+            voxel_size: volume.voxel_size(),
+            extent: volume.extent(),
+            voxel_word_offset: 0,
+        }
+    }
+
     pub fn identity(&self) -> &VoxelVolumeId {
         &self.identity
     }
@@ -532,9 +542,20 @@ fn trace_volume(
     header: &ComputeVolumeHeader,
     ray: &SemanticRay,
 ) -> Option<SemanticRayContact> {
+    trace_volume_with(header, ray, &scene.material_identities, |coordinate| {
+        Some((voxel_word(scene, header, coordinate)?, 1))
+    })
+}
+
+pub(crate) fn trace_volume_with(
+    header: &ComputeVolumeHeader,
+    ray: &SemanticRay,
+    materials: &[VoxelMaterialId],
+    sample: impl Fn(VoxelCoordinate) -> Option<(u32, i32)>,
+) -> Option<SemanticRayContact> {
     let clipped_start = point_at_distance(ray, ray.minimum_distance());
     let starts_inside_volume = half_open_volume_contains(header, clipped_start);
-    let (mut distance, exit_distance, mut normal) = if starts_inside_volume {
+    let (distance, exit_distance, _) = if starts_inside_volume {
         (
             ray.minimum_distance(),
             volume_exit_distance(header, ray)?,
@@ -543,48 +564,103 @@ fn trace_volume(
     } else {
         intersect_volume(header, ray)?
     };
-    let mut coordinate = volume_coordinate_at(header, ray, distance)?;
+    let initial = volume_coordinate_at(header, ray, distance)?.components();
+    // Slab intersection proves the entry is in bounds; rounding may put it just outside.
+    let dimensions = header.extent.dimensions();
+    let initial: [i32; 3] =
+        std::array::from_fn(|axis| initial[axis].clamp(0, dimensions[axis] as i32 - 1));
+    let mut coordinate = VoxelCoordinate::new(initial[0], initial[1], initial[2]);
 
     loop {
-        let material_word = voxel_word(scene, header, coordinate)?;
-        if material_word != 0 {
+        let (material_word, edge) = sample(coordinate)?;
+        if material_word != 0
+            && let Some((contact_distance, classification)) = voxel_contact(header, ray, coordinate)
+        {
             let material_index = usize::try_from(material_word.checked_sub(1)?).ok()?;
-            let material_identity = scene.material_identities.get(material_index)?.clone();
-            let classification = if starts_inside_volume && distance == ray.minimum_distance() {
-                SemanticRayContactClassification::StartedInside
-            } else {
-                SemanticRayContactClassification::Entered(normal)
-            };
+            let material_identity = materials.get(material_index)?.clone();
             return Some(SemanticRayContact::new(
                 header.identity.clone(),
                 coordinate,
                 material_identity,
-                distance,
+                contact_distance,
                 classification,
             ));
         }
 
-        let (next_distance, tied_axes) = next_cell_crossing(header, ray, coordinate)?;
+        let (next_distance, tied_axes) = next_cell_crossing(header, ray, coordinate, edge)?;
         if next_distance > exit_distance || next_distance > ray.maximum_distance() {
             return None;
         }
-        let first_axis = *tied_axes.first()?;
-        normal = first_axis.entered_normal(ray.direction());
-        let [mut coordinate_x, mut coordinate_y, mut coordinate_z] = coordinate.components();
+        let previous = coordinate.components();
+        let mut components = if edge == 1 {
+            previous
+        } else {
+            volume_coordinate_at(header, ray, next_distance)?.components()
+        };
         for axis in tied_axes {
-            match axis {
-                Axis::X => coordinate_x = coordinate_x.checked_add(axis.step(ray.direction()))?,
-                Axis::Y => coordinate_y = coordinate_y.checked_add(axis.step(ray.direction()))?,
-                Axis::Z => coordinate_z = coordinate_z.checked_add(axis.step(ray.direction()))?,
-            }
+            let index = axis.index();
+            let start = previous[index] / edge * edge;
+            components[index] = if axis.step(ray.direction()) > 0 {
+                start.checked_add(edge)?
+            } else {
+                start.checked_sub(1)?
+            };
         }
-        coordinate = VoxelCoordinate::new(coordinate_x, coordinate_y, coordinate_z);
+        coordinate = VoxelCoordinate::new(components[0], components[1], components[2]);
         dense_index(header.extent, coordinate)?;
-        distance = next_distance;
     }
 }
 
-fn contact_precedes(candidate: &SemanticRayContact, current: &SemanticRayContact) -> bool {
+fn voxel_contact(
+    header: &ComputeVolumeHeader,
+    ray: &SemanticRay,
+    coordinate: VoxelCoordinate,
+) -> Option<(f64, SemanticRayContactClassification)> {
+    let minimum = std::array::from_fn::<_, 3, _>(|axis| {
+        f64::from(header.scene_origin[axis])
+            + f64::from(coordinate.components()[axis]) * f64::from(header.voxel_size)
+    });
+    let maximum = minimum.map(|value| value + f64::from(header.voxel_size));
+    let start = point_at_distance(ray, ray.minimum_distance());
+    if (0..3).all(|axis| start[axis] >= minimum[axis] && start[axis] < maximum[axis]) {
+        return Some((
+            ray.minimum_distance(),
+            SemanticRayContactClassification::StartedInside,
+        ));
+    }
+    let mut entry = f64::NEG_INFINITY;
+    let mut exit = f64::INFINITY;
+    let mut normal = AxisNormal::NegativeX;
+    for axis in Axis::ALL {
+        let direction = axis.component(ray.direction());
+        let origin = axis.component(ray.origin());
+        if direction == 0.0 {
+            if origin < axis.component(minimum) || origin >= axis.component(maximum) {
+                return None;
+            }
+            continue;
+        }
+        let near = (axis.component(minimum) - origin) / direction;
+        let far = (axis.component(maximum) - origin) / direction;
+        if near.min(far) > entry {
+            entry = near.min(far);
+            normal = axis.entered_normal(ray.direction());
+        }
+        exit = exit.min(near.max(far));
+    }
+    if exit <= entry || exit <= ray.minimum_distance() || entry > ray.maximum_distance() {
+        return None;
+    }
+    Some((
+        entry.max(ray.minimum_distance()),
+        SemanticRayContactClassification::Entered(normal),
+    ))
+}
+
+pub(crate) fn contact_precedes(
+    candidate: &SemanticRayContact,
+    current: &SemanticRayContact,
+) -> bool {
     match candidate.distance().total_cmp(&current.distance()) {
         std::cmp::Ordering::Less => true,
         std::cmp::Ordering::Equal => candidate.volume_identity() < current.volume_identity(),
@@ -706,6 +782,7 @@ fn next_cell_crossing(
     header: &ComputeVolumeHeader,
     ray: &SemanticRay,
     coordinate: VoxelCoordinate,
+    edge: i32,
 ) -> Option<(f64, Vec<Axis>)> {
     let coordinate = coordinate.components();
     let mut crossings = [f64::INFINITY; 3];
@@ -714,9 +791,9 @@ fn next_cell_crossing(
         if direction == 0.0 {
             continue;
         }
-        let local_coordinate = f64::from(*coordinate.get(axis.index())?);
+        let local_coordinate = f64::from(*coordinate.get(axis.index())? / edge * edge);
         let boundary_coordinate = if direction > 0.0 {
-            local_coordinate + 1.0
+            local_coordinate + f64::from(edge)
         } else {
             local_coordinate
         };
