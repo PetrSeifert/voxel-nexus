@@ -1,0 +1,97 @@
+{
+  "runs": 3,
+  "gpu_scene_budget_bytes": 1073741824,
+  "measured_peak_bytes": 365953300,
+  "timings": {
+    "empty_to_mixed": {
+      "count": 3,
+      "median": 7.4334,
+      "p95": 7.488200000000001,
+      "maximum": 7.488200000000001
+    },
+    "enumeration_replay": {
+      "count": 3,
+      "median": 357.4971,
+      "p95": 367.6002,
+      "maximum": 367.6002
+    },
+    "first_correct_frame": {
+      "count": 3,
+      "median": 2112.1181,
+      "p95": 2125.5815,
+      "maximum": 2125.5815
+    },
+    "growth": {
+      "count": 3,
+      "median": 3204.2663,
+      "p95": 4460.6588,
+      "maximum": 4460.6588
+    },
+    "growth_rebuild": {
+      "count": 3,
+      "median": 2404.978,
+      "p95": 3684.4704,
+      "maximum": 3684.4704
+    },
+    "growth_upload": {
+      "count": 3,
+      "median": 31.0646,
+      "p95": 31.393400000000003,
+      "maximum": 31.393400000000003
+    },
+    "mixed_to_empty": {
+      "count": 3,
+      "median": 7.5825,
+      "p95": 9.669,
+      "maximum": 9.669
+    },
+    "mixed_to_uniform": {
+      "count": 3,
+      "median": 7.2038,
+      "p95": 11.2988,
+      "maximum": 11.2988
+    },
+    "preparation": {
+      "count": 3,
+      "median": 1584.5728,
+      "p95": 1588.0822,
+      "maximum": 1588.0822
+    },
+    "publication": {
+      "count": 3,
+      "median": 272.0419,
+      "p95": 272.6807,
+      "maximum": 272.6807
+    },
+    "steady_cpu": {
+      "count": 180,
+      "median": 1.69245,
+      "p95": 2.444,
+      "maximum": 3.7492
+    },
+    "steady_gpu": {
+      "count": 180,
+      "median": 1.11816,
+      "p95": 1.703232,
+      "maximum": 2.227168
+    },
+    "uniform_to_mixed": {
+      "count": 3,
+      "median": 7.4639,
+      "p95": 7.6642,
+      "maximum": 7.6642
+    },
+    "upload": {
+      "count": 3,
+      "median": 19.3051,
+      "p95": 19.8208,
+      "maximum": 19.8208
+    },
+    "validation": {
+      "count": 3,
+      "median": 113.5306,
+      "p95": 119.9854,
+      "maximum": 119.9854
+    }
+  }
+}

@@ -169,3 +169,9 @@ device limit comes from [the parent specification, issue #98](https://github.com
 not a live device query in this CPU example. The example exits with an error if
 the predicted peak exceeds the budget or the dense payload stops exceeding that
 recorded limit.
+
+## Final workload measurements
+
+[Issue #111 measurement evidence](large-sparse-measurement.md) supersedes the
+planning-only GPU assessment above with repeated Vulkan runs, edit and growth
+latencies, exact device limits, scene-memory accounting, and scripted verification.

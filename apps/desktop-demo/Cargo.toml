@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-qualification = ["raster-render-path/qualification", "compute-ray-render-path/qualification"]
+qualification = ["raster-render-path/qualification", "compute-ray-render-path/qualification", "voxel-frontend/qualification"]
 
 [dependencies]
 ash = "0.38.0"
@@ -34,3 +34,8 @@ windows-sys = { version = "0.59.0", features = ["Win32_Graphics_Gdi", "Win32_Gra
 
 [lints]
 workspace = true
+
+[[bin]]
+name = "large-sparse-measurement"
+path = "src/large_sparse_measurement.rs"
+required-features = ["qualification"]

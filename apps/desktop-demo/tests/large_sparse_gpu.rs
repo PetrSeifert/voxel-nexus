@@ -16,13 +16,9 @@ use render_backend::{
     CameraState, CameraStateRevision, RenderBackend, RenderBackendOptions, RenderPathSwitchOwner,
 };
 use semantic_ray_oracle::{
-    AxisNormal, SemanticRay, SemanticRayContact, SemanticRayContactClassification,
-    SemanticRayDistanceTolerance, SemanticRayObservation, SemanticRayProbe, SemanticRayResult,
-    observe_along_ray,
+    SemanticRay, SemanticRayDistanceTolerance, SemanticRayObservation, observe_along_ray,
 };
-use voxel_frontend::{
-    VoxelCoordinate, VoxelFrontend, VoxelMaterialId, VoxelSceneRevision, VoxelVolumeId,
-};
+use voxel_frontend::{VoxelFrontend, VoxelMaterialId, VoxelSceneRevision};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
@@ -33,120 +29,9 @@ use winit::{
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-fn contact(
-    coordinate: [i32; 3],
-    material: &str,
-    distance: f64,
-    classification: SemanticRayContactClassification,
-) -> SemanticRayResult {
-    let [x, y, z] = coordinate;
-    SemanticRayResult::Contact(SemanticRayContact::new(
-        VoxelVolumeId::new("large-terrain"),
-        VoxelCoordinate::new(x, y, z),
-        VoxelMaterialId::new(material),
-        distance,
-        classification,
-    ))
-}
-
-fn probes(
-    phase: usize,
-) -> Result<Vec<(SemanticRayProbe, SemanticRayResult)>, Box<dyn std::error::Error>> {
-    use SemanticRayContactClassification::{Entered, StartedInside};
-    let roof = if phase == 1 { 65 } else { 64 };
-    let floor = if phase == 3 { 32 } else { 31 };
-    [
-        (
-            "long-empty-miss",
-            [2047.5, 255.5, 2047.5],
-            [-1.0, 0.0, 0.0],
-            4096.0,
-            SemanticRayResult::Miss,
-        ),
-        (
-            "long-empty-hit",
-            [-2048.0, 80.5, 0.5],
-            [1.0, 0.0, 0.0],
-            4096.0,
-            contact(
-                [0, 80, 0],
-                "terrain-grass",
-                2048.0,
-                Entered(AxisNormal::NegativeX),
-            ),
-        ),
-        (
-            "fill-interior",
-            [8.5, 8.5, 8.5],
-            [1.0, 0.0, 0.0],
-            100.0,
-            contact([8, 8, 8], "terrain-stone", 0.0, StartedInside),
-        ),
-        (
-            "mixed-surface",
-            [32.5, 255.5, 32.5],
-            [0.0, -1.0, 0.0],
-            256.0,
-            contact(
-                [32, 81, 32],
-                "terrain-grass",
-                173.5,
-                Entered(AxisNormal::PositiveY),
-            ),
-        ),
-        (
-            "cavity-wall",
-            [800.5, 48.0, 800.5],
-            [1.0, 0.0, 0.0],
-            1024.0,
-            contact(
-                [1024, 48, 800],
-                "terrain-stone",
-                223.5,
-                Entered(AxisNormal::NegativeX),
-            ),
-        ),
-        (
-            "cavity-miss",
-            [800.5, 48.0, 800.5],
-            [1.0, 0.0, 0.0],
-            100.0,
-            SemanticRayResult::Miss,
-        ),
-        (
-            "edited-roof",
-            [800.5, 60.0, 800.5],
-            [0.0, 1.0, 0.0],
-            100.0,
-            contact(
-                [800, roof, 800],
-                "terrain-stone",
-                if phase == 1 { 5.0 } else { 4.0 },
-                Entered(AxisNormal::NegativeY),
-            ),
-        ),
-        (
-            "edited-floor",
-            [800.5, 40.0, 800.5],
-            [0.0, -1.0, 0.0],
-            100.0,
-            contact(
-                [800, floor, 800],
-                "terrain-stone",
-                if phase == 3 { 7.0 } else { 8.0 },
-                Entered(AxisNormal::PositiveY),
-            ),
-        ),
-    ]
-    .into_iter()
-    .map(|(name, origin, direction, maximum, expected)| {
-        Ok((
-            SemanticRayProbe::new(name, SemanticRay::new(origin, direction, 0.0, maximum)?)?,
-            expected,
-        ))
-    })
-    .collect()
-}
+#[path = "../src/large_sparse_probes.rs"]
+mod large_sparse_probes;
+use large_sparse_probes::probes;
 
 fn qualify(window: &Window) -> TestResult {
     let frontend = VoxelFrontend::new();
