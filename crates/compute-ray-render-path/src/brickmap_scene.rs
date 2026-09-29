@@ -17,6 +17,7 @@ pub struct BrickmapObservations {
     pub coarse_grid_bytes: usize,
     pub mixed_brick_count: usize,
     pub pool_bytes: usize,
+    pub enumeration_time: Duration,
     pub construction_time: Duration,
 }
 
@@ -84,6 +85,7 @@ impl BrickmapSceneBundle {
                 coarse_grid_bytes: 0,
                 mixed_brick_count: 0,
                 pool_bytes: 0,
+                enumeration_time: Duration::ZERO,
                 construction_time: Duration::ZERO,
             },
         };
@@ -113,7 +115,14 @@ impl BrickmapSceneBundle {
             let mut entries = Vec::new();
             reserve(&mut entries, count, identity, "coarse grid")?;
             entries.resize(count, 0);
-            for batch in view.enumerate_cells(identity, EDGE, 64)? {
+            let enumeration_started = Instant::now();
+            let mut batches = view.enumerate_cells(identity, EDGE, 64)?;
+            bundle.observations.enumeration_time += enumeration_started.elapsed();
+            loop {
+                let enumeration_started = Instant::now();
+                let batch = batches.next();
+                bundle.observations.enumeration_time += enumeration_started.elapsed();
+                let Some(batch) = batch else { break };
                 for cell in batch? {
                     progress()?;
                     let entry = match cell.content() {
@@ -178,7 +187,8 @@ impl BrickmapSceneBundle {
         }
         bundle.observations.mixed_brick_count = bundle.pool.len() / POOL_WORDS;
         bundle.observations.pool_bytes = bundle.pool.len() * size_of::<u32>();
-        bundle.observations.construction_time = started.elapsed();
+        bundle.observations.construction_time =
+            started.elapsed() - bundle.observations.enumeration_time;
         Ok(bundle)
     }
 

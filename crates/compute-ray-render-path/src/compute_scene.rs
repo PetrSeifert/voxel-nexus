@@ -158,11 +158,56 @@ impl ComputeSceneBundle {
         capacity: Option<usize>,
         progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
+        Self::build_brickmap_measured(view, representation, capacity, progress, |_, _| {})
+    }
+
+    pub(crate) fn from_view_with_preparation_timings(
+        view: &VoxelSceneView,
+        representation: crate::ComputeRepresentation,
+    ) -> Result<(Self, Vec<(crate::ComputeTimingPhase, std::time::Duration)>), ComputeSceneBuildError>
+    {
+        if !matches!(
+            representation,
+            crate::ComputeRepresentation::Brickmap { .. }
+        ) {
+            return Ok((Self::from_view(view)?, Vec::new()));
+        }
+        let mut timings = Vec::new();
+        let bundle = Self::build_brickmap_measured(
+            view,
+            representation,
+            None,
+            || Ok(()),
+            |observations, serialization| {
+                timings.extend([
+                    (
+                        crate::ComputeTimingPhase::Enumeration,
+                        observations.enumeration_time,
+                    ),
+                    (
+                        crate::ComputeTimingPhase::Construction,
+                        observations.construction_time,
+                    ),
+                    (crate::ComputeTimingPhase::Serialization, serialization),
+                ]);
+            },
+        )?;
+        Ok((bundle, timings))
+    }
+
+    fn build_brickmap_measured(
+        view: &VoxelSceneView,
+        representation: crate::ComputeRepresentation,
+        capacity: Option<usize>,
+        progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
+        mut measured: impl FnMut(&crate::BrickmapObservations, std::time::Duration),
+    ) -> Result<Self, ComputeSceneBuildError> {
         let crate::ComputeRepresentation::Brickmap { budget_bytes } = representation else {
             return Err(ComputeSceneBuildError::PatchBaseMismatch);
         };
         crate::brickmap_validation::validate_view(view, budget_bytes)?;
         let brickmap = crate::BrickmapSceneBundle::from_view_with_progress(view, progress)?;
+        let serialization_started = std::time::Instant::now();
         let (volume_headers, voxel_words) = brickmap.gpu_words()?;
         let mut material_identities = brickmap.material_identities().to_vec();
         for material in view.materials() {
@@ -221,7 +266,7 @@ impl ComputeSceneBundle {
         let free_slots = (occupied_slots..occupied_slots + spare_slots)
             .map(u32::try_from)
             .collect::<Result<BTreeSet<_>, _>>()?;
-        Ok(Self {
+        let bundle = Self {
             representation,
             pool_offset: Some(pool_offset),
             pool_allocation: Arc::new(()),
@@ -240,7 +285,9 @@ impl ComputeSceneBundle {
             storage_words: SceneWords::new(&storage_words),
             predecessor: None,
             patches: Arc::new(BTreeMap::new()),
-        })
+        };
+        measured(brickmap.observations(), serialization_started.elapsed());
+        Ok(bundle)
     }
 
     pub fn from_view(view: &VoxelSceneView) -> Result<Self, ComputeSceneBuildError> {
@@ -405,6 +452,33 @@ impl ComputeSceneBundle {
     pub(crate) fn record_growth_allocation(&mut self, peak_bytes: u64) {
         if let Some(observation) = &mut self.growth_observations {
             observation.actual_peak_bytes = Some(peak_bytes);
+        }
+    }
+
+    pub(crate) fn predict_allocation_peak(
+        &self,
+        old_allocation_bytes: u64,
+        new_allocation_bytes: u64,
+        staging_bytes: u64,
+    ) -> Result<u64, ComputeSceneBuildError> {
+        let predicted_peak_bytes = old_allocation_bytes
+            .checked_add(new_allocation_bytes)
+            .and_then(|bytes| bytes.checked_add(staging_bytes))
+            .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+        if let crate::ComputeRepresentation::Brickmap { budget_bytes } = self.representation
+            && predicted_peak_bytes > budget_bytes
+        {
+            return Err(ComputeSceneBuildError::GrowthBudgetExceeded {
+                predicted_peak_bytes,
+                budget_bytes,
+            });
+        }
+        Ok(predicted_peak_bytes)
+    }
+
+    pub(crate) fn record_growth_prediction(&mut self, predicted_peak_bytes: u64) {
+        if let Some(observation) = &mut self.growth_observations {
+            observation.predicted_peak_bytes = predicted_peak_bytes;
         }
     }
 

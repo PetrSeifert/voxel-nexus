@@ -73,13 +73,32 @@ impl ComputeRayRenderPath {
             let candidate_resources = match if incremental {
                 Ok(None)
             } else {
-                create_scene_gpu_resources(device, candidate_bundle, self.scene_allocation_bytes)
-                    .map(Some)
+                let candidate_bundle = candidate_bundle.clone();
+                create_scene_gpu_resources(
+                    device,
+                    &candidate_bundle,
+                    |allocation_bytes, staging_bytes| {
+                        self.convergence.prepare_hidden_allocation(
+                            self.scene_allocation_bytes,
+                            allocation_bytes,
+                            staging_bytes,
+                        )
+                    },
+                )
+                .map(Some)
             } {
                 Ok(resources) => resources,
                 Err(error) => {
                     self.convergence
                         .fail_hidden(ComputeConvergenceFailurePhase::Upload, error.to_string());
+                    if matches!(
+                        error,
+                        ComputeRenderPathError::SceneBuild(
+                            crate::ComputeSceneBuildError::GrowthBudgetExceeded { .. }
+                        )
+                    ) {
+                        return Ok(());
+                    }
                     return Err(error);
                 }
             };

@@ -1,6 +1,119 @@
 use voxel_frontend::*;
 
 #[test]
+fn clipped_regions_across_tree_branches_match_dense_reads() -> Result<(), Box<dyn std::error::Error>>
+{
+    let volume = VoxelVolumeId::new("volume");
+    let stone = VoxelValue::Occupied(VoxelMaterialId::new("stone"));
+    let region = |origin: [i32; 3], extent: [u32; 3]| {
+        let [x, y, z] = origin;
+        let [width, height, depth] = extent;
+        VoxelRegion::new(
+            VoxelCoordinate::new(x, y, z),
+            VoxelExtent::new(width, height, depth),
+        )
+    };
+    let scene = SparseVoxelScene::new(
+        VoxelSceneId::new("classification"),
+        VoxelSceneRevision::new(0),
+        vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
+        vec![SparseVoxelVolume::new(
+            VoxelVolumeMetadata::new(volume.clone(), VoxelExtent::new(113, 81, 67), [0.0; 3], 1.0),
+            SparseVoxelBackground::Empty,
+            vec![
+                SparseVoxelBatch::Fill(VoxelRegionFill::new(
+                    region([16; 3], [64, 32, 32]),
+                    stone.clone(),
+                )),
+                SparseVoxelBatch::Detail(DenseVoxelBatch::new(
+                    region([80, 16, 16], [16; 3]),
+                    (0..16 * 16 * 16)
+                        .map(|index| {
+                            if index % 16 < 4 {
+                                stone.clone()
+                            } else {
+                                VoxelValue::Empty
+                            }
+                        })
+                        .collect(),
+                )),
+                SparseVoxelBatch::Fill(VoxelRegionFill::new(
+                    region([112, 80, 64], [1, 1, 3]),
+                    stone,
+                )),
+            ],
+        )],
+    );
+    let dense =
+        VoxelFrontend::new().publish_sparse(scene.clone().with_storage_tier(StorageTier::Dense))?;
+    let sparse =
+        VoxelFrontend::new().publish_sparse(scene.with_storage_tier(StorageTier::SparsePages))?;
+    let mut regions = vec![
+        region([0; 3], [113, 81, 67]),
+        region([17; 3], [61, 29, 29]),
+        region([10, 13, 12], [80, 40, 50]),
+        region([80, 16, 16], [4, 16, 16]),
+        region([108, 79, 63], [10, 8, 9]),
+    ];
+    for x in [-7, 0, 15, 17, 31, 47, 65, 79, 95, 111, 125] {
+        for y in [-5, 0, 15, 17, 31, 47, 65, 79, 95] {
+            for z in [-3, 0, 15, 17, 31, 47, 65, 79] {
+                regions.push(region([x, y, z], [19, 17, 13]));
+            }
+        }
+    }
+    for region in regions {
+        let samples = dense.read_region(&volume, region)?;
+        let first = samples
+            .first()
+            .ok_or("nonempty region returned no samples")?
+            .value();
+        let expected = if samples.iter().all(|sample| sample.value() == first) {
+            VoxelRegionContent::Uniform(first.clone())
+        } else {
+            VoxelRegionContent::Mixed
+        };
+        assert_eq!(
+            dense.region_content(&volume, region)?,
+            expected,
+            "{region:?}"
+        );
+        assert_eq!(
+            sparse.region_content(&volume, region)?,
+            expected,
+            "{region:?}"
+        );
+    }
+    for tier in [&dense, &sparse] {
+        for edge in [4, 16, 32, 128] {
+            for batch in tier.enumerate_cells(&volume, edge, 13)? {
+                for cell in batch? {
+                    assert_eq!(
+                        &tier.region_content(&volume, cell.region())?,
+                        cell.content(),
+                        "cell edge {edge} at {:?}",
+                        cell.region()
+                    );
+                }
+            }
+        }
+        let too_large = region([0; 3], [1 << 22; 3]);
+        assert!(matches!(
+            tier.read_region(&volume, too_large),
+            Err(VoxelFrontendError::InvalidRegionBounds { identity }) if identity == volume
+        ));
+        let mut buffer = vec![VoxelValue::Occupied(VoxelMaterialId::new("stone"))];
+        let before = buffer.clone();
+        assert!(matches!(
+            tier.read_region_into(&volume, too_large, &mut buffer),
+            Err(VoxelFrontendError::InvalidRegionBounds { identity }) if identity == volume
+        ));
+        assert_eq!(buffer, before);
+    }
+    Ok(())
+}
+
+#[test]
 fn region_queries_and_mixed_tier_volumes_preserve_logical_values()
 -> Result<(), Box<dyn std::error::Error>> {
     let extent = VoxelExtent::new(257, 2, 2);

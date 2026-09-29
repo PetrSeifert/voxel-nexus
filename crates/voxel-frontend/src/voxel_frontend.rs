@@ -881,7 +881,7 @@ impl VoxelSceneView {
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
     ) -> Result<VoxelRegionContent, VoxelFrontendError> {
-        let (volume, bounds, _) = self.region_read(volume_identity, region)?;
+        let (volume, bounds) = self.region_bounds(volume_identity, region)?;
         Ok(match volume.uniform_region(&bounds) {
             Some(index) => VoxelRegionContent::Uniform(
                 self.published
@@ -930,6 +930,22 @@ impl VoxelSceneView {
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
     ) -> Result<(&dyn Storage, RegionBounds, usize), VoxelFrontendError> {
+        let (volume, bounds) = self.region_bounds(volume_identity, region)?;
+        let capacity =
+            region
+                .extent
+                .value_count()
+                .ok_or_else(|| VoxelFrontendError::InvalidRegionBounds {
+                    identity: volume_identity.clone(),
+                })?;
+        Ok((volume, bounds, capacity))
+    }
+
+    fn region_bounds(
+        &self,
+        volume_identity: &VoxelVolumeId,
+        region: VoxelRegion,
+    ) -> Result<(&dyn Storage, RegionBounds), VoxelFrontendError> {
         let volume = self.published.volumes.get(volume_identity).ok_or_else(|| {
             VoxelFrontendError::UnknownVolumeIdentity {
                 identity: volume_identity.clone(),
@@ -946,14 +962,7 @@ impl VoxelSceneView {
                 }
             }
         })?;
-        let capacity =
-            region
-                .extent
-                .value_count()
-                .ok_or_else(|| VoxelFrontendError::InvalidRegionBounds {
-                    identity: volume_identity.clone(),
-                })?;
-        Ok((volume.as_ref(), bounds, capacity))
+        Ok((volume.as_ref(), bounds))
     }
 }
 

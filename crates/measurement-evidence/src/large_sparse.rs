@@ -8,7 +8,9 @@ pub const TIMINGS: &[&str] = &[
     "first_correct_frame",
     "publication",
     "validation",
-    "enumeration_replay",
+    "enumeration",
+    "construction",
+    "serialization",
     "preparation",
     "upload",
     "uniform_to_mixed",
@@ -79,9 +81,14 @@ pub enum LargeSparseRecord {
         validation_warnings: usize,
         shutdown_resources_zero: bool,
     },
+    ValidationAllocation {
+        allocated_bytes: u64,
+        peak_working_bytes: u64,
+    },
     Verified {
         phase: String,
         probe_count: usize,
+        installed_revision: u64,
     },
 }
 
@@ -138,6 +145,7 @@ pub fn validate(
         let mut growth_peak = None;
         let mut rejections = 0;
         let mut completions = 0;
+        let mut validation_allocations = 0;
         for record in run {
             match record {
                 LargeSparseRecord::Context {
@@ -206,7 +214,7 @@ pub fn validate(
                     if *old_capacity != 83_200
                         || *new_capacity != 124_800
                         || *predicted_peak_bytes == 0
-                        || predicted_peak_bytes > actual_peak_bytes
+                        || actual_peak_bytes > predicted_peak_bytes
                         || *predicted_peak_bytes > GPU_SCENE_BUDGET
                     {
                         return invalid("invalid large workload growth");
@@ -259,7 +267,7 @@ pub fn validate(
                     rejected,
                 } => {
                     rejections += 1;
-                    if !rejected || *predicted_bytes != 8444 || *budget_bytes != 8443 {
+                    if !rejected || *budget_bytes == 0 || predicted_bytes <= budget_bytes {
                         return invalid("predicted over-budget rejection was not verified");
                     }
                 }
@@ -276,7 +284,23 @@ pub fn validate(
                         return invalid("validation or shutdown failed");
                     }
                 }
-                LargeSparseRecord::Verified { phase, probe_count } => {
+                LargeSparseRecord::ValidationAllocation {
+                    allocated_bytes,
+                    peak_working_bytes,
+                } => {
+                    validation_allocations += 1;
+                    if *allocated_bytes == 0
+                        || *peak_working_bytes == 0
+                        || peak_working_bytes > allocated_bytes
+                    {
+                        return invalid("invalid validation allocation accounting");
+                    }
+                }
+                LargeSparseRecord::Verified {
+                    phase,
+                    probe_count,
+                    installed_revision,
+                } => {
                     if ![
                         "initial",
                         "uniform_to_mixed",
@@ -286,7 +310,16 @@ pub fn validate(
                         "growth",
                     ]
                     .contains(&phase.as_str())
-                        || *probe_count != if phase == "growth" { 9 } else { 8 }
+                        || *probe_count != if phase == "growth" { 14 } else { 13 }
+                        || *installed_revision
+                            != match phase.as_str() {
+                                "initial" => 1,
+                                "uniform_to_mixed" => 2,
+                                "mixed_to_uniform" => 3,
+                                "empty_to_mixed" => 4,
+                                "mixed_to_empty" => 5,
+                                _ => 6,
+                            }
                         || verified.insert(phase, ()).is_some()
                     {
                         return invalid("invalid semantic verification");
@@ -294,7 +327,8 @@ pub fn validate(
                 }
             }
         }
-        if completions != 1
+        if validation_allocations != 1
+            || completions != 1
             || contexts != 1
             || growths != 1
             || rejections != 1

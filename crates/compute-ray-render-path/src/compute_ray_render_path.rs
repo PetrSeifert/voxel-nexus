@@ -145,8 +145,8 @@ impl ComputeRayRenderPathAdapter {
         representation: ComputeRepresentation,
     ) -> Result<(Self, ComputeMeasurementController), ComputeSceneBuildError> {
         let started_at = Instant::now();
-        let scene_bundle =
-            ComputeSceneBundle::from_view_with_representation(&view, representation)?;
+        let (scene_bundle, timings) =
+            ComputeSceneBundle::from_view_with_preparation_timings(&view, representation)?;
         let measurement = ComputeMeasurementController::with_initial_event(ComputeTimingEvent {
             phase: ComputeTimingPhase::Preparation,
             uploaded_bytes: 0,
@@ -155,6 +155,18 @@ impl ComputeRayRenderPathAdapter {
             generation: 0,
             elapsed_milliseconds: started_at.elapsed().as_secs_f64() * 1_000.0,
         });
+        for (phase, duration) in timings {
+            measurement
+                .record(ComputeTimingEvent {
+                    phase,
+                    uploaded_bytes: 0,
+                    scene_identity: scene_bundle.scene_identity().clone(),
+                    revision: scene_bundle.revision(),
+                    generation: 0,
+                    elapsed_milliseconds: duration.as_secs_f64() * 1_000.0,
+                })
+                .map_err(|_| ComputeSceneBuildError::PreparationControl)?;
+        }
         Ok((
             Self {
                 render_path: ComputeRayRenderPath::new(

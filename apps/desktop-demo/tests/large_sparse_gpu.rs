@@ -74,14 +74,18 @@ fn qualify(window: &Window) -> TestResult {
             let view = frontend.scene_view()?;
             assert_eq!(view.revision(), VoxelSceneRevision::new(phase as u64 + 1));
             let fixtures = probes(phase)?;
-            controller.request(fixtures.iter().map(|(probe, _)| probe.clone()).collect())?;
             let mut observations = Vec::new();
-            for _ in 0..16 {
-                backend.draw_frame()?;
-                observations.extend(controller.drain()?);
-                if observations.len() == fixtures.len() {
-                    break;
+            for batch in fixtures.chunks(8) {
+                controller.request(batch.iter().map(|(probe, _)| probe.clone()).collect())?;
+                let expected_count = observations.len() + batch.len();
+                for _ in 0..16 {
+                    backend.draw_frame()?;
+                    observations.extend(controller.drain()?);
+                    if observations.len() == expected_count {
+                        break;
+                    }
                 }
+                assert_eq!(observations.len(), expected_count);
             }
             assert_eq!(observations.len(), fixtures.len());
             let tolerance = SemanticRayDistanceTolerance::new(1.0e-6)?;

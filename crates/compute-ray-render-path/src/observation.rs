@@ -6,6 +6,9 @@ use voxel_frontend::{VoxelSceneId, VoxelSceneRevision};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComputeTimingPhase {
     Preparation,
+    Enumeration,
+    Construction,
+    Serialization,
     Upload,
     Installation,
     Dispatch,

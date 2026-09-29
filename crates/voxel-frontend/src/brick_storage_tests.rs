@@ -206,13 +206,13 @@ fn classifying_uniform_and_absent_bricks_examines_no_voxel_values()
             (0, 32, 0),
             (40, 13, 33),
             VoxelRegionContent::Uniform(VoxelValue::Empty),
-            9,
+            0,
         ),
         (
             (-5, 40, 20),
             (50, 20, 10),
             VoxelRegionContent::Uniform(VoxelValue::Empty),
-            3,
+            0,
         ),
         (
             (100, 100, 100),

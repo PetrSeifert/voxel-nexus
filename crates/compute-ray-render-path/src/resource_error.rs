@@ -14,6 +14,8 @@ pub(super) enum ComputeRenderPathError {
     #[error(transparent)]
     BrickmapValidation(#[from] crate::BrickmapValidationError),
     #[error(transparent)]
+    SceneBuild(#[from] crate::ComputeSceneBuildError),
+    #[error(transparent)]
     Convergence(#[from] ComputeConvergenceError),
     #[error(transparent)]
     ConvergenceControl(#[from] ComputeConvergenceControlError),
