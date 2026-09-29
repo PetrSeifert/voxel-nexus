@@ -9,7 +9,9 @@ use compute_ray_render_path::{
     BrickmapSceneBundle, ComputeRayRenderPathAdapter, ComputeRepresentation,
 };
 use render_backend::{CameraState, CameraStateRevision, RenderBackend, RenderBackendOptions};
-use semantic_ray_oracle::{SemanticRay, SemanticRayDistanceTolerance, SemanticRayProbe, observe};
+use semantic_ray_oracle::{
+    SemanticRay, SemanticRayDistanceTolerance, SemanticRayProbe, SemanticRayResult, observe,
+};
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
     VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelSceneId, VoxelSceneRevision,
@@ -140,9 +142,10 @@ fn check_gpu_representation(
                 return Err("installed GPU traversal did not return every probe".into());
             }
             let tolerance = SemanticRayDistanceTolerance::new(scale * 1.0e-6)?;
+            let cpu_bundle = BrickmapSceneBundle::from_view(&view)?;
             for (probe, actual) in probes.iter().zip(&observations) {
                 let expected = observe(&view, probe.ray())?;
-                let cpu = BrickmapSceneBundle::from_view(&view)?.observe(probe.ray());
+                let cpu = cpu_bundle.observe(probe.ray());
                 assert!(cpu.agrees_with(&expected, tolerance));
                 if actual.probe_identity() != probe.identity()
                     || !actual.observation().agrees_with(&expected, tolerance)
@@ -170,6 +173,138 @@ fn check_gpu_representation(
     assert_eq!(backend.validation_error_count(), 0);
     assert_eq!(backend.validation_warning_count(), 0);
     result
+}
+
+fn check_envelope_corner(
+    window: &Window,
+    origin: [f32; 3],
+    dimensions: [u32; 3],
+    voxel_size: f32,
+    representation: ComputeRepresentation,
+) -> TestResult {
+    use voxel_frontend::{
+        SparseVoxelBackground, SparseVoxelBatch, SparseVoxelScene, SparseVoxelVolume,
+        VoxelRegionFill,
+    };
+    let material = VoxelMaterialId::new("stone");
+    let coordinate = VoxelCoordinate::new(
+        i32::try_from(dimensions[0] - 1)?,
+        i32::try_from(dimensions[1] - 1)?,
+        i32::try_from(dimensions[2] - 1)?,
+    );
+    let view = VoxelFrontend::new().publish_sparse(SparseVoxelScene::new(
+        VoxelSceneId::new("envelope-corner"),
+        VoxelSceneRevision::new(1),
+        vec![VoxelMaterial::new(material.clone(), [1.0; 4])],
+        vec![SparseVoxelVolume::new(
+            VoxelVolumeMetadata::new(
+                VoxelVolumeId::new("volume"),
+                VoxelExtent::new(dimensions[0], dimensions[1], dimensions[2]),
+                origin,
+                voxel_size,
+            ),
+            SparseVoxelBackground::Empty,
+            vec![SparseVoxelBatch::Fill(VoxelRegionFill::new(
+                VoxelRegion::new(coordinate, VoxelExtent::new(1, 1, 1)),
+                VoxelValue::Occupied(material),
+            ))],
+        )],
+    ))?;
+    let scale = f64::from(voxel_size);
+    let minimum: [f64; 3] = std::array::from_fn(|axis| {
+        f64::from(origin[axis]) + f64::from(dimensions[axis] - 1) * scale
+    });
+    for axis in 0..3 {
+        let rays = [
+            ("face-positive", [-1.0, 0.5, 0.5], [1.0, 0.0, 0.0]),
+            ("face-negative", [2.0, 0.5, 0.5], [-1.0, 0.0, 0.0]),
+            ("edge-positive", [-1.0, -1.0, 0.5], [1.0, 1.0, 0.0]),
+            ("edge-negative", [2.0, 2.0, 0.5], [-1.0, -1.0, 0.0]),
+            ("corner-positive", [-1.0; 3], [1.0; 3]),
+            ("corner-negative", [2.0; 3], [-1.0; 3]),
+            (
+                "nearly-axis-positive",
+                [-1.0, 0.5, 0.5],
+                [1.0, 0.00001, -0.00001],
+            ),
+            (
+                "nearly-axis-negative",
+                [2.0, 0.5, 0.5],
+                [-1.0, -0.00001, 0.00001],
+            ),
+        ];
+        let probes = rays
+            .into_iter()
+            .map(|(name, offset, direction)| {
+                let ray_origin = std::array::from_fn(|component| {
+                    minimum[component] + offset[(component + axis) % 3] * scale
+                });
+                let direction = std::array::from_fn(|component| direction[(component + axis) % 3]);
+                Ok(SemanticRayProbe::new(
+                    format!(
+                        "{representation:?}-{origin:?}-{dimensions:?}-{voxel_size}-{axis}-{name}"
+                    ),
+                    SemanticRay::new(ray_origin, direction, 0.0, 4.0 * scale)?,
+                )?)
+            })
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+        for probe in &probes {
+            let expected = semantic_ray_oracle::observe_along_ray(&view, probe.ray())?;
+            let SemanticRayResult::Contact(contact) = expected.result() else {
+                return Err(format!("{} must hit the far-corner voxel", probe.identity()).into());
+            };
+            assert_eq!(contact.coordinate(), coordinate);
+        }
+        check_gpu_representation(window, view.clone(), probes, scale, representation, vec![])?;
+    }
+    Ok(())
+}
+
+fn check_sparse_envelope(window: &Window) -> TestResult {
+    check_envelope_corner(
+        window,
+        [-65536.0; 3],
+        [1; 3],
+        0.125,
+        ComputeRepresentation::Brickmap {
+            budget_bytes: 128 * 1024 * 1024,
+        },
+    )?;
+    for origin in [[-65536.0; 3], [65536.0; 3]] {
+        for (voxel_size, length) in [(0.125, 65536), (1.0, 65536), (16.0, 4096)] {
+            for axis in 0..3 {
+                // Thin volumes reach the exact envelope without a cubic oracle allocation.
+                let mut dimensions = [2; 3];
+                dimensions[axis] = length;
+                check_envelope_corner(
+                    window,
+                    origin,
+                    dimensions,
+                    voxel_size,
+                    ComputeRepresentation::Brickmap {
+                        budget_bytes: 128 * 1024 * 1024,
+                    },
+                )?;
+            }
+        }
+    }
+    for (origin, dimensions, voxel_size) in [
+        ([200000.0; 3], [2; 3], 1.0),
+        ([-200000.0; 3], [2; 3], 1.0),
+        ([0.0; 3], [65537, 2, 2], 1.0),
+        ([65536.0; 3], [4097, 2, 2], 16.0),
+        ([0.0; 3], [2; 3], 0.0625),
+        ([0.0; 3], [2; 3], 32.0),
+    ] {
+        check_envelope_corner(
+            window,
+            origin,
+            dimensions,
+            voxel_size,
+            ComputeRepresentation::Dense,
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(feature = "qualification")]
@@ -431,6 +566,7 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
 }
 
 fn run_fixtures(window: &Window) -> TestResult {
+    check_sparse_envelope(window)?;
     #[cfg(feature = "qualification")]
     for scenario in [
         BrickmapLifecycleScenario::Transitions,

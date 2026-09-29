@@ -17,6 +17,18 @@ Sparse construction enforces these inclusive limits independently:
 
 These limits apply only to the GPU brickmap configuration. The standalone CPU brickmap and existing dense compute workloads retain their existing contracts. Camera construction and updates use the existing Camera State validation, with no extra sparse camera envelope. Semantic Rays likewise retain their existing validation. The scene envelope limits geometry arithmetic; it does not promise arbitrary distant-camera or near-tangent floating-point accuracy.
 
+## Envelope qualification
+
+Issue #109 extends `brickmap_gpu_limits` to check acceptance at each limit and rejection immediately beyond it. Coarse-grid and mixed-pool fixtures check the packed buffer at exactly 60 and 2124 bytes, respectively, then reduce each device capability or the configured budget by one byte. The other device capability remains unlimited during each rejection check. Assertions check the reported limit, required bytes, and available bytes. The public validation boundary accepts byte capabilities and budget, with no device-type input; GPU resource creation passes the queried `maxStorageBufferRange` and `maxBufferSize` to that boundary before allocating the scene buffer.
+
+Spatial checks cover every axis, both origin signs, the 65536-voxel extent, both voxel-size endpoints, and the 131072 final bound. Origin and voxel-size rejection cases use the adjacent representable `f32`. A separate final-bound case would round down to the accepted boundary if calculated in `f32`, so it qualifies the existing double-precision check. The negative final bound of -131072 cannot be reached independently: origins cannot be below -65536, and extents and voxel sizes are nonnegative. Every rejected spatial fixture also builds successfully with the dense representation. The existing camera-update test confirms that a camera outside the sparse geometry envelope remains accepted.
+
+`compute_dda_gpu` adds 600 Semantic Ray comparisons with the exhaustive oracle and CPU brickmap traversal. Of these, 456 qualify sparse scenes at origin limits, maximum local extents, and maximum final bounds, at voxel sizes 0.125, 1, and 16. Thin volumes reach the limits on each axis without requiring a cubic oracle allocation. A one-voxel fixture places contacts exactly at the negative origin limit. Face, edge, corner, and nearly axis-aligned probes approach the occupied far-corner voxel in both directions, rotating through all axes. Fixture checks require the oracle to identify that voxel, so matching misses cannot pass. Distance tolerance remains voxel size times 1e-6, and comparisons include scene identity, revision, voxel coordinate, material, and contact classification.
+
+The other 144 comparisons render dense scenes beyond the sparse origin, extent, final-bound, and voxel-size limits. Existing GPU fixtures still run unchanged. Every GPU fixture requires zero Vulkan validation warnings and errors.
+
+On 2026-09-29, the all-features GPU regression passed on the NVIDIA GeForce RTX 4070 with driver `0x94d84000` and Vulkan validation enabled, with zero warnings or errors. The expanded run completed in 91.62 seconds. A temporary mutation from `required > available` to `required >= available` made both packed-buffer boundary tests fail; restoring the existing inclusive comparison made them pass. No production limits or rendering code changed for this qualification.
+
 ## Observations and verification
 
 `ComputeTimingEvent::uploaded_bytes()` reports the bytes written for an Upload event. `elapsed_milliseconds()` measures CPU allocation and upload work, not GPU bus time. Events identify the scene, revision and convergence generation. Preparation and installation events report zero uploaded bytes.
@@ -26,6 +38,7 @@ On 2026-09-29, the NVIDIA GeForce RTX 4070, driver `0x94d84000`, passed the GPU 
 ```powershell
 cargo test -p compute-ray-render-path --test brickmap_gpu_limits
 cargo test -p desktop-demo --test compute_dda_gpu -- --ignored --nocapture
+cargo test -p desktop-demo --test compute_dda_gpu --all-features -- --ignored --nocapture
 pwsh -NoProfile -File scripts/verify-portable-compute-ray-milestone.ps1 -EvidenceDirectory artifacts/issue-106-brickmap-validation -ComputeRepresentation brickmap
 cargo test --workspace --all-features
 cargo fmt --all
