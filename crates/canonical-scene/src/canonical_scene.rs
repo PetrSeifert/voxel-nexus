@@ -1,5 +1,8 @@
 use std::collections::TryReserveError;
 
+mod large_terrain;
+pub use large_terrain::{LargeTerrain, generate_large_terrain};
+
 use semantic_ray_oracle::{SemanticRay, SemanticRayError, SemanticRayProbe, SemanticRayProbeError};
 use thiserror::Error;
 use voxel_frontend::{
@@ -222,7 +225,7 @@ impl CanonicalScene {
 pub enum CanonicalSceneError {
     #[error("canonical scene dimensions or counts overflowed")]
     ArithmeticOverflow,
-    #[error("canonical dense Voxel Volume allocation failed")]
+    #[error("canonical Voxel Volume allocation failed")]
     Allocation(#[source] TryReserveError),
     #[error("canonical exposed-face count {actual} exceeds the generator bound {limit}")]
     ExposedFaceLimit { actual: u64, limit: u64 },

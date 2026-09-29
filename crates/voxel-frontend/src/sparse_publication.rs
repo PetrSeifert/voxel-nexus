@@ -1,5 +1,6 @@
 use super::storage_counters::{
-    record_batch_validated, record_candidate_pair_examined, record_values_validated,
+    record_batch_validated, record_candidate_pair_examined, record_sweep_axis,
+    record_values_validated,
 };
 use super::*;
 
@@ -83,6 +84,8 @@ pub(super) fn validate(
     volume: &SparseVoxelVolume,
     materials: &HashMap<VoxelMaterialId, MaterialIndex>,
 ) -> Result<Vec<ValidatedBatch>, VoxelFrontendError> {
+    #[cfg(any(test, feature = "qualification"))]
+    let _timer = super::storage_counters::ValidationTimer(std::time::Instant::now());
     let identity = &volume.metadata.identity;
     let mut batches = Vec::new();
     batches
@@ -181,6 +184,7 @@ fn find_overlap(batches: &[ValidatedBatch]) -> Option<(usize, usize)> {
         })
         .min_by_key(|(overlapping_pairs, _, _)| *overlapping_pairs);
     let (_, axis, order) = order?;
+    record_sweep_axis(axis);
     for (position, (first_index, first)) in order.iter().enumerate() {
         let later = order.get(position + 1..).unwrap_or_default();
         for (second_index, second) in later
