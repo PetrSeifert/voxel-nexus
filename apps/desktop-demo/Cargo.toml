@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-qualification = ["raster-render-path/qualification", "compute-ray-render-path/qualification", "voxel-frontend/qualification"]
+qualification = ["raster-render-path/qualification", "compute-ray-render-path/qualification", "voxel-frontend/qualification", "render-backend/qualification"]
 
 [dependencies]
 ash = "0.38.0"
@@ -38,4 +38,14 @@ workspace = true
 [[bin]]
 name = "large-sparse-measurement"
 path = "src/large_sparse_measurement.rs"
+required-features = ["qualification"]
+
+[[bin]]
+name = "streamed-residency-prototype"
+path = "src/streamed_residency_prototype.rs"
+required-features = ["qualification"]
+
+[[bin]]
+name = "streamed-fixture-profile"
+path = "src/streamed_fixture_profile.rs"
 required-features = ["qualification"]

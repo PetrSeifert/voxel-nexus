@@ -114,6 +114,16 @@ pub struct ComputeSceneBundle {
 }
 
 impl ComputeSceneBundle {
+    #[cfg(feature = "qualification")]
+    pub fn qualification_streamed(
+        view: &VoxelSceneView,
+        representation: crate::ComputeRepresentation,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        if matches!(representation, crate::ComputeRepresentation::Dense) {
+            return Err(ComputeSceneBuildError::StreamedDense);
+        }
+        Self::from_view_with_representation(view, representation)
+    }
     pub fn representation(&self) -> crate::ComputeRepresentation {
         self.representation
     }
@@ -675,6 +685,9 @@ impl ComputeSceneBundle {
 
 #[derive(Debug, Error)]
 pub enum ComputeSceneBuildError {
+    #[cfg(feature = "qualification")]
+    #[error("streamed qualification requires explicit Brickmap compute")]
+    StreamedDense,
     #[error("the brickmap scene palette exceeds the 65,535 occupied material identity limit")]
     BrickmapMaterialCapacity,
     #[error(

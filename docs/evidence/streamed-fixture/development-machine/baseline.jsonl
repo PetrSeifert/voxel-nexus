@@ -1,0 +1,7 @@
+{"api_version":4211017,"device_id":10118,"driver_version":2497200128,"kind":"device","max_memory_allocation_count":4294967295,"max_storage_buffer_range":4294967295,"name":"NVIDIA GeForce RTX 4070","vendor_id":4318}
+{"edge":64,"edited_fingerprint":"478ee4a9737e1ad7","generated_fingerprint":"9660d9308d69ede5","kind":"fixture","mode":"baseline","qualification":"incomplete: allocation calibration only","recipe":"streamed-qualification-v1"}
+{"heap":{"live_bytes":101299284,"milliseconds":2174.9350999999997,"peak_bytes":270139112},"kind":"publication","state":"fully-resident-256","volumes":256}
+{"kind":"installed-cpu","live_bytes":101316348,"state":"fully-resident-256","volumes":256}
+{"buffer_count":29955,"faces":4472850,"heap":{"live_bytes":260256336,"milliseconds":2138.0739000000003,"peak_bytes":260411244},"index_payload_bytes":1782192,"isolated_vulkan_allocation_bytes_sum":4383760,"kind":"raster","regions":16384,"state":"fully-resident-256","vertex_payload_bytes":2376256,"volumes":256}
+{"buffer_count":1,"heap":{"live_bytes":22343504,"milliseconds":403.218,"peak_bytes":95257544},"isolated_vulkan_allocation_bytes_sum":21508160,"kind":"brickmap","serialized_payload_bytes":21508148,"state":"fully-resident-256","volumes":256}
+{"kind":"view-retention","live_bytes":101316348,"state":"fully-resident-256","volumes_pinned_after_frontend_drop":256}

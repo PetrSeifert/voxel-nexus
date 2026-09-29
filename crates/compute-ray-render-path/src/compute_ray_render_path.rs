@@ -97,6 +97,18 @@ pub struct ComputeRayRenderPathAdapter {
 }
 
 impl ComputeRayRenderPathAdapter {
+    #[cfg(feature = "qualification")]
+    pub fn qualification_from_bundle(
+        bundle: ComputeSceneBundle,
+        camera: CameraState,
+        revision: CameraStateRevision,
+    ) -> Self {
+        Self {
+            render_path: ComputeRayRenderPath::new(bundle, camera, None),
+            camera_state_revision: revision,
+            published_camera_state_revision: revision,
+        }
+    }
     pub fn new(
         view: VoxelSceneView,
         camera_state: CameraState,
