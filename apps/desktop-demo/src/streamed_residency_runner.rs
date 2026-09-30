@@ -537,6 +537,7 @@ fn travel(
 ) -> Result<(), String> {
     let start = Instant::now();
     let mut next_crossing = 0;
+    let mut installed_crossings = 0;
     let mut unresolved: Option<Instant> = None;
     let mut switch_requested = None;
     let mut pending: Option<Vec<Key>> = None;
@@ -558,9 +559,14 @@ fn travel(
                 .checked_successor()
                 .ok_or("camera revision overflow")?;
         }
-        if let Some(&crossing_time) = route::CROSSINGS.get(next_crossing)
-            && seconds >= crossing_time
-        {
+        if route::crossing_due(
+            seconds,
+            next_crossing,
+            pending.as_ref().map(|_| next_crossing - 1),
+        )? {
+            let crossing_time = *route::CROSSINGS
+                .get(next_crossing)
+                .ok_or("missing due crossing")?;
             let origin = start + Duration::from_secs_f64(crossing_time);
             unresolved.get_or_insert(origin);
             let selection = keys(source, route::center(camera, source.side));
@@ -596,6 +602,15 @@ fn travel(
                 )?;
                 draw(backend)?;
                 let boundary = state.borrow();
+                route::crossing_due(
+                    start.elapsed().as_secs_f64(),
+                    next_crossing,
+                    Some(next_crossing - 1),
+                )?;
+                if boundary.presenting.selection != *selection || boundary.crossing_seconds > 2.5 {
+                    return Err("crossing target was not installed within its deadline".into());
+                }
+                installed_crossings += 1;
                 emit(
                     output,
                     json!({"kind":"installed","lap":lap,"index":next_crossing-1,"crossing_seconds":boundary.crossing_seconds,"switch_seconds":switch_requested.map(|_|boundary.switch_seconds),"fence_safe":true,"selection_matches":boundary.presenting.selection==*selection}),
@@ -621,13 +636,16 @@ fn travel(
         }
         std::thread::sleep(Duration::from_millis(8));
     }
-    if pending.is_some() || next_crossing != 8 {
+    if pending.is_some()
+        || next_crossing != route::CROSSINGS.len()
+        || installed_crossings != route::CROSSINGS.len()
+    {
         return Err("route ended with incomplete coverage demand".into());
     }
     sample(output, "lap-settled", cache, artifacts, state, gpu)?;
     emit(
         output,
-        json!({"kind":"route-result","lap":lap,"frames":frames,"duration_seconds":start.elapsed().as_secs_f64(),"coverage_stalls":stalls,"crossings":next_crossing,"rendered_probes":probes,"boundary_churn_installed_targets":state.borrow().installed_targets}),
+        json!({"kind":"route-result","lap":lap,"frames":frames,"duration_seconds":start.elapsed().as_secs_f64(),"coverage_stalls":stalls,"crossings":next_crossing,"installed_crossings":installed_crossings,"rendered_probes":probes,"boundary_churn_installed_targets":state.borrow().installed_targets}),
     )?;
     Ok(())
 }
