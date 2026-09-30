@@ -2,6 +2,7 @@
 mod allocation;
 mod streamed_fixture_recipe;
 mod streamed_qualification;
+#[cfg(windows)]
 mod streamed_qualification_oracle;
 // Preserve the frozen route's type path while supplying coordinates from production selections.
 use streamed_qualification as streamed_residency_source;
@@ -9,6 +10,7 @@ use streamed_qualification as streamed_residency_source;
 mod streamed_qualification_observation;
 #[cfg(windows)]
 mod streamed_residency_probes;
+#[cfg_attr(not(windows), allow(dead_code))]
 mod streamed_residency_route;
 #[cfg(windows)]
 mod streamed_residency_runner;

@@ -21,7 +21,7 @@ use std::{
     time::{Duration, Instant},
 };
 use voxel_frontend::{
-    VoxelExtent, VoxelFrontend, VoxelResidencySelection, VoxelResidencySelectionId,
+    VoxelExtent, VoxelFrontend, VoxelResidencySelection, VoxelResidencySelectionId, VoxelSceneView,
 };
 use winit::{
     application::ApplicationHandler,
@@ -51,6 +51,8 @@ struct Runner {
     camera_revision: CameraStateRevision,
     installed: VoxelResidencySelection,
     side: u32,
+    history: Vec<VoxelSceneView>,
+    history_peak: usize,
 }
 
 fn build(
@@ -177,6 +179,8 @@ impl Runner {
             camera_revision: CameraStateRevision::new(1),
             installed: selection,
             side,
+            history: Vec::new(),
+            history_peak: 0,
         })
     }
     fn draw(&mut self) -> Result<(), String> {
@@ -235,13 +239,20 @@ impl Runner {
             })
             .sum();
         let observation = self.path_observation.borrow();
+        let view = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
         cpu::emit(
             output,
             json!({"kind":"residency","phase":phase,"copies":cache.copies,"peak_copies":cache.peak_copies,"query_copies":cache.query_only_copies,
             "owners":owners,"raster_workers":raster_workers,"brickmap_workers":brickmap_workers,"workers":observation.workers,"representation_copies":observation.representation_copies,
             "cpu_live":cpu::CATEGORIES.map(allocation::live),"cpu_peak":cpu::CATEGORIES.map(allocation::peak),"cpu_allocations":cpu::CATEGORIES.map(allocation::count),
             "gpu_objects":memory.object_counts,"gpu_objects_peak":memory.object_peaks,"audit_entries":memory.audit_entries,"gpu_live":memory.live_bytes,"gpu_peak":memory.peak_bytes,"gpu_allocations":memory.live_allocations,"gpu_allocations_peak":memory.peak_allocations,
-            "metadata_entries":self.side*self.side,"edited_coordinates":edits.current_coordinates,"history_entries":edits.retained_entries,
+            "metadata_entries":view.volumes().len(),"material_count":view.materials().len(),"source_recipe_count":super::streamed_world::FIXTURE_RECIPE_COUNT,
+            "live_historical_views":self.history.len(),"peak_historical_views":self.history_peak,"generating":cache.generating,"live_versions":edits.live_versions,
+            "required_revision":diagnostics.presenting().required_revision().to_string(),"visible_revision":diagnostics.presenting().visible_revision().to_string(),"fully_converged":diagnostics.presenting().is_fully_converged(),
+            "edited_coordinates":edits.current_coordinates,"history_entries":edits.retained_entries,
             "coverage_stalls":diagnostics.coverage_stalls(),"presentation_images":self.backend.qualification_presentation_image_count()}),
         )
     }
@@ -434,19 +445,36 @@ impl Runner {
             .frontend
             .scene_view()
             .map_err(|error| error.to_string())?;
+        let predecessor = original.revision().to_string();
+        self.history.push(original);
+        self.history_peak = self.history_peak.max(self.history.len());
+        let mut steps = vec!["retain-generated"];
         self.edit((3, 3), false)?;
+        steps.push("edit-3-3");
         let edited = self
             .frontend
             .scene_view()
             .map_err(|error| error.to_string())?;
+        self.history.push(edited);
+        self.history_peak = self.history_peak.max(self.history.len());
+        steps.push("retain-edited");
         self.transition(output, (3, 3), false)?;
         self.sample(output, "revision-replacement")?;
         self.verify(output, None, None)?;
+        cpu::emit(
+            output,
+            json!({"kind":"revision-replacement","predecessor":predecessor,"successor":self.oracle.revision.to_string()}),
+        )?;
         self.transition(output, (4, 3), false)?;
-        let version = edited
+        steps.push("evict-2-2");
+        let version = self
+            .history
+            .get(1)
+            .expect("the edited historical view was just retained")
             .volume_content_version(&recipe::volume_identity(3, 3))
             .map_err(|error| error.to_string())?;
         self.edit((2, 2), false)?;
+        steps.push("edit-2-2-nonresident");
         let current = self
             .frontend
             .scene_view()
@@ -457,14 +485,33 @@ impl Runner {
             == version;
         self.transition(output, (4, 3), false)?;
         self.transition(output, (3, 3), false)?;
-        cpu::record_fingerprint(output, &original, (3, 3), "generated")?;
-        cpu::record_fingerprint(output, &edited, (3, 3), "edited")?;
+        steps.push("reload-2-2");
+        cpu::record_fingerprint(
+            output,
+            self.history
+                .first()
+                .expect("the generated historical view remains retained"),
+            (3, 3),
+            "generated",
+        )?;
+        steps.push("historical-generated");
+        cpu::record_fingerprint(
+            output,
+            self.history
+                .get(1)
+                .expect("the edited historical view remains retained"),
+            (3, 3),
+            "edited",
+        )?;
+        steps.push("historical-edited");
         cpu::record_fingerprint(output, &current, (2, 2), "edited")?;
         drop(current);
         self.edit((2, 2), true)?;
+        steps.push("restore-2-2");
         self.edit((3, 3), true)?;
-        drop(original);
-        drop(edited);
+        steps.push("restore-3-3");
+        self.history.clear();
+        steps.push("drop-history");
         self.transition(output, (3, 3), false)?;
         let restored = self
             .frontend
@@ -476,9 +523,10 @@ impl Runner {
             .streamed_edit_statistics()
             .map_err(|error| error.to_string())?
             .ok_or("missing edits")?;
+        steps.push("compact");
         cpu::emit(
             output,
-            json!({"kind":"compaction","edit_script":["retain-generated","edit-3-3","retain-edited","evict-2-2","edit-2-2-nonresident","reload-2-2","historical-generated","historical-edited","restore-2-2","restore-3-3","drop-history","compact"],"live_historical_views":0,"edited_coordinates":edits.current_coordinates,"history_entries":edits.retained_entries,"unchanged_volume_reused":reuse}),
+            json!({"kind":"compaction","edit_script":steps,"live_historical_views":self.history.len(),"edited_coordinates":edits.current_coordinates,"history_entries":edits.retained_entries,"unchanged_volume_reused":reuse}),
         )?;
         let newest = cpu::selection(&restored, self.next_selection, (12, 12), self.side)?;
         let copies = self

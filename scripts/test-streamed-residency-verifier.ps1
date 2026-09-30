@@ -7,8 +7,8 @@ try {
     New-Item -ItemType Directory -Force -Path $EvidenceDirectory | Out-Null
     function Hash([string]$path) {[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes([IO.File]::ReadAllText((Join-Path $workspaceDirectory $path)).Replace("`r`n","`n"))))}
     function Write-Rows([string]$name,$rows) { @($rows | ForEach-Object {ConvertTo-Json -InputObject $_ -Compress -Depth 10}) | Set-Content (Join-Path $EvidenceDirectory "$name.jsonl") }
-    function Cpu([string]$phase,[int]$metadata=256) { @{kind='cpu-residency';phase=$phase;copies=9;peak_copies=19;query_copies=0;generating=0;metadata_entries=$metadata;edited_coordinates=0;history_entries=0;cpu_live=@(1,1,0,1,1,$metadata,1);cpu_peak=@(1,1,0,1,1,$metadata,1);cpu_allocations=@(1,1,0,1,1,1,1)} }
-    function Sample([string]$phase) { @{kind='residency';phase=$phase;copies=9;peak_copies=19;query_copies=0;metadata_entries=256;edited_coordinates=0;history_entries=0;cpu_live=@(1,1,0,1,1,256,1);cpu_peak=@(1,1,0,1,1,256,1);cpu_allocations=@(1,1,0,1,1,1,1);gpu_live=@(1,1,1);gpu_peak=@(1,1,1);gpu_allocations=@(1,1,1);gpu_allocations_peak=@(1,1,1);gpu_objects=@(1,1,1);gpu_objects_peak=@(1,1,1);audit_entries=1;owners=1;workers=0;raster_workers=0;brickmap_workers=0;representation_copies=9;coverage_stalls=0;presentation_images=3} }
+    function Cpu([string]$phase,[int]$metadata=256) { @{kind='cpu-residency';phase=$phase;copies=9;peak_copies=19;query_copies=0;generating=0;source_recipe_count=1;material_count=2;live_historical_views=0;peak_historical_views=2;metadata_entries=$metadata;edited_coordinates=0;history_entries=0;cpu_live=@(1,1,0,1,1,$metadata,1);cpu_peak=@(1,1,0,1,1,$metadata,1);cpu_allocations=@(1,1,0,1,1,1,1)} }
+    function Sample([string]$phase) { @{kind='residency';phase=$phase;generating=0;source_recipe_count=1;material_count=2;live_historical_views=0;peak_historical_views=2;required_revision='2';visible_revision='2';fully_converged=$true;copies=9;peak_copies=19;query_copies=0;metadata_entries=256;edited_coordinates=0;history_entries=0;cpu_live=@(1,1,0,1,1,256,1);cpu_peak=@(1,1,0,1,1,256,1);cpu_allocations=@(1,1,0,1,1,1,1);gpu_live=@(1,1,1);gpu_peak=@(1,1,1);gpu_allocations=@(1,1,1);gpu_allocations_peak=@(1,1,1);gpu_objects=@(1,1,1);gpu_objects_peak=@(1,1,1);audit_entries=1;owners=1;workers=0;raster_workers=0;brickmap_workers=0;representation_copies=9;coverage_stalls=0;presentation_images=3} }
     $contract=Get-Content -Raw scripts/streamed-residency-contract.json | ConvertFrom-Json
     $compact=@{kind='compaction';edit_script=$contract.edit_script;live_historical_views=0;edited_coordinates=0;history_entries=0;unchanged_volume_reused=$true}
     $calibration=@()
@@ -16,15 +16,16 @@ try {
     $calibration+=@{kind='context';cpu_only=$true;production=$true;gpu_dispatched=$false};Write-Rows 'cpu-calibration' $calibration
     foreach ($side in @(8,16)) {Write-Rows "cpu-matched-$side" @((Cpu "cpu-matched-$side" ($side*$side)),@{kind='cpu-released';live=@(0,0,0,0,0,0)},@{kind='context';cpu_only=$true;production=$true;gpu_dispatched=$false})}
     $overlap=Cpu 'disjoint-query-overlap';$overlap.copies=19;$overlap.query_copies=1
-    Write-Rows 'cpu-lifecycle' @($overlap,(Cpu 'lap-0-settled'),(Cpu 'lap-1-settled'),$compact,@{kind='cpu-lifecycle-result';evicted_edit=$true;historical_reads=$true;restored=$true;unrelated_edit_reuse=$true;compacted=$true;nineteen_copy_admission=$true;repeat_laps=2},@{kind='cpu-released';live=@(0,0,0,0,0,0)},@{kind='context';cpu_only=$true;production=$true;gpu_dispatched=$false})
+    $historical=Cpu 'historical-queries';$historical.live_historical_views=2
+    Write-Rows 'cpu-lifecycle' @($historical,$overlap,(Cpu 'lap-0-settled'),(Cpu 'lap-1-settled'),$compact,@{kind='cpu-lifecycle-result';evicted_edit=$true;historical_reads=$true;restored=$true;unrelated_edit_reuse=$true;compacted=$true;nineteen_copy_admission=$true;repeat_laps=2},@{kind='cpu-released';live=@(0,0,0,0,0,0)},@{kind='context';cpu_only=$true;production=$true;gpu_dispatched=$false})
     $device=@{kind='device';name='Verifier fixture, no graphics dispatched';driver_version=1;api_version=1;validation_enabled=$true}
     $crossingTimes=@(8.0,24.0,43.31370849898476,65.94112549695429,88.5685424949238,111.19595949289332,130.50966799187808,146.50966799187808)
     foreach ($mode in @('matched-8','matched-16','raster','brickmap')) {
-        $rows=@($device,@{kind='context';mode=$mode;route_start=$mode;production=$true;typed_dense_rejection=$true;crossings=$crossingTimes},(Sample 'initial'))
+        $rows=@($device,@{kind='context';mode=$mode;route_start=$mode;production=$true;typed_dense_rejection=$true;crossings=$crossingTimes;projection=@(1920,1080,60.0,0.1,34.0)},(Sample 'initial'))
         if ($mode -like 'matched-*') {$rows+=@{kind='probes';lap=$null;index=$null;count=4;matching=$true;coverage_contains_view=$true;coverage_contains_ray_domain=$true}}
         else {
-            foreach ($phase in @('revision-replacement','disjoint-query-overlap','failed-candidate-cleaned','stress-settled')) {$rows+=Sample $phase}
-            $rows+=@(@{kind='admission';copies=19;second_query_rejected=$true},@{kind='failure-recovery';phase='raster-upload';observed_upload_failure=$true;presenting_preserved=$true},@{kind='boundary-churn';crossings=12;installations=12;hysteresis=$false;coverage_stalls=0},$compact)
+            foreach ($phase in @('revision-replacement','disjoint-query-overlap','failed-candidate-cleaned','stress-settled')) {$sample=Sample $phase;if ($phase -eq 'revision-replacement') {$sample.live_historical_views=2};$rows+=$sample}
+            $rows+=@(@{kind='revision-replacement';predecessor='1';successor='2'},@{kind='probes';lap=$null;index=$null;count=4;revision=2;matching=$true;coverage_contains_view=$true;coverage_contains_ray_domain=$true},@{kind='admission';copies=19;second_query_rejected=$true},@{kind='failure-recovery';phase='raster-upload';observed_upload_failure=$true;presenting_preserved=$true},@{kind='boundary-churn';crossings=12;installations=12;hysteresis=$false;coverage_stalls=0},$compact)
             foreach ($lap in 0..1) {
                 $strategy=if ($mode -eq 'raster') {'voxel-nexus.raster'} else {'voxel-nexus.compute-ray'}
                 foreach ($index in 0..7) {
@@ -51,7 +52,7 @@ try {
         $path=Join-Path $EvidenceDirectory $file
         if ($file.EndsWith('.jsonl')) {$rows=@(Get-Content $path | ForEach-Object {$_ | ConvertFrom-Json -AsHashtable});$rows=& $change $rows;Write-Rows ($file.Replace('.jsonl','')) $rows}
         else {$context=Get-Content -Raw $path | ConvertFrom-Json -AsHashtable;& $change $context;$context | ConvertTo-Json -Depth 10 | Set-Content $path}
-        $result=Verify;if ($result.code -eq 0) {throw "Verifier accepted negative fixture: $name"};Write-Output "Rejected $name"
+        $result=Verify;if ($result.output -match 'Changed source hash|Missing or duplicated source hashes' -and $name -ne 'changed source hash') {throw "Prerequisite provenance failure masked $name"};if ($result.code -eq 0) {throw "Verifier accepted negative fixture: $name"};Write-Output "Rejected $name"
     }
     Reject 'missing route start' {param($rows) @($rows | Where-Object kind -eq 'context')[0].mode='brickmap';$rows}
     Reject 'missing lap' {param($rows) $rows | Where-Object {-not ($_.kind -eq 'route-result' -and $_.lap -eq 1)}}
@@ -87,6 +88,16 @@ try {
     Reject 'uncovered probe ray domain' {param($rows) @($rows | Where-Object kind -eq 'probes')[0].coverage_contains_ray_domain=$false;$rows}
     Reject 'probe mismatch' {param($rows) @($rows | Where-Object kind -eq 'probes')[0].matching=$false;$rows}
     Reject 'missing revision replacement' {param($rows) $rows | Where-Object {-not ($_.kind -eq 'residency' -and $_.phase -eq 'revision-replacement')}}
+    Reject 'shifted analytic clock' {param($rows) $context=@($rows | Where-Object kind -eq 'context')[0];$context.crossings=@($context.crossings | ForEach-Object {$_+1});foreach ($row in $rows) {if ($row.kind -eq 'crossing') {$row.origin_seconds+=1;$row.unresolved_origin_seconds+=1;if ($row.switch_requested) {$row.switch_requested_seconds+=1}};if ($row.kind -eq 'installed') {$row.boundary_seconds+=1}};$rows}
+    Reject 'stale revision replacement' {param($rows) @($rows | Where-Object kind -eq 'revision-replacement')[0].successor='1';$rows}
+    Reject 'stale replacement presentation' {param($rows) @($rows | Where-Object {$_.kind -eq 'residency' -and $_.phase -eq 'revision-replacement'})[0].visible_revision='1';$rows}
+    Reject 'missing replacement probe' {param($rows) $rows | Where-Object {-not ($_.kind -eq 'probes' -and $null -eq $_.lap)}}
+    Reject 'three historical views' {param($rows) @($rows | Where-Object kind -eq 'residency')[0].peak_historical_views=3;$rows}
+    Reject 'two recipes' {param($rows) @($rows | Where-Object kind -eq 'residency')[0].source_recipe_count=2;$rows}
+    Reject 'three materials' {param($rows) @($rows | Where-Object kind -eq 'residency')[0].material_count=3;$rows}
+    Reject 'two generators' {param($rows) @($rows | Where-Object kind -eq 'residency')[0].generating=2;$rows}
+    Reject 'wrong frozen edit sequence' {param($rows) @($rows | Where-Object kind -eq 'compaction')[0].edit_script[0]='changed';$rows}
+    Reject 'nonexistent source revision' {param($context) $context.source_revision='0'*40} 'residency-context.json'
     Reject 'missing upload recovery' {param($rows) $rows | Where-Object kind -ne 'failure-recovery'}
     Reject 'upload changed presentation' {param($rows) @($rows | Where-Object kind -eq 'failure-recovery')[0].presenting_preserved=$false;$rows}
     Reject 'missing boundary churn' {param($rows) $rows | Where-Object kind -ne 'boundary-churn'}

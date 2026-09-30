@@ -123,6 +123,16 @@ pub fn edit(
 }
 
 pub fn sample(output: &mut File, frontend: &VoxelFrontend, phase: &str) -> Result<(), String> {
+    sample_with_history(output, frontend, phase, 0, 0)
+}
+
+pub fn sample_with_history(
+    output: &mut File,
+    frontend: &VoxelFrontend,
+    phase: &str,
+    historical_views: usize,
+    historical_peak: usize,
+) -> Result<(), String> {
     let cache = frontend
         .materialization_cache_stats()
         .map_err(|error| error.to_string())?;
@@ -130,12 +140,15 @@ pub fn sample(output: &mut File, frontend: &VoxelFrontend, phase: &str) -> Resul
         .streamed_edit_statistics()
         .map_err(|error| error.to_string())?
         .ok_or("not streamed")?;
+    let view = frontend.scene_view().map_err(|error| error.to_string())?;
     emit(
         output,
         json!({"kind":"cpu-residency","phase":phase,"copies":cache.copies,"peak_copies":cache.peak_copies,
         "query_copies":cache.query_only_copies,"generating":cache.generating,"cpu_live":CATEGORIES.map(allocation::live),
         "cpu_peak":CATEGORIES.map(allocation::peak),"cpu_allocations":CATEGORIES.map(allocation::count),
-        "metadata_entries":frontend.scene_view().map_err(|error| error.to_string())?.volumes().len(),
+        "metadata_entries":view.volumes().len(),"material_count":view.materials().len(),
+        "source_recipe_count":streamed_world::FIXTURE_RECIPE_COUNT,
+        "live_historical_views":historical_views,"peak_historical_views":historical_peak,
         "edited_coordinates":edits.current_coordinates,"history_entries":edits.retained_entries,"live_versions":edits.live_versions}),
     )
 }
@@ -192,30 +205,50 @@ pub fn establish(
 }
 
 pub fn lifecycle(output: &mut File, frontend: &Arc<VoxelFrontend>) -> Result<(), String> {
-    let original = frontend.scene_view().map_err(|error| error.to_string())?;
-    establish(frontend, selection(&original, 1, (3, 3), 16)?)?;
+    let mut history = vec![frontend.scene_view().map_err(|error| error.to_string())?];
+    let mut steps = vec!["retain-generated"];
+    establish(frontend, selection(&history[0], 1, (3, 3), 16)?)?;
     edit(frontend, (3, 3), false)?;
-    let edited = frontend.scene_view().map_err(|error| error.to_string())?;
-    establish(frontend, selection(&edited, 2, (3, 3), 16)?)?;
+    steps.push("edit-3-3");
+    history.push(frontend.scene_view().map_err(|error| error.to_string())?);
+    steps.push("retain-edited");
+    let edited = history
+        .get(1)
+        .expect("the edited historical view was just retained");
+    establish(frontend, selection(edited, 2, (3, 3), 16)?)?;
     let unchanged = edited
         .volume_content_version(&recipe::volume_identity(3, 3))
         .map_err(|error| error.to_string())?;
-    establish(frontend, selection(&edited, 3, (4, 3), 16)?)?;
+    establish(frontend, selection(edited, 3, (4, 3), 16)?)?;
+    steps.push("evict-2-2");
     edit(frontend, (2, 2), false)?;
+    steps.push("edit-2-2-nonresident");
     let current = frontend.scene_view().map_err(|error| error.to_string())?;
     let reuse = current
         .volume_content_version(&recipe::volume_identity(3, 3))
         .map_err(|error| error.to_string())?
         == unchanged;
     establish(frontend, selection(&current, 4, (3, 3), 16)?)?;
+    steps.push("reload-2-2");
+    sample_with_history(
+        output,
+        frontend,
+        "historical-queries",
+        history.len(),
+        history.len(),
+    )?;
     record_fingerprint(output, &current, (2, 2), "edited")?;
-    record_fingerprint(output, &original, (3, 3), "generated")?;
-    record_fingerprint(output, &edited, (3, 3), "edited")?;
+    record_fingerprint(output, &history[0], (3, 3), "generated")?;
+    steps.push("historical-generated");
+    record_fingerprint(output, edited, (3, 3), "edited")?;
+    steps.push("historical-edited");
     drop(current);
     edit(frontend, (2, 2), true)?;
+    steps.push("restore-2-2");
     edit(frontend, (3, 3), true)?;
-    drop(edited);
-    drop(original);
+    steps.push("restore-3-3");
+    history.clear();
+    steps.push("drop-history");
     let restored = frontend.scene_view().map_err(|error| error.to_string())?;
     establish(frontend, selection(&restored, 5, (3, 3), 16)?)?;
     record_fingerprint(output, &restored, (2, 2), "restored")?;
@@ -227,9 +260,10 @@ pub fn lifecycle(output: &mut File, frontend: &Arc<VoxelFrontend>) -> Result<(),
     if compacted.current_coordinates != 0 || compacted.retained_entries != 0 || !reuse {
         return Err("history compaction/reuse failed".into());
     }
+    steps.push("compact");
     emit(
         output,
-        json!({"kind":"compaction","edit_script":["retain-generated","edit-3-3","retain-edited","evict-2-2","edit-2-2-nonresident","reload-2-2","historical-generated","historical-edited","restore-2-2","restore-3-3","drop-history","compact"],"live_historical_views":0,"edited_coordinates":0,"history_entries":0,"unchanged_volume_reused":reuse}),
+        json!({"kind":"compaction","edit_script":steps,"live_historical_views":history.len(),"edited_coordinates":compacted.current_coordinates,"history_entries":compacted.retained_entries,"unchanged_volume_reused":reuse}),
     )?;
     // The cancellation callback runs after each generation admission finishes.
     let skipped = selection(&restored, 6, (8, 8), 16)?;

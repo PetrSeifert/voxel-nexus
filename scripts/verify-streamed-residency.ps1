@@ -10,9 +10,22 @@ try {
     foreach ($category in $caps.Keys) {if ($formulas[$category] -ne $caps[$category]) {throw 'Ratified formula changed'}}
     $cpuModes=@('cpu-calibration','cpu-matched-8','cpu-matched-16','cpu-lifecycle')
     $contract=Get-Content -Raw scripts/streamed-residency-contract.json | ConvertFrom-Json
+    $crossingTimes=@(8.0,24.0,43.31370849898476,65.94112549695429,88.5685424949238,111.19595949289332,130.50966799187808,146.50966799187808)
     $sourcePaths=@(rg --files apps crates scripts -g '*.rs' -g '*.toml' -g '*.comp' -g '*.vert' -g '*.frag' -g '*.ps1' -g 'streamed-residency-contract.json' | ForEach-Object {$_.Replace('\','/')} | Sort-Object)+@('Cargo.toml','Cargo.lock')
     function Hash([string]$path) {
         $content=[IO.File]::ReadAllText((Join-Path $workspaceDirectory $path)).Replace("`r`n","`n")
+        [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($content)))
+    }
+    if ((Hash 'scripts/streamed-residency-contract.json') -cne '0B71FE36C681FEE783346E8A0ECF719C0C8EFC638664F53189FF28502FFD5EC7') {throw 'Frozen edit script definitions changed'}
+    function Commit-Hash([string]$revision,[string]$path) {
+        $process=[Diagnostics.Process]::new()
+        $process.StartInfo.FileName='git';$process.StartInfo.UseShellExecute=$false
+        $process.StartInfo.RedirectStandardOutput=$true;$process.StartInfo.RedirectStandardError=$true
+        foreach ($argument in @('cat-file','blob',"${revision}:$path")) {$process.StartInfo.ArgumentList.Add($argument)}
+        if (-not $process.Start()) {throw 'Cannot read committed source'}
+        $content=$process.StandardOutput.ReadToEnd().Replace("`r`n","`n");$errorText=$process.StandardError.ReadToEnd();$process.WaitForExit()
+        if ($process.ExitCode -ne 0) {throw "Missing committed source $path : $errorText"}
+        $process.Dispose()
         [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($content)))
     }
     function Frozen {
@@ -46,7 +59,10 @@ try {
         }
         Number $record.copies 19 'Nineteen-copy admission';Number $record.peak_copies 19 'Nineteen-copy peak admission';Number $record.query_copies 1 'Query copy bound'
         Number $record.metadata_entries 256 'Metadata count bound';Number $record.edited_coordinates 6 'Edit count bound';Number $record.history_entries 24 'History entry bound'
-        if (-not $gpu) {Number $record.generating 1 'Generation worker bound';return}
+        Number $record.live_historical_views 2 'Historical view bound';Number $record.peak_historical_views 2 'Historical view peak bound'
+        Number $record.source_recipe_count 1 'Source recipe bound';Number $record.material_count 2 'Material count bound';Number $record.generating 1 'Generation worker bound'
+        if ($record.source_recipe_count -ne 1 -or $record.material_count -ne 2) {throw 'Missing source recipe or material palette'}
+        if (-not $gpu) {return}
         foreach ($field in @('gpu_live','gpu_peak','gpu_allocations','gpu_allocations_peak','gpu_objects','gpu_objects_peak')) {Array $record.$field 3}
         foreach ($values in @($record.gpu_live,$record.gpu_peak)) {
             Number $values[0] 26543904 'Fixed GPU cap; reopen shaping';Number $values[1] $caps.raster_gpu 'Raster GPU cap; reopen shaping';Number $values[2] $caps.brickmap_gpu 'Brickmap GPU cap; reopen shaping'
@@ -85,9 +101,16 @@ try {
     }
     $context=Get-Content -Raw -LiteralPath (Join-Path $EvidenceDirectory residency-context.json) | ConvertFrom-Json
     if ($context.source_revision -notmatch '^[a-f0-9]{40}$' -or @($context.toolchain).Count -lt 3 -or -not $context.cargo -or $context.executable_sha256 -notmatch '^[A-F0-9]{64}$') {throw 'Missing source/toolchain/executable provenance'}
+    $resolvedRevision=git rev-parse --verify "$($context.source_revision)^{commit}" 2>$null
+    if ($LASTEXITCODE -ne 0 -or $resolvedRevision -cne $context.source_revision) {throw 'Invalid source revision'}
+    if ($context.source_dirty -isnot [bool]) {throw 'Missing source cleanliness provenance'}
     $hashes=@($context.source_sha256)
     if (-not (Same @($hashes.path | Sort-Object) @($sourcePaths | Sort-Object))) {throw 'Missing or duplicated source hashes'}
-    foreach ($hash in $hashes) {if ($hash.sha256 -cne (Hash $hash.path)) {throw "Changed source hash $($hash.path)"}}
+    foreach ($hash in $hashes) {
+        if ($hash.sha256 -cne (Hash $hash.path)) {throw "Changed source hash $($hash.path)"}
+        if (-not $context.source_dirty -and $hash.sha256 -cne (Commit-Hash $context.source_revision $hash.path)) {throw "Source hash does not belong to reported commit: $($hash.path)"}
+    }
+    if ($context.source_dirty -and $context.source_revision -cne (git rev-parse HEAD)) {throw 'Dirty capture does not identify its base revision'}
     $frozen=Frozen
     foreach ($name in $frozen.Keys) {
         if ($context.frozen_sha256.$name -cne $frozen[$name]) {throw "Changed frozen $name hash"}
@@ -114,6 +137,7 @@ try {
     foreach ($field in @('evicted_edit','historical_reads','restored','unrelated_edit_reuse','compacted','nineteen_copy_admission')) {True $result.$field "Missing lifecycle $field"}
     if ($result.repeat_laps -ne 2) {throw 'Missing CPU lap'}
     $compact=One $lifecycle 'compaction';if (-not (Same $compact.edit_script $contract.edit_script)) {throw 'Changed fixed edit script'};Zero @($compact.live_historical_views,$compact.edited_coordinates,$compact.history_entries);True $compact.unchanged_volume_reused 'Unrelated edit reuse missing'
+    $historical=One $lifecycle 'cpu-residency' 'historical-queries';if ($historical.live_historical_views -ne 2 -or $historical.peak_historical_views -ne 2) {throw 'Missing measured historical views'}
     $overlap=One $lifecycle 'cpu-residency' 'disjoint-query-overlap';if ($overlap.copies -ne 19 -or $overlap.query_copies -ne 1) {throw 'Missing nineteen-copy overlap'}
     $first=One $lifecycle 'cpu-residency' 'lap-0-settled';$second=One $lifecycle 'cpu-residency' 'lap-1-settled'
     if ($first.copies -ne 9 -or $second.copies -ne 9 -or -not (Same $first.cpu_live[1..6] $second.cpu_live[1..6]) -or -not (Same $first.cpu_allocations[1..6] $second.cpu_allocations[1..6])) {throw 'CPU allocation plateau differs'}
@@ -130,6 +154,7 @@ try {
         if ($device.name -cne $context.gpu_device.name -or $device.driver_version -ne $context.gpu_device.driver_version -or $device.api_version -ne $context.gpu_device.api_version) {throw 'Device provenance differs'}
         $route=One $rows 'context';True $route.production 'GPU mode used prototype APIs';True $route.typed_dense_rejection 'Missing typed Dense rejection'
         if ($route.mode -cne $mode) {throw 'Wrong route start/mode'}
+        if (-not (Same $route.crossings $crossingTimes) -or -not (Same $route.projection @(1920,1080,60.0,0.1,34.0))) {throw 'Frozen analytic crossing clock or projection changed'}
         $samples=@(Records $rows 'residency');if ($samples.Count -lt 1) {throw 'Missing GPU samples'}
         foreach ($sample in $samples) {Sample $sample $true}
         $validation=One $rows 'validation';Zero @($validation.errors,$validation.warnings)
@@ -148,12 +173,16 @@ try {
             $lap=@($laps | Where-Object lap -eq $lapIndex)
             if ($lap.Count -ne 1 -or $lap[0].crossings -ne 8 -or $lap[0].installed_crossings -ne 8 -or $lap[0].rendered_probes -ne 32) {throw 'Missing or incomplete lap'}
             Number $lap[0].coverage_stalls 0 'Route coverage stall';$directions=@()
+            $strategy=if ($mode -eq 'raster') {'voxel-nexus.raster'} else {'voxel-nexus.compute-ray'}
             foreach ($index in 0..7) {
                 $crossing=@($crossings | Where-Object {$_.lap -eq $lapIndex -and $_.index -eq $index});$install=@($installed | Where-Object {$_.lap -eq $lapIndex -and $_.index -eq $index})
                 if ($crossing.Count -ne 1 -or $install.Count -ne 1) {throw 'Uninstalled or duplicated crossing'}
-                $crossing=$crossing[0];$install=$install[0];$expected=@($route.crossings)[$index]
+                $crossing=$crossing[0];$install=$install[0];$expected=$crossingTimes[$index]
                 if ([math]::Abs($crossing.origin_seconds-$expected) -gt 0.000000001 -or $crossing.unresolved_origin_seconds -ne $crossing.origin_seconds) {throw 'Analytic crossing clock restarted or changed'}
                 True $install.fence_safe 'Installation was not fence safe';True $install.selection_matches 'Selection mismatch';Number $install.crossing_seconds 2.5 'Crossing exceeded 2.5 seconds; reopen shaping'
+                $from=$strategy
+                if ($index -eq 2 -or $index -eq 5) {$strategy=if ($strategy -eq 'voxel-nexus.raster') {'voxel-nexus.compute-ray'} else {'voxel-nexus.raster'}}
+                if ($install.from -cne $from -or $install.to -cne $strategy) {throw 'Wrong switch direction or route start'}
                 if ([math]::Abs($install.boundary_seconds-$crossing.origin_seconds-$install.crossing_seconds) -gt 0.000001) {throw 'Crossing latency did not end at actual boundary'}
                 if ($index -eq 2 -or $index -eq 5) {
                     True $crossing.switch_requested 'Missing switch request';Number $install.switch_seconds 2.5 'Switch exceeded 2.5 seconds; reopen shaping';Number $crossing.switch_requested_seconds $install.boundary_seconds 'Invalid switch request clock'
@@ -166,6 +195,11 @@ try {
             if (-not (Same @($directions | Sort-Object) @('voxel-nexus.compute-ray>voxel-nexus.raster','voxel-nexus.raster>voxel-nexus.compute-ray'))) {throw 'Missing switch direction in lap'}
         }
         foreach ($phase in @('revision-replacement','disjoint-query-overlap','failed-candidate-cleaned','stress-settled')) {One $rows 'residency' $phase | Out-Null}
+        $revision=One $rows 'revision-replacement';$replacement=One $rows 'residency' 'revision-replacement'
+        if ($revision.predecessor -cne '1' -or $revision.successor -cne '2' -or $replacement.required_revision -cne $revision.successor -or $replacement.visible_revision -cne $revision.successor) {throw 'Stale revision replacement'}
+        True $replacement.fully_converged 'Revision replacement did not converge'
+        if ($replacement.live_historical_views -ne 2 -or $replacement.peak_historical_views -ne 2) {throw 'Missing GPU measured historical views'}
+        if (@($probes | Where-Object {$null -eq $_.lap -and $null -eq $_.index -and $_.revision -eq 2}).Count -lt 1) {throw 'Missing revision replacement probe'}
         $admission=One $rows 'admission';if ($admission.copies -ne 19) {throw 'Missing GPU nineteen-copy admission'};True $admission.second_query_rejected 'Admitted second query copy'
         $recovery=One $rows 'failure-recovery' 'raster-upload';True $recovery.observed_upload_failure 'Missing upload failure';True $recovery.presenting_preserved 'Upload failure changed presentation'
         $churn=One $rows 'boundary-churn'

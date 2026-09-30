@@ -6,6 +6,11 @@ use voxel_frontend::{
     VoxelSceneRevision, VoxelSourceError, VoxelValue, VoxelVolumeId, VoxelVolumeSource,
 };
 
+// Per-volume source bindings all invoke this one immutable, stateless fixture recipe.
+#[cfg(feature = "qualification")]
+#[allow(dead_code)]
+pub(super) const FIXTURE_RECIPE_COUNT: usize = 1;
+
 pub(super) fn scene() -> StreamedVoxelScene {
     scene_with_side(16)
 }
