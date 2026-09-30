@@ -4,11 +4,13 @@ use std::ffi::CStr;
 #[cfg(feature = "qualification")]
 mod allocation_qualification;
 mod render_path_switching;
+mod residency_coverage;
 #[cfg(feature = "qualification")]
 pub use allocation_qualification::{
     GpuAllocationClass, GpuAllocationQualification, GpuAllocationQualificationError,
     GpuAllocationSnapshot, with_gpu_allocation_owner,
 };
+pub use residency_coverage::RenderPathCoverage;
 
 pub use render_path_switching::{
     CameraStateRevision, RenderPathHandoffControl, RenderPathHandoffMismatch, RenderPathReadiness,
@@ -175,6 +177,13 @@ impl RenderBackend {
         outcome: voxel_frontend::VoxelEditOutcome,
     ) -> RenderPathResult<()> {
         self.path.submit_edit_outcome(outcome)
+    }
+
+    pub fn submit_residency_selection(
+        &mut self,
+        selection: voxel_frontend::VoxelResidencySelection,
+    ) -> RenderPathResult<()> {
+        self.path.submit_residency_selection(selection)
     }
 
     pub fn request_render_path_switch(

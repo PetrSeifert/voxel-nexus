@@ -720,6 +720,20 @@ impl RenderPathFrameContext<'_> {
 }
 
 pub trait RenderPath {
+    /// None means full scene coverage, as used by existing unstreamed paths.
+    fn installed_residency_coverage(&self) -> Option<&crate::RenderPathCoverage> {
+        None
+    }
+
+    /// Participating paths establish the newest selection atomically. Unstreamed
+    /// paths retain every volume, independently of residency demand.
+    fn submit_residency_selection(
+        &mut self,
+        _selection: voxel_frontend::VoxelResidencySelection,
+    ) -> RenderPathResult<()> {
+        Ok(())
+    }
+
     fn submit_edit_outcome(
         &mut self,
         _outcome: voxel_frontend::VoxelEditOutcome,

@@ -6,7 +6,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{error::Error as StdError, fmt};
 use thiserror::Error;
-use voxel_frontend::{VoxelSceneId, VoxelSceneRevision};
+use voxel_frontend::{
+    VoxelResidencySelection, VoxelResidencySelectionId, VoxelSceneId, VoxelSceneRevision,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CameraStateRevision(u64);
@@ -47,6 +49,7 @@ pub struct RenderPathStamp {
     scene_identity: VoxelSceneId,
     required_revision: VoxelSceneRevision,
     visible_revision: VoxelSceneRevision,
+    residency: Option<(VoxelResidencySelection, VoxelResidencySelection)>,
     camera_state_revision: CameraStateRevision,
     presentation_configuration: Option<PresentationConfigurationId>,
     readiness: RenderPathReadiness,
@@ -67,6 +70,7 @@ impl RenderPathStamp {
             scene_identity,
             required_revision,
             visible_revision,
+            residency: None,
             camera_state_revision,
             presentation_configuration,
             readiness,
@@ -101,26 +105,55 @@ impl RenderPathStamp {
         self.readiness
     }
 
-    fn is_fully_converged(&self) -> bool {
+    pub fn with_residency(
+        mut self,
+        required: VoxelResidencySelection,
+        installed: VoxelResidencySelection,
+    ) -> Self {
+        self.residency = Some((required, installed));
+        self
+    }
+
+    /// None denotes every volume for an unstreamed path.
+    pub fn required_selection(&self) -> Option<VoxelResidencySelectionId> {
+        self.residency
+            .as_ref()
+            .map(|(required, _)| required.identity())
+    }
+
+    /// None denotes every volume for an unstreamed path.
+    pub fn installed_selection(&self) -> Option<VoxelResidencySelectionId> {
+        self.residency
+            .as_ref()
+            .map(|(_, installed)| installed.identity())
+    }
+
+    pub fn is_fully_converged(&self) -> bool {
         self.required_revision == self.visible_revision
+            && self.required_selection() == self.installed_selection()
             && self.readiness == RenderPathReadiness::Recordable
     }
 
     fn handoff_mismatch(&self, replacement: &Self) -> Option<RenderPathHandoffMismatch> {
         if self.scene_identity != replacement.scene_identity {
             Some(RenderPathHandoffMismatch::SceneIdentity)
-        } else if !self.is_fully_converged()
-            || self.visible_revision != replacement.visible_revision
+        } else if self.required_revision != replacement.visible_revision
             || replacement.required_revision != replacement.visible_revision
         {
             Some(RenderPathHandoffMismatch::VoxelSceneRevision)
+        } else if self.required_selection() != replacement.installed_selection()
+            || replacement.required_selection() != replacement.installed_selection()
+        {
+            Some(RenderPathHandoffMismatch::VoxelResidencySelection)
         } else if self.camera_state_revision != replacement.camera_state_revision {
             Some(RenderPathHandoffMismatch::CameraStateRevision)
         } else if self.presentation_configuration.is_none()
             || self.presentation_configuration != replacement.presentation_configuration
         {
             Some(RenderPathHandoffMismatch::PresentationConfiguration)
-        } else if replacement.readiness != RenderPathReadiness::Recordable {
+        } else if self.readiness != RenderPathReadiness::Recordable
+            || replacement.readiness != RenderPathReadiness::Recordable
+        {
             Some(RenderPathHandoffMismatch::Readiness)
         } else {
             None
@@ -131,6 +164,7 @@ impl RenderPathStamp {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderPathRetirement {
     Pending,
+    /// Cleanup has proved that this owner retains zero resources and workers.
     Complete,
 }
 
@@ -145,6 +179,10 @@ pub trait SwitchableRenderPath: RenderPath {
 
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum RenderPathSwitchRequestError {
+    #[error("Replacement Render Path residency submission failed: {message}")]
+    ReplacementResidencySubmission { message: String },
+    #[error("Replacement Render Path Camera State publication failed: {message}")]
+    ReplacementCameraPublication { message: String },
     #[error("the active Render Path does not support runtime switching")]
     SwitchingUnavailable,
     #[error("a Render Path switch is already in progress")]
@@ -225,6 +263,7 @@ impl RenderPathHandoffControl {
 pub enum RenderPathHandoffMismatch {
     SceneIdentity,
     VoxelSceneRevision,
+    VoxelResidencySelection,
     CameraStateRevision,
     PresentationConfiguration,
     Readiness,
@@ -244,9 +283,19 @@ pub struct RenderPathSwitchDiagnostics {
     replacement: Option<RenderPathStamp>,
     retiring: Option<RenderPathStamp>,
     events: Vec<RenderPathSwitchEvent>,
+    coverage_stalls: u64,
+    held_camera_state_revision: Option<CameraStateRevision>,
 }
 
 impl RenderPathSwitchDiagnostics {
+    pub fn coverage_stalls(&self) -> u64 {
+        self.coverage_stalls
+    }
+
+    pub fn held_camera_state_revision(&self) -> Option<CameraStateRevision> {
+        self.held_camera_state_revision
+    }
+
     pub fn roles(&self) -> RenderPathRoleStatus {
         self.roles
     }
@@ -288,6 +337,10 @@ pub struct RenderPathSwitchOwner {
     replacement_needs_configuration: bool,
     replacement_cleanup_pending: bool,
     retiring: Option<Box<dyn SwitchableRenderPath>>,
+    drawable_dimensions: Option<[u32; 2]>,
+    accepted_camera: Option<(CameraState, CameraStateRevision)>,
+    held_camera: Option<(CameraState, CameraStateRevision)>,
+    coverage_stalls: u64,
     handoff_control: RenderPathHandoffControl,
     events: Vec<RenderPathSwitchEvent>,
 }
@@ -409,6 +462,10 @@ impl RenderPathSwitchOwner {
             replacement_needs_configuration: false,
             replacement_cleanup_pending: false,
             retiring: None,
+            drawable_dimensions: None,
+            accepted_camera: None,
+            held_camera: None,
+            coverage_stalls: 0,
             handoff_control: RenderPathHandoffControl {
                 held: Arc::new(AtomicBool::new(false)),
             },
@@ -420,6 +477,9 @@ impl RenderPathSwitchOwner {
         self.handoff_control.clone()
     }
 
+    /// The caller prepares the replacement from the newest Required Scene View;
+    /// stamps alone cannot reconstruct its voxel contents. Residency and accepted
+    /// Camera State demand are forwarded here before preparation advances.
     pub fn request_switch(
         &mut self,
         replacement: Box<dyn SwitchableRenderPath>,
@@ -434,7 +494,11 @@ impl RenderPathSwitchOwner {
             });
             return Err(reason);
         }
-        if !presenting_stamp.is_fully_converged() {
+        // Residency convergence may include a revision lag over the old coverage.
+        if presenting_stamp.readiness() != RenderPathReadiness::Recordable
+            || (presenting_stamp.required_selection() == presenting_stamp.installed_selection()
+                && presenting_stamp.required_revision() != presenting_stamp.visible_revision())
+        {
             let reason = RenderPathSwitchRequestError::PresentingPathNotConverged {
                 required_revision: presenting_stamp.required_revision(),
                 visible_revision: presenting_stamp.visible_revision(),
@@ -454,6 +518,26 @@ impl RenderPathSwitchOwner {
         self.replacement = Some(replacement);
         self.replacement_needs_configuration = true;
         self.replacement_cleanup_pending = false;
+        if let Some((required, _)) = presenting_stamp.residency
+            && let Some(replacement) = self.replacement.as_mut()
+            && let Err(error) = replacement.submit_residency_selection(required)
+        {
+            self.record_replacement_failure(error.as_ref());
+            return Err(
+                RenderPathSwitchRequestError::ReplacementResidencySubmission {
+                    message: error.to_string(),
+                },
+            );
+        }
+        if let Some((camera, revision)) = self.accepted_camera
+            && let Some(replacement) = self.replacement.as_mut()
+            && let Err(error) = replacement.publish_camera_state(camera, revision)
+        {
+            self.record_replacement_failure(error.as_ref());
+            return Err(RenderPathSwitchRequestError::ReplacementCameraPublication {
+                message: error.to_string(),
+            });
+        }
         Ok(())
     }
 
@@ -485,7 +569,37 @@ impl RenderPathSwitchOwner {
                 .map(|replacement| replacement.stamp()),
             retiring: self.retiring.as_ref().map(|retiring| retiring.stamp()),
             events: self.events.clone(),
+            coverage_stalls: self.coverage_stalls,
+            held_camera_state_revision: self.held_camera.map(|(_, revision)| revision),
         }
+    }
+
+    fn camera_is_covered(&self, camera: CameraState) -> RenderPathResult<bool> {
+        let Some(coverage) = self.presenting.installed_residency_coverage() else {
+            return Ok(true);
+        };
+        let Some(dimensions) = self.drawable_dimensions else {
+            return Ok(false);
+        };
+        Ok(coverage.contains_camera(camera, dimensions)?)
+    }
+
+    fn publish_covered_camera(
+        &mut self,
+        camera: CameraState,
+        revision: CameraStateRevision,
+    ) -> RenderPathResult<()> {
+        self.presenting.publish_camera_state(camera, revision)?;
+        self.accepted_camera = Some((camera, revision));
+        self.held_camera = None;
+        if !self.replacement_cleanup_pending
+            && let Some(replacement) = self.replacement.as_mut()
+            && let Err(error) = replacement.publish_camera_state(camera, revision)
+        {
+            self.record_replacement_failure(error.as_ref());
+            return Err(error);
+        }
+        Ok(())
     }
 
     fn handoff_mismatch(&self) -> Option<RenderPathHandoffMismatch> {
@@ -610,6 +724,34 @@ impl RenderPathSwitchOwner {
 }
 
 impl RenderPath for RenderPathSwitchOwner {
+    fn submit_residency_selection(
+        &mut self,
+        selection: VoxelResidencySelection,
+    ) -> RenderPathResult<()> {
+        let presenting = self.presenting.stamp();
+        if selection.scene_id() != presenting.scene_identity() {
+            return Err(voxel_frontend::VoxelFrontendError::ResidencySceneMismatch.into());
+        }
+        if let Some((required, _)) = presenting.residency {
+            if required.identity() == selection.identity() && required != selection {
+                return Err(voxel_frontend::VoxelFrontendError::ResidencyIdentityConflict.into());
+            }
+            if selection.identity() <= required.identity() {
+                return Ok(());
+            }
+        }
+        self.presenting
+            .submit_residency_selection(selection.clone())?;
+        if !self.replacement_cleanup_pending
+            && let Some(replacement) = self.replacement.as_mut()
+            && let Err(error) = replacement.submit_residency_selection(selection)
+        {
+            self.record_replacement_failure(error.as_ref());
+            return Err(error);
+        }
+        Ok(())
+    }
+
     fn submit_edit_outcome(
         &mut self,
         outcome: voxel_frontend::VoxelEditOutcome,
@@ -625,17 +767,13 @@ impl RenderPath for RenderPathSwitchOwner {
         camera_state: CameraState,
         camera_state_revision: CameraStateRevision,
     ) -> RenderPathResult<()> {
-        self.presenting
-            .publish_camera_state(camera_state, camera_state_revision)?;
-        if !self.replacement_cleanup_pending
-            && let Some(replacement) = self.replacement.as_mut()
-            && let Err(error) =
-                replacement.publish_camera_state(camera_state, camera_state_revision)
-        {
-            self.record_replacement_failure(error.as_ref());
-            return Err(error);
+        if self.camera_is_covered(camera_state)? {
+            self.publish_covered_camera(camera_state, camera_state_revision)
+        } else {
+            self.held_camera = Some((camera_state, camera_state_revision));
+            self.coverage_stalls = self.coverage_stalls.saturating_add(1);
+            Ok(())
         }
-        Ok(())
     }
 
     fn request_switch(
@@ -704,6 +842,8 @@ impl RenderPath for RenderPathSwitchOwner {
         device: RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
+        let extent = target.extent();
+        self.drawable_dimensions = Some([extent.width, extent.height]);
         let mut failures = Vec::new();
         let presenting_strategy = self.presenting.stamp().strategy();
         retain_lifecycle_result(
@@ -757,7 +897,14 @@ impl RenderPath for RenderPathSwitchOwner {
         device: RenderPathDeviceContext<'_>,
         target: RenderPathTarget<'_>,
     ) -> RenderPathResult<()> {
+        let extent = target.extent();
+        self.drawable_dimensions = Some([extent.width, extent.height]);
         self.presenting.advance_frame_boundary(device, target)?;
+        if let Some((camera, revision)) = self.held_camera
+            && self.camera_is_covered(camera)?
+        {
+            self.publish_covered_camera(camera, revision)?;
+        }
         if self.replacement_cleanup_pending {
             self.clean_pending_replacement(device)?;
         } else if self.replacement.is_some() {
@@ -805,24 +952,34 @@ impl RenderPath for RenderPathSwitchOwner {
             presenting_strategy,
             self.presenting.shutdown(device),
         );
-        if let Some(mut replacement) = self.replacement.take() {
+        if let Some(replacement) = self.replacement.as_mut() {
             let replacement_strategy = replacement.stamp().strategy();
+            let result = replacement.shutdown(device);
+            if result.is_ok() {
+                self.replacement = None;
+                self.replacement_needs_configuration = false;
+                self.replacement_cleanup_pending = false;
+            } else {
+                self.replacement_cleanup_pending = true;
+            }
             retain_lifecycle_result(
                 &mut failures,
                 RenderPathOwnedRole::Replacement,
                 replacement_strategy,
-                replacement.shutdown(device),
+                result,
             );
         }
-        self.replacement_needs_configuration = false;
-        self.replacement_cleanup_pending = false;
-        if let Some(mut retiring) = self.retiring.take() {
+        if let Some(retiring) = self.retiring.as_mut() {
             let retiring_strategy = retiring.stamp().strategy();
+            let result = retiring.shutdown(device);
+            if result.is_ok() {
+                self.retiring = None;
+            }
             retain_lifecycle_result(
                 &mut failures,
                 RenderPathOwnedRole::Retiring,
                 retiring_strategy,
-                retiring.shutdown(device),
+                result,
             );
         }
         finish_owned_lifecycle_operation(RenderPathLifecycleOperation::Shutdown, failures)
@@ -846,6 +1003,7 @@ mod tests {
     use std::marker::PhantomData;
     use std::ptr;
     use std::sync::atomic::AtomicUsize;
+    use voxel_frontend::VoxelVolumeId;
 
     #[derive(Clone, Copy)]
     enum ProofFailurePoint {
@@ -855,8 +1013,35 @@ mod tests {
         AdvanceFrameBoundary,
     }
 
+    struct ProofOwnerHold {
+        live: Arc<AtomicUsize>,
+    }
+
+    impl ProofOwnerHold {
+        fn new(live: &Arc<AtomicUsize>, peak: &AtomicUsize) -> Self {
+            let count = live.fetch_add(1, Ordering::SeqCst) + 1;
+            peak.fetch_max(count, Ordering::SeqCst);
+            Self {
+                live: Arc::clone(live),
+            }
+        }
+    }
+
+    impl Drop for ProofOwnerHold {
+        fn drop(&mut self) {
+            self.live.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
     struct ProofRenderPath {
         stamp: RenderPathStamp,
+        ownership: Option<ProofOwnerHold>,
+        retirement_remaining: Option<(Arc<AtomicUsize>, Arc<AtomicUsize>)>,
+        residency_failure: Option<Arc<AtomicBool>>,
+        coverage: Option<crate::RenderPathCoverage>,
+        coverage_view: Option<voxel_frontend::VoxelSceneView>,
+        pending_selection: Option<VoxelResidencySelection>,
+        residency_ready: Option<Arc<AtomicBool>>,
         pending_camera_state_revision: Option<CameraStateRevision>,
         configuration_tracks_target: bool,
         become_recordable: Option<Arc<AtomicBool>>,
@@ -868,6 +1053,28 @@ mod tests {
     }
 
     impl RenderPath for ProofRenderPath {
+        fn installed_residency_coverage(&self) -> Option<&crate::RenderPathCoverage> {
+            self.coverage.as_ref()
+        }
+
+        fn submit_residency_selection(
+            &mut self,
+            selection: VoxelResidencySelection,
+        ) -> RenderPathResult<()> {
+            if self
+                .residency_failure
+                .as_ref()
+                .is_some_and(|failure| failure.load(Ordering::SeqCst))
+            {
+                return Err(std::io::Error::other("proof residency submission failure").into());
+            }
+            if let Some((required, _)) = self.stamp.residency.as_mut() {
+                *required = selection.clone();
+                self.pending_selection = Some(selection);
+            }
+            Ok(())
+        }
+
         fn submit_edit_outcome(
             &mut self,
             outcome: voxel_frontend::VoxelEditOutcome,
@@ -931,6 +1138,19 @@ mod tests {
             ) {
                 return Err(std::io::Error::other("proof replacement failure").into());
             }
+            if self
+                .residency_ready
+                .as_ref()
+                .is_some_and(|ready| ready.load(Ordering::SeqCst))
+                && let Some(selection) = self.pending_selection.take()
+                && let Some((_, installed)) = self.stamp.residency.as_mut()
+            {
+                if let Some(view) = self.coverage_view.as_ref() {
+                    self.coverage = Some(crate::RenderPathCoverage::new(view, selection.clone())?);
+                }
+                *installed = selection;
+                self.stamp.visible_revision = self.stamp.required_revision;
+            }
             if let Some(camera_state_revision) = self.pending_camera_state_revision.take() {
                 self.stamp.camera_state_revision = camera_state_revision;
             }
@@ -968,6 +1188,15 @@ mod tests {
             &mut self,
             _device: RenderPathDeviceContext<'_>,
         ) -> RenderPathResult<RenderPathRetirement> {
+            if self
+                .retirement_remaining
+                .as_ref()
+                .is_some_and(|(resources, workers)| {
+                    resources.load(Ordering::SeqCst) != 0 || workers.load(Ordering::SeqCst) != 0
+                })
+            {
+                return Ok(RenderPathRetirement::Pending);
+            }
             if self.retirement_fails {
                 Err(std::io::Error::other("proof retirement failure").into())
             } else {
@@ -1094,6 +1323,13 @@ mod tests {
     fn proof_path(stamp: RenderPathStamp) -> Box<dyn SwitchableRenderPath> {
         Box::new(ProofRenderPath {
             stamp,
+            ownership: None,
+            retirement_remaining: None,
+            residency_failure: None,
+            coverage: None,
+            coverage_view: None,
+            pending_selection: None,
+            residency_ready: None,
             pending_camera_state_revision: None,
             configuration_tracks_target: false,
             become_recordable: None,
@@ -1105,6 +1341,36 @@ mod tests {
         })
     }
 
+    fn residency_path(stamp: RenderPathStamp) -> (Box<dyn SwitchableRenderPath>, Arc<AtomicBool>) {
+        let (path, ready) = residency_proof(stamp);
+        (Box::new(path), ready)
+    }
+
+    fn residency_proof(stamp: RenderPathStamp) -> (ProofRenderPath, Arc<AtomicBool>) {
+        let ready = Arc::new(AtomicBool::new(false));
+        (
+            ProofRenderPath {
+                stamp,
+                ownership: None,
+                retirement_remaining: None,
+                residency_failure: None,
+                coverage: None,
+                coverage_view: None,
+                pending_selection: None,
+                residency_ready: Some(Arc::clone(&ready)),
+                pending_camera_state_revision: None,
+                configuration_tracks_target: false,
+                become_recordable: None,
+                failure_point: None,
+                retirement_fails: false,
+                configure_count: None,
+                record_count: None,
+                shutdown_count: None,
+            },
+            ready,
+        )
+    }
+
     fn failing_path(
         stamp: RenderPathStamp,
         failure_point: ProofFailurePoint,
@@ -1113,6 +1379,13 @@ mod tests {
         (
             Box::new(ProofRenderPath {
                 stamp,
+                ownership: None,
+                retirement_remaining: None,
+                residency_failure: None,
+                coverage: None,
+                coverage_view: None,
+                pending_selection: None,
+                residency_ready: None,
                 pending_camera_state_revision: None,
                 configuration_tracks_target: false,
                 become_recordable: None,
@@ -1129,6 +1402,13 @@ mod tests {
     fn retirement_failing_path(stamp: RenderPathStamp) -> Box<dyn SwitchableRenderPath> {
         Box::new(ProofRenderPath {
             stamp,
+            ownership: None,
+            retirement_remaining: None,
+            residency_failure: None,
+            coverage: None,
+            coverage_view: None,
+            pending_selection: None,
+            residency_ready: None,
             pending_camera_state_revision: None,
             configuration_tracks_target: false,
             become_recordable: None,
@@ -1153,6 +1433,13 @@ mod tests {
         (
             Box::new(ProofRenderPath {
                 stamp,
+                ownership: None,
+                retirement_remaining: None,
+                residency_failure: None,
+                coverage: None,
+                coverage_view: None,
+                pending_selection: None,
+                residency_ready: None,
                 pending_camera_state_revision: None,
                 configuration_tracks_target: false,
                 become_recordable: Some(Arc::clone(&become_recordable)),
@@ -1183,6 +1470,13 @@ mod tests {
         (
             Box::new(ProofRenderPath {
                 stamp,
+                ownership: None,
+                retirement_remaining: None,
+                residency_failure: None,
+                coverage: None,
+                coverage_view: None,
+                pending_selection: None,
+                residency_ready: None,
                 pending_camera_state_revision: None,
                 configuration_tracks_target: false,
                 become_recordable: starts_preparing.then(|| Arc::clone(&become_recordable)),
@@ -1209,6 +1503,13 @@ mod tests {
         (
             Box::new(ProofRenderPath {
                 stamp,
+                ownership: None,
+                retirement_remaining: None,
+                residency_failure: None,
+                coverage: None,
+                coverage_view: None,
+                pending_selection: None,
+                residency_ready: None,
                 pending_camera_state_revision: None,
                 configuration_tracks_target: true,
                 become_recordable: None,
@@ -1314,6 +1615,410 @@ mod tests {
             VoxelCoordinate::new(0, 0, 0),
             VoxelValue::Occupied(VoxelMaterialId::new("stone")),
         ))?)
+    }
+
+    fn coverage_view() -> RenderPathResult<voxel_frontend::VoxelSceneView> {
+        use voxel_frontend::{
+            DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
+            VoxelFrontend, VoxelRegion, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+        };
+        let frontend = VoxelFrontend::new();
+        let extent = VoxelExtent::new(10, 10, 10);
+        let volumes = [0.0, 10.0]
+            .into_iter()
+            .enumerate()
+            .map(|(index, x)| {
+                DenseVoxelVolume::new(
+                    VoxelVolumeMetadata::new(
+                        VoxelVolumeId::new(index.to_string()),
+                        extent,
+                        [x, 0.0, 0.0],
+                        1.0,
+                    ),
+                    vec![DenseVoxelBatch::new(
+                        VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), extent),
+                        vec![VoxelValue::Empty; 1000],
+                    )],
+                )
+            })
+            .collect();
+        let view = frontend.publish(DenseVoxelScene::new(
+            VoxelSceneId::new("canonical"),
+            VoxelSceneRevision::new(1),
+            vec![],
+            volumes,
+        ))?;
+        Ok(view)
+    }
+
+    #[test]
+    fn camera_coverage_uses_frustum_corners_aspect_ratio_and_finite_scene_clipping()
+    -> RenderPathResult<()> {
+        let view = coverage_view()?;
+        let installed =
+            view.residency_selection(VoxelResidencySelectionId::new(1), [VoxelVolumeId::new("0")])?;
+        let camera = |eye, target, field_of_view, far| {
+            CameraState::new(eye, target, [0.0, 1.0, 0.0], field_of_view, 0.1, far)
+        };
+        let cases = [
+            // The center ray stays in volume zero, but the far corners reach volume one.
+            (
+                camera([5.0, 5.0, -2.0], [5.0, 5.0, 5.0], 60.0, 8.0)?,
+                [800, 600],
+                false,
+            ),
+            (
+                camera([5.0, 5.0, -2.0], [5.0, 5.0, 5.0], 60.0, 8.0)?,
+                [600, 800],
+                true,
+            ),
+            // Far corners are inside the installed volume, while near corners are outside it.
+            (
+                camera([12.0, 5.0, 5.0], [5.0, 5.0, 5.0], 10.0, 5.0)?,
+                [800, 600],
+                false,
+            ),
+            // Corners outside the finite scene demand no extra residency.
+            (
+                camera([-1.0, 5.0, -1.0], [-1.0, 5.0, 5.0], 60.0, 3.0)?,
+                [800, 600],
+                true,
+            ),
+            (
+                camera([-20.0, 5.0, -1.0], [-20.0, 5.0, 5.0], 60.0, 3.0)?,
+                [800, 600],
+                true,
+            ),
+            // A diagonal camera's bounding box includes the uninstalled volume.
+            (
+                camera([5.0, 5.0, -2.0], [9.0, 5.0, 5.0], 45.0, 8.0)?,
+                [800, 600],
+                false,
+            ),
+        ];
+        for (camera, [width, height], covered) in cases {
+            let (mut presenting, _) = residency_proof(
+                stamp(FIRST_STRATEGY, 1, 1).with_residency(installed.clone(), installed.clone()),
+            );
+            presenting.coverage = Some(crate::RenderPathCoverage::new(&view, installed.clone())?);
+            let mut owner = RenderPathSwitchOwner::new(Box::new(presenting));
+            let device = proof_device();
+            owner.configure(
+                proof_device_context(&device),
+                proof_target(1, width, height),
+            )?;
+            owner.publish_camera_state(camera, CameraStateRevision::new(2))?;
+            owner.advance_frame_boundary(
+                proof_device_context(&device),
+                proof_target(1, width, height),
+            )?;
+            assert_eq!(
+                owner.diagnostics().presenting().camera_state_revision(),
+                CameraStateRevision::new(if covered { 2 } else { 1 })
+            );
+            assert_eq!(owner.diagnostics().coverage_stalls(), u64::from(!covered));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn replacement_receives_latest_accepted_camera_before_handoff() -> RenderPathResult<()> {
+        let mut owner = RenderPathSwitchOwner::new(proof_path(stamp(FIRST_STRATEGY, 1, 1)));
+        owner.publish_camera_state(changed_camera_state()?, CameraStateRevision::new(2))?;
+        owner.request_switch(proof_path(stamp(SECOND_STRATEGY, 1, 1)))?;
+        advance_owner(&mut owner, &proof_device())?;
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
+        assert_eq!(
+            owner.diagnostics().presenting().camera_state_revision(),
+            CameraStateRevision::new(2)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn covered_camera_supersedes_a_hold_and_unstreamed_paths_never_stall() -> RenderPathResult<()> {
+        let view = coverage_view()?;
+        let installed =
+            view.residency_selection(VoxelResidencySelectionId::new(1), [VoxelVolumeId::new("0")])?;
+        let camera = |x| {
+            CameraState::new(
+                [x, 5.0, -2.0],
+                [x, 5.0, 5.0],
+                [0.0, 1.0, 0.0],
+                45.0,
+                0.1,
+                5.0,
+            )
+        };
+        for streamed in [true, false] {
+            let (mut presenting, _) = residency_proof(stamp(FIRST_STRATEGY, 1, 1));
+            if streamed {
+                presenting.stamp = presenting
+                    .stamp
+                    .with_residency(installed.clone(), installed.clone());
+                presenting.coverage =
+                    Some(crate::RenderPathCoverage::new(&view, installed.clone())?);
+            }
+            let mut owner = RenderPathSwitchOwner::new(Box::new(presenting));
+            let device = proof_device();
+            owner.configure(proof_device_context(&device), proof_target(1, 800, 600))?;
+            owner.publish_camera_state(camera(15.0)?, CameraStateRevision::new(2))?;
+            advance_owner(&mut owner, &device)?;
+            assert_eq!(owner.diagnostics().coverage_stalls(), u64::from(streamed));
+            assert_eq!(
+                owner.diagnostics().presenting().camera_state_revision(),
+                CameraStateRevision::new(if streamed { 1 } else { 2 })
+            );
+            owner.publish_camera_state(camera(5.0)?, CameraStateRevision::new(3))?;
+            advance_owner(&mut owner, &device)?;
+            assert_eq!(owner.diagnostics().held_camera_state_revision(), None);
+            assert_eq!(
+                owner.diagnostics().presenting().camera_state_revision(),
+                CameraStateRevision::new(3)
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn retirement_holds_owner_slot_until_resources_and_workers_are_zero() -> RenderPathResult<()> {
+        let live = Arc::new(AtomicUsize::new(0));
+        let peak = AtomicUsize::new(0);
+        let resources = Arc::new(AtomicUsize::new(1));
+        let workers = Arc::new(AtomicUsize::new(1));
+        let (mut presenting, _) = residency_proof(stamp(FIRST_STRATEGY, 1, 1));
+        presenting.ownership = Some(ProofOwnerHold::new(&live, &peak));
+        presenting.retirement_remaining = Some((Arc::clone(&resources), Arc::clone(&workers)));
+        let (mut replacement, _) = residency_proof(stamp(SECOND_STRATEGY, 1, 1));
+        replacement.ownership = Some(ProofOwnerHold::new(&live, &peak));
+        let mut owner = RenderPathSwitchOwner::new(Box::new(presenting));
+        owner.request_switch(Box::new(replacement))?;
+        let device = proof_device();
+        advance_owner(&mut owner, &device)?;
+        for remaining_resources in [1, 0] {
+            resources.store(remaining_resources, Ordering::SeqCst);
+            advance_owner(&mut owner, &device)?;
+            assert_eq!(owner.role_status().retiring(), Some(FIRST_STRATEGY));
+            let (mut candidate, _) = residency_proof(stamp(FIRST_STRATEGY, 1, 1));
+            candidate.ownership = Some(ProofOwnerHold::new(&live, &peak));
+            assert_eq!(
+                owner.request_switch(Box::new(candidate)),
+                Err(RenderPathSwitchRequestError::SwitchInProgress)
+            );
+            assert_eq!(live.load(Ordering::SeqCst), 2);
+        }
+        workers.store(0, Ordering::SeqCst);
+        advance_owner(&mut owner, &device)?;
+        assert_eq!(owner.role_status().retiring(), None);
+        assert_eq!(live.load(Ordering::SeqCst), 1);
+        assert_eq!(peak.load(Ordering::SeqCst), 3);
+        owner.shutdown(proof_device_context(&device))?;
+        drop(owner);
+        assert_eq!(live.load(Ordering::SeqCst), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn residency_submission_failure_releases_candidate_and_preserves_presenter()
+    -> RenderPathResult<()> {
+        let view = coverage_view()?;
+        let old =
+            view.residency_selection(VoxelResidencySelectionId::new(1), [VoxelVolumeId::new("0")])?;
+        let required =
+            view.residency_selection(VoxelResidencySelectionId::new(2), [VoxelVolumeId::new("1")])?;
+        let newest = view.residency_selection(
+            VoxelResidencySelectionId::new(3),
+            [VoxelVolumeId::new("0"), VoxelVolumeId::new("1")],
+        )?;
+        for fail_at_admission in [true, false] {
+            let live = Arc::new(AtomicUsize::new(0));
+            let peak = AtomicUsize::new(0);
+            let (mut presenting, _) = residency_proof(
+                stamp(FIRST_STRATEGY, 1, 1).with_residency(required.clone(), old.clone()),
+            );
+            presenting.ownership = Some(ProofOwnerHold::new(&live, &peak));
+            let mut owner = RenderPathSwitchOwner::new(Box::new(presenting));
+            let (mut replacement, _) = residency_proof(
+                stamp(SECOND_STRATEGY, 1, 1).with_residency(required.clone(), old.clone()),
+            );
+            replacement.ownership = Some(ProofOwnerHold::new(&live, &peak));
+            let fail = Arc::new(AtomicBool::new(fail_at_admission));
+            replacement.residency_failure = Some(Arc::clone(&fail));
+            if fail_at_admission {
+                assert!(matches!(
+                    owner.request_switch(Box::new(replacement)),
+                    Err(RenderPathSwitchRequestError::ReplacementResidencySubmission { .. })
+                ));
+            } else {
+                owner.request_switch(Box::new(replacement))?;
+                fail.store(true, Ordering::SeqCst);
+                assert!(owner.submit_residency_selection(newest.clone()).is_err());
+            }
+            let presenting_before_cleanup = owner.diagnostics().presenting().clone();
+            assert_eq!(live.load(Ordering::SeqCst), 2);
+            advance_owner(&mut owner, &proof_device())?;
+            assert_eq!(owner.diagnostics().presenting(), &presenting_before_cleanup);
+            assert_eq!(
+                owner.diagnostics().presenting().installed_selection(),
+                Some(old.identity())
+            );
+            assert_eq!(owner.role_status().replacement(), None);
+            assert_eq!(live.load(Ordering::SeqCst), 1);
+            assert_eq!(peak.load(Ordering::SeqCst), 2);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn residency_supersession_updates_both_paths_and_preserves_edit_rejection()
+    -> RenderPathResult<()> {
+        let voxel_frontend::VoxelEditOutcome::Changed { view, .. } = edit_outcome()? else {
+            return Err("the fixture must publish an edit".into());
+        };
+        let selection = |identity| {
+            view.residency_selection(
+                VoxelResidencySelectionId::new(identity),
+                [voxel_frontend::VoxelVolumeId::new("volume")],
+            )
+        };
+        let old = selection(1)?;
+        let required = selection(2)?;
+        let newest = selection(3)?;
+        let mut owner = RenderPathSwitchOwner::new(proof_path(
+            stamp(FIRST_STRATEGY, 2, 1).with_residency(required.clone(), old.clone()),
+        ));
+        let (replacement, ready) =
+            residency_path(stamp(SECOND_STRATEGY, 2, 2).with_residency(required, old));
+        owner.request_switch(replacement)?;
+        owner.submit_residency_selection(newest.clone())?;
+        owner.submit_residency_selection(selection(2)?)?;
+        let diagnostics = owner.diagnostics();
+        assert_eq!(
+            diagnostics.presenting().required_selection(),
+            Some(newest.identity())
+        );
+        assert_eq!(
+            diagnostics
+                .replacement()
+                .and_then(RenderPathStamp::required_selection),
+            Some(newest.identity())
+        );
+        let error = owner
+            .submit_edit_outcome(edit_outcome()?)
+            .expect_err("replacement preparation still rejects edits");
+        assert_eq!(
+            error.downcast_ref::<RenderPathEditError>(),
+            Some(&RenderPathEditError::SwitchInProgress)
+        );
+        ready.store(true, Ordering::SeqCst);
+        advance_owner(&mut owner, &proof_device())?;
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
+        assert_eq!(
+            owner.diagnostics().presenting().installed_selection(),
+            Some(newest.identity())
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn latest_uncovered_camera_is_accepted_after_installed_coverage_expands() -> RenderPathResult<()>
+    {
+        let view = coverage_view()?;
+        let installed =
+            view.residency_selection(VoxelResidencySelectionId::new(1), [VoxelVolumeId::new("0")])?;
+        let required = view.residency_selection(
+            VoxelResidencySelectionId::new(2),
+            [VoxelVolumeId::new("0"), VoxelVolumeId::new("1")],
+        )?;
+        let (mut presenting, ready) = residency_proof(
+            stamp(FIRST_STRATEGY, 1, 1).with_residency(installed.clone(), installed.clone()),
+        );
+        presenting.coverage = Some(crate::RenderPathCoverage::new(&view, installed)?);
+        presenting.coverage_view = Some(view);
+        let mut owner = RenderPathSwitchOwner::new(Box::new(presenting));
+        let device = proof_device();
+        owner.configure(proof_device_context(&device), proof_target(1, 800, 600))?;
+        let camera = |x| {
+            CameraState::new(
+                [x, 5.0, -2.0],
+                [x, 5.0, 5.0],
+                [0.0, 1.0, 0.0],
+                45.0,
+                0.1,
+                5.0,
+            )
+        };
+        owner.publish_camera_state(camera(5.0)?, CameraStateRevision::new(2))?;
+        advance_owner(&mut owner, &device)?;
+        assert_eq!(
+            owner.diagnostics().presenting().camera_state_revision(),
+            CameraStateRevision::new(2)
+        );
+        owner.publish_camera_state(camera(15.0)?, CameraStateRevision::new(3))?;
+        owner.publish_camera_state(camera(16.0)?, CameraStateRevision::new(4))?;
+        advance_owner(&mut owner, &device)?;
+        assert_eq!(owner.diagnostics().coverage_stalls(), 2);
+        assert_eq!(
+            owner.diagnostics().held_camera_state_revision(),
+            Some(CameraStateRevision::new(4))
+        );
+        assert_eq!(
+            owner.diagnostics().presenting().camera_state_revision(),
+            CameraStateRevision::new(2)
+        );
+        owner.submit_residency_selection(required)?;
+        ready.store(true, Ordering::SeqCst);
+        advance_owner(&mut owner, &device)?;
+        advance_owner(&mut owner, &device)?;
+        assert_eq!(
+            owner.diagnostics().presenting().camera_state_revision(),
+            CameraStateRevision::new(4)
+        );
+        assert_eq!(owner.diagnostics().held_camera_state_revision(), None);
+        assert_eq!(owner.diagnostics().coverage_stalls(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn residency_switch_hands_off_at_required_selection_before_presenter_converges()
+    -> RenderPathResult<()> {
+        let voxel_frontend::VoxelEditOutcome::Changed { view, .. } = edit_outcome()? else {
+            return Err("the fixture must publish an edit".into());
+        };
+        let old = view.residency_selection(
+            voxel_frontend::VoxelResidencySelectionId::new(1),
+            [voxel_frontend::VoxelVolumeId::new("volume")],
+        )?;
+        let required = view.residency_selection(
+            voxel_frontend::VoxelResidencySelectionId::new(2),
+            [voxel_frontend::VoxelVolumeId::new("volume")],
+        )?;
+        let mut owner = RenderPathSwitchOwner::new(proof_path(
+            stamp(FIRST_STRATEGY, 2, 1).with_residency(required.clone(), old.clone()),
+        ));
+        assert!(!owner.diagnostics().presenting().is_fully_converged());
+        let (replacement, residency_ready) =
+            residency_path(stamp(SECOND_STRATEGY, 2, 2).with_residency(required.clone(), old));
+        owner.request_switch(replacement)?;
+        let device = proof_device();
+        advance_owner(&mut owner, &device)?;
+        assert_eq!(owner.role_status().presenting(), FIRST_STRATEGY);
+        assert!(matches!(
+            owner.events().last(),
+            Some(RenderPathSwitchEvent::HandoffDeferred {
+                mismatch: RenderPathHandoffMismatch::VoxelResidencySelection,
+                ..
+            })
+        ));
+        residency_ready.store(true, Ordering::SeqCst);
+        advance_owner(&mut owner, &device)?;
+        assert_eq!(owner.role_status().presenting(), SECOND_STRATEGY);
+        assert_eq!(
+            owner.diagnostics().presenting().installed_selection(),
+            Some(required.identity())
+        );
+        assert!(owner.diagnostics().presenting().is_fully_converged());
+        Ok(())
     }
 
     #[test]
@@ -1891,7 +2596,7 @@ mod tests {
 
         assert_eq!(presenting_shutdown_count.load(Ordering::SeqCst), 1);
         assert_eq!(replacement_shutdown_count.load(Ordering::SeqCst), 1);
-        assert_eq!(owner.role_status().replacement(), None);
+        assert_eq!(owner.role_status().replacement(), Some(SECOND_STRATEGY));
         assert_eq!(owner.role_status().retiring(), None);
         assert_eq!(
             error.to_string(),
