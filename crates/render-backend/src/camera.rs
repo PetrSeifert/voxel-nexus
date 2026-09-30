@@ -8,6 +8,7 @@ pub struct CameraState {
     field_of_view_degrees: f32,
     near_plane: f32,
     far_plane: f32,
+    radial_far_clip: bool,
 }
 
 impl CameraState {
@@ -73,6 +74,7 @@ impl CameraState {
             field_of_view_degrees,
             near_plane,
             far_plane,
+            radial_far_clip: false,
         };
         // Only the horizontal projection scale depends on extent. Its largest
         // magnitude occurs at the narrowest supported aspect ratio.
@@ -102,6 +104,16 @@ impl CameraState {
 
     pub fn far_plane(self) -> f32 {
         self.far_plane
+    }
+
+    /// Also limits visibility to `far_plane` units from the eye, independent of orientation.
+    pub fn with_radial_far_clip(mut self) -> Self {
+        self.radial_far_clip = true;
+        self
+    }
+
+    pub fn radial_far_clip(self) -> bool {
+        self.radial_far_clip
     }
 
     pub fn view_projection(
@@ -137,6 +149,7 @@ impl Default for CameraState {
             field_of_view_degrees: 55.0,
             near_plane: 0.1,
             far_plane: 100.0,
+            radial_far_clip: false,
         }
     }
 }
@@ -157,6 +170,9 @@ impl DeterministicCameraMove {
         if total_steps == 0 {
             return Err(CameraConfigurationError::ZeroMoveSteps);
         }
+        if start.radial_far_clip() != end.radial_far_clip() {
+            return Err(CameraConfigurationError::DifferentFarClipModes);
+        }
         Ok(Self {
             start,
             end,
@@ -176,7 +192,7 @@ impl DeterministicCameraMove {
             });
         }
         let progress = step as f32 / self.total_steps as f32;
-        CameraState::new(
+        let camera = CameraState::new(
             interpolate_vector(self.start.eye(), self.end.eye(), progress),
             interpolate_vector(self.start.target(), self.end.target(), progress),
             interpolate_vector(self.start.up(), self.end.up(), progress),
@@ -187,7 +203,12 @@ impl DeterministicCameraMove {
             ),
             interpolate_scalar(self.start.near_plane(), self.end.near_plane(), progress),
             interpolate_scalar(self.start.far_plane(), self.end.far_plane(), progress),
-        )
+        )?;
+        Ok(if self.start.radial_far_clip() {
+            camera.with_radial_far_clip()
+        } else {
+            camera
+        })
     }
 }
 
@@ -225,6 +246,8 @@ pub enum CameraConfigurationError {
     ZeroDrawableExtent,
     #[error("a deterministic camera move requires at least one step")]
     ZeroMoveSteps,
+    #[error("a deterministic camera move requires the same far clipping mode at both endpoints")]
+    DifferentFarClipModes,
     #[error("camera move step {step} exceeds the final step {total_steps}")]
     MoveStepOutOfRange { step: u32, total_steps: u32 },
 }

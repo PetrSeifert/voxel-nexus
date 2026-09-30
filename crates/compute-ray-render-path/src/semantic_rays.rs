@@ -56,11 +56,16 @@ pub fn camera_semantic_ray(
         ),
     ));
     let forward_cosine = dot(direction, forward);
+    let maximum_distance = if camera.radial_far_clip() {
+        camera.far_plane()
+    } else {
+        camera.far_plane() / forward_cosine
+    };
     Ok(SemanticRay::new(
         eye.map(f64::from),
         direction.map(f64::from),
         f64::from(camera.near_plane() / forward_cosine),
-        f64::from(camera.far_plane() / forward_cosine),
+        f64::from(maximum_distance),
     )?)
 }
 
@@ -343,6 +348,11 @@ pub(super) fn camera_storage_words(
     let upward = cross(right, forward);
     let mut words = [0.0; CAMERA_WORD_COUNT];
     words[0..3].copy_from_slice(&eye);
+    words[3] = if camera.radial_far_clip() {
+        camera.far_plane()
+    } else {
+        0.0
+    };
     words[4..7].copy_from_slice(&forward);
     words[8..11].copy_from_slice(&right);
     words[12..15].copy_from_slice(&upward);

@@ -39,6 +39,7 @@ pub(super) struct FreeFlyCamera {
     field_of_view_degrees: f32,
     near_plane: f32,
     far_plane: f32,
+    radial_far_clip: bool,
 }
 
 impl FreeFlyCamera {
@@ -55,6 +56,7 @@ impl FreeFlyCamera {
             field_of_view_degrees: camera_state.field_of_view_degrees(),
             near_plane: camera_state.near_plane(),
             far_plane: camera_state.far_plane(),
+            radial_far_clip: camera_state.radial_far_clip(),
         };
         camera.normalize_orientation();
         camera.clamp_eye();
@@ -125,14 +127,19 @@ impl FreeFlyCamera {
     pub(super) fn camera_state(&self) -> Result<CameraState, CameraConfigurationError> {
         let [eye_x, eye_y, eye_z] = self.eye;
         let [forward_x, forward_y, forward_z] = self.forward();
-        CameraState::new(
+        let camera = CameraState::new(
             self.eye,
             [eye_x + forward_x, eye_y + forward_y, eye_z + forward_z],
             CAMERA_UP,
             self.field_of_view_degrees,
             self.near_plane,
             self.far_plane,
-        )
+        )?;
+        Ok(if self.radial_far_clip {
+            camera.with_radial_far_clip()
+        } else {
+            camera
+        })
     }
 
     fn normalize_orientation(&mut self) {

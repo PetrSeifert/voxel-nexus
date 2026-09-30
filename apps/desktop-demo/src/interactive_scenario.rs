@@ -547,16 +547,7 @@ impl ScenarioExecution<'_> {
                 DesktopSceneSelection::StreamedWorld
             ) {
                 let extent = self.desktop.drawable_extent;
-                let far =
-                    super::streamed_world::camera_far_plane(camera, [extent.width, extent.height]);
-                render_backend::CameraState::new(
-                    camera.eye(),
-                    camera.target(),
-                    camera.up(),
-                    camera.field_of_view_degrees(),
-                    0.1_f32.min(far * 0.25),
-                    far,
-                )
+                super::streamed_world::camera_state(camera, [extent.width, extent.height])
             } else {
                 Ok(camera)
             }

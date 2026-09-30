@@ -359,6 +359,9 @@ void main() {
     float forward_cosine = dot(direction, camera.forward.xyz);
     float ray_minimum = camera.clip_projection.x / forward_cosine;
     float ray_maximum = camera.clip_projection.y / forward_cosine;
+    if (camera.eye.w > 0.0) {
+        ray_maximum = min(ray_maximum, camera.eye.w);
+    }
 
     Hit nearest = trace_scene(camera.eye.xyz, direction, ray_minimum, ray_maximum);
 

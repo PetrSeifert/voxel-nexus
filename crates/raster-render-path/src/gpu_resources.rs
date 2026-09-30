@@ -396,6 +396,17 @@ impl RasterRenderPath {
     fn update_camera_constants(&mut self, extent: vk::Extent2D) -> Result<(), RasterResourceError> {
         let state = self.camera_control.state()?;
         self.camera_constants = state.pose.view_projection([extent.width, extent.height])?;
+        let [x, y, z] = state.pose.eye();
+        self.camera_eye_and_far_clip = [
+            x,
+            y,
+            z,
+            if state.pose.radial_far_clip() {
+                state.pose.far_plane()
+            } else {
+                0.0
+            },
+        ];
         self.acknowledged_camera_revision = state.revision;
         Ok(())
     }
@@ -607,7 +618,7 @@ impl RasterRenderPath {
         let push_constant_range = [vk::PushConstantRange::default()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .offset(0)
-            .size(96)];
+            .size(112)];
         let material_layout = create_material_layout(device)?;
         let set_layouts = [material_layout];
         let layout_info = vk::PipelineLayoutCreateInfo::default()
@@ -706,9 +717,10 @@ impl RasterRenderPath {
                 }
                 frame.bind_vertex_buffer(resources.vertex_buffer);
                 frame.bind_index_buffer(resources.index_buffer);
-                let mut constants = [0; 24];
+                let mut constants = [0; 28];
                 constants[..16].copy_from_slice(&self.camera_constants.map(f32::to_bits));
-                constants[16..].copy_from_slice(&resources.transform_constants);
+                constants[16..24].copy_from_slice(&resources.transform_constants);
+                constants[24..].copy_from_slice(&self.camera_eye_and_far_clip.map(f32::to_bits));
                 frame.bind_descriptor_sets(
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline_layout,

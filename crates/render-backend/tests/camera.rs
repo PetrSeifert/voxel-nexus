@@ -232,3 +232,22 @@ fn camera_move_rejects_a_degenerate_intermediate_pose() -> Result<(), Box<dyn st
     assert_eq!(movement.pose_at_step(2)?, end);
     Ok(())
 }
+
+#[test]
+fn camera_moves_preserve_radial_clipping_and_reject_mixed_modes()
+-> Result<(), Box<dyn std::error::Error>> {
+    use render_backend::DeterministicCameraMove;
+    let planar = CameraState::default();
+    let radial = planar.with_radial_far_clip();
+    let movement = DeterministicCameraMove::new(radial, radial, 2)?;
+    for step in 0..=2 {
+        assert!(movement.pose_at_step(step)?.radial_far_clip());
+    }
+    for (start, end) in [(planar, radial), (radial, planar)] {
+        assert_eq!(
+            DeterministicCameraMove::new(start, end, 2),
+            Err(CameraConfigurationError::DifferentFarClipModes)
+        );
+    }
+    Ok(())
+}

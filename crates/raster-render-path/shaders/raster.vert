@@ -4,6 +4,7 @@ layout(push_constant) uniform CameraConstants {
     mat4 view_projection;
     vec4 volume_origin_and_voxel_size;
     ivec4 core_origin;
+    vec4 eye_and_far_clip;
 } camera;
 
 layout(set = 0, binding = 0, std430) readonly buffer MaterialTable {
@@ -13,6 +14,8 @@ layout(set = 0, binding = 0, std430) readonly buffer MaterialTable {
 layout(location = 0) in uvec4 packed_vertex;
 layout(location = 0) out vec3 fragment_normal;
 layout(location = 1) out vec4 fragment_linear_base_color;
+layout(location = 2) out vec3 fragment_eye_offset;
+layout(location = 3) flat out float fragment_far_clip;
 
 void main() {
     const vec3 normals[6] = vec3[6](
@@ -23,6 +26,8 @@ void main() {
     vec3 position = camera.volume_origin_and_voxel_size.xyz
         + coordinate * camera.volume_origin_and_voxel_size.w;
     gl_Position = camera.view_projection * vec4(position, 1.0);
+    fragment_eye_offset = position - camera.eye_and_far_clip.xyz;
+    fragment_far_clip = camera.eye_and_far_clip.w;
     fragment_normal = normals[packed_vertex.w & 7u];
     fragment_linear_base_color = materials.colors[packed_vertex.w >> 3u];
 }

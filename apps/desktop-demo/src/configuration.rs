@@ -84,6 +84,7 @@ impl DesktopRenderConfiguration {
                 0.1,
                 32.0,
             )
+            .map(CameraPose::with_radial_far_clip)
             .map_err(|error| error.to_string()),
             DesktopSceneSelection::LargeSparse => CameraPose::new(
                 [32.5, 88.0, 32.5],

@@ -82,10 +82,97 @@ pub(super) fn camera_far_plane(camera: CameraState, dimensions: [u32; 2]) -> f32
     (63.0 / corner_length).min(32.0)
 }
 
+pub(super) fn camera_state(
+    camera: CameraState,
+    dimensions: [u32; 2],
+) -> Result<CameraState, render_backend::CameraConfigurationError> {
+    let far = camera_far_plane(camera, dimensions);
+    Ok(CameraState::new(
+        camera.eye(),
+        camera.target(),
+        camera.up(),
+        camera.field_of_view_degrees(),
+        0.1_f32.min(far * 0.25),
+        far,
+    )?
+    .with_radial_far_clip())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use voxel_frontend::{VoxelExtent, VoxelFrontend, VoxelRegion, VoxelResidencySelectionId};
+
+    #[test]
+    fn rotating_in_place_keeps_the_same_voxel_visibility_at_the_edge_and_center()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let frontend = VoxelFrontend::new();
+        frontend.publish_streamed(scene())?;
+        let extent = ash::vk::Extent2D {
+            width: 1601,
+            height: 901,
+        };
+        let eye = [160.5, 42.5, 160.5];
+        let edge_camera = camera_state(
+            CameraState::new(eye, [161.5, 42.5, 160.5], [0.0, 1.0, 0.0], 60.0, 0.1, 32.0)?,
+            [extent.width, extent.height],
+        )?;
+        let edge_ray = compute_ray_render_path::camera_semantic_ray(edge_camera, extent, [0, 450])?;
+        let target = std::array::from_fn(|axis| eye[axis] + edge_ray.direction()[axis] as f32);
+        let center_camera = camera_state(
+            CameraState::new(eye, target, [0.0, 1.0, 0.0], 60.0, 0.1, 32.0)?,
+            [extent.width, extent.height],
+        )?;
+        let center_ray =
+            compute_ray_render_path::camera_semantic_ray(center_camera, extent, [800, 450])?;
+        assert_eq!(
+            residency_volumes(edge_camera),
+            residency_volumes(center_camera)
+        );
+        for distance in [28.0, 36.0] {
+            let coordinate = std::array::from_fn(|axis| {
+                (f64::from(eye[axis]) + edge_ray.direction()[axis] * distance).floor() as i32 - 128
+            });
+            let [x, _, z] = coordinate;
+            let coordinate = VoxelCoordinate::new(x, 42, z);
+            let volume = recipe::volume_identity(2, 2);
+            let view = frontend
+                .edit(voxel_frontend::VoxelEditCommand::new(
+                    volume.clone(),
+                    coordinate,
+                    VoxelValue::Occupied(voxel_frontend::VoxelMaterialId::new("stone")),
+                ))?
+                .view()
+                .clone();
+            let edge = semantic_ray_oracle::observe_along_ray(&view, &edge_ray)?;
+            let center = semantic_ray_oracle::observe_along_ray(&view, &center_ray)?;
+            let expected_visible = distance < f64::from(edge_camera.far_plane());
+            assert_eq!(
+                matches!(
+                    center.result(),
+                    semantic_ray_oracle::SemanticRayResult::Contact(_)
+                ),
+                expected_visible
+            );
+            assert_eq!(
+                matches!(
+                    edge.result(),
+                    semantic_ray_oracle::SemanticRayResult::Contact(_)
+                ),
+                matches!(
+                    center.result(),
+                    semantic_ray_oracle::SemanticRayResult::Contact(_)
+                ),
+                "a voxel {distance} units away changes visibility when rotating: edge={edge:?}, center={center:?}"
+            );
+            frontend.edit(voxel_frontend::VoxelEditCommand::new(
+                volume,
+                coordinate,
+                VoxelValue::Empty,
+            ))?;
+        }
+        Ok(())
+    }
 
     #[test]
     fn camera_frustum_fits_residency_at_boundaries_in_wide_and_tall_windows()
@@ -106,15 +193,7 @@ mod tests {
                 ] {
                     let target = std::array::from_fn(|axis| eye[axis] + direction[axis]);
                     let camera = CameraState::new(eye, target, [0.0, 1.0, 0.0], 60.0, 0.1, 32.0)?;
-                    let far = camera_far_plane(camera, dimensions);
-                    let camera = CameraState::new(
-                        eye,
-                        target,
-                        [0.0, 1.0, 0.0],
-                        60.0,
-                        0.1_f32.min(far * 0.25),
-                        far,
-                    )?;
+                    let camera = camera_state(camera, dimensions)?;
                     let selection = view.residency_selection(
                         VoxelResidencySelectionId::new(1),
                         residency_volumes(camera),

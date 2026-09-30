@@ -93,7 +93,8 @@ cargo run --release --locked --package desktop-demo --bin desktop-demo -- --stre
 The scene starts on Raster. Use the interactive camera and editing controls above, and
 Tab to switch between Raster and Brickmap compute while moving. A clipped 3x3 Voxel
 Residency Selection follows the camera without hysteresis. Camera moves wait for
-installed coverage when needed. The far plane is at most 32 voxels and shortens for wide windows so the view
+installed coverage when needed. Visibility is capped by distance from the camera, so rotating in
+place keeps the same terrain visible. The limit is at most 32 voxels and shortens for wide windows so the view
 fits the neighbourhood. The overlay reports Required and Installed selection identities next
 to Required and Visible revisions.
 

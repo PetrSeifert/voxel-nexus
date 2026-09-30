@@ -79,14 +79,14 @@ fn raster(view: &VoxelSceneView, camera: CameraState) -> TestResult<RasterRender
     Ok(path)
 }
 
-fn center_pixels(window: &Window) -> TestResult<Vec<[u8; 3]>> {
+fn pixels_at(window: &Window, pixel: [u32; 2]) -> TestResult<Vec<[u8; 3]>> {
     let RawWindowHandle::Win32(handle) = window.window_handle()?.as_raw() else {
         return Err("expected a Win32 window".into());
     };
     let window_handle = handle.hwnd.get() as windows_sys::Win32::Foundation::HWND;
-    let size = window.inner_size();
-    let center_x = i32::try_from(size.width / 2)?;
-    let center_y = i32::try_from(size.height / 2)?;
+    let [x, y] = pixel.map(i32::try_from);
+    let center_x = x?;
+    let center_y = y?;
     unsafe {
         let context = GetDC(window_handle);
         if context.is_null() {
@@ -118,6 +118,23 @@ fn check_presenter(
     strategy: RenderPathStrategy,
     expected_material: &VoxelMaterialId,
 ) -> TestResult {
+    let size = window.inner_size();
+    check_presenter_at(
+        window,
+        backend,
+        strategy,
+        Some(expected_material),
+        [size.width / 2, size.height / 2],
+    )
+}
+
+fn check_presenter_at(
+    window: &Window,
+    backend: &mut RenderBackend,
+    strategy: RenderPathStrategy,
+    expected_material: Option<&VoxelMaterialId>,
+    pixel: [u32; 2],
+) -> TestResult {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         backend.draw_frame()?;
@@ -142,10 +159,12 @@ fn check_presenter(
     if unsafe { DwmFlush() } < 0 {
         return Err("could not synchronize with the desktop compositor".into());
     }
-    let pixels = center_pixels(window)?;
-    let expected_red = expected_material == &VoxelMaterialId::new("red");
+    let pixels = pixels_at(window, pixel)?;
+    let expected_red = expected_material == Some(&VoxelMaterialId::new("red"));
     for [red, green, blue] in &pixels {
-        let matches = if expected_red {
+        let matches = if expected_material.is_none() {
+            *red < 80 && *green < 80 && *blue < 80
+        } else if expected_red {
             *red > 100 && *green < 20 && *blue < 20
         } else {
             *green > 100 && *red < 20 && *blue < 20
@@ -158,7 +177,7 @@ fn check_presenter(
         }
     }
     println!(
-        "{strategy:?}: selected {expected_material:?}, center RGB {:?}",
+        "{strategy:?}: selected {expected_material:?}, pixel={pixel:?}, RGB {:?}",
         pixels.first()
     );
     Ok(())
@@ -246,11 +265,16 @@ fn run_fixtures(event_loop: &ActiveEventLoop) -> TestResult {
 #[derive(Default)]
 struct GpuTest {
     result: Option<TestResult>,
+    radial_far_clip: bool,
 }
 
 impl ApplicationHandler for GpuTest {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.result = Some(run_fixtures(event_loop));
+        self.result = Some(if self.radial_far_clip {
+            run_radial_far_clip_fixtures(event_loop)
+        } else {
+            run_fixtures(event_loop)
+        });
         event_loop.exit();
     }
     fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
@@ -261,6 +285,108 @@ impl ApplicationHandler for GpuTest {
 fn overlapping_volumes_keep_the_oracle_material_when_switching() -> TestResult {
     let event_loop = EventLoop::builder().with_any_thread(true).build()?;
     let mut application = GpuTest::default();
+    event_loop.run_app(&mut application)?;
+    application.result.ok_or("GPU test did not run")?
+}
+
+fn run_radial_far_clip_fixtures(event_loop: &ActiveEventLoop) -> TestResult {
+    let red = VoxelMaterialId::new("red");
+    for (origin, within_distance) in [([16.0, -2.0, -20.0], true), ([24.0, -2.0, -28.0], false)] {
+        let voxel_extent = VoxelExtent::new(1, 1, 1);
+        let view = VoxelFrontend::new().publish(DenseVoxelScene::new(
+            VoxelSceneId::new("radial-visibility"),
+            VoxelSceneRevision::new(1),
+            vec![VoxelMaterial::new(red.clone(), [1.0, 0.0, 0.0, 1.0])],
+            vec![DenseVoxelVolume::new(
+                VoxelVolumeMetadata::new(VoxelVolumeId::new("volume"), voxel_extent, origin, 4.0),
+                vec![DenseVoxelBatch::new(
+                    VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), voxel_extent),
+                    vec![VoxelValue::Occupied(red.clone())],
+                )],
+            )],
+        ))?;
+        for radial in [false, true] {
+            for centered in [false, true] {
+                let window = event_loop.create_window(
+                    Window::default_attributes()
+                        .with_title("Radial visibility GPU regression")
+                        .with_window_level(WindowLevel::AlwaysOnTop)
+                        .with_inner_size(winit::dpi::PhysicalSize::new(256, 256)),
+                )?;
+                let size = window.inner_size();
+                let extent = vk::Extent2D {
+                    width: size.width,
+                    height: size.height,
+                };
+                let mut camera = CameraState::new(
+                    [0.0; 3],
+                    if centered {
+                        [1.0, 0.0, -1.0]
+                    } else {
+                        [0.0, 0.0, -1.0]
+                    },
+                    [0.0, 1.0, 0.0],
+                    100.0,
+                    0.1,
+                    32.0,
+                )?;
+                if radial {
+                    camera = camera.with_radial_far_clip();
+                }
+                let pixel_x = if centered {
+                    size.width / 2
+                } else {
+                    ((1.0 + 1.0 / (50.0_f32.to_radians().tan())) * 0.5 * size.width as f32) as u32
+                };
+                let pixel = [pixel_x, size.height / 2];
+                let expected = if within_distance || (!radial && !centered) {
+                    Some(&red)
+                } else {
+                    None
+                };
+                let mut backend = RenderBackend::initialize_with_options(
+                    c"Radial visibility GPU regression",
+                    &windows_adapter::WindowsPresentationAdapter::new(&window),
+                    extent,
+                    RenderPathSwitchOwner::new(Box::new(raster(&view, camera)?)),
+                    RenderBackendOptions {
+                        validation_enabled: true,
+                        presentation_throttling_enabled: true,
+                        gpu_timestamps_enabled: false,
+                    },
+                )?;
+                let result = (|| -> TestResult {
+                    check_presenter_at(&window, &mut backend, RASTER_STRATEGY, expected, pixel)?;
+                    backend.request_render_path_switch(Box::new(
+                        ComputeRayRenderPathAdapter::new_with_representation(
+                            view.clone(),
+                            camera,
+                            CameraStateRevision::new(1),
+                            compute_ray_render_path::ComputeRepresentation::Brickmap {
+                                budget_bytes: 1 << 20,
+                            },
+                        )?,
+                    ))?;
+                    check_presenter_at(&window, &mut backend, COMPUTE_RAY_STRATEGY, expected, pixel)
+                })();
+                backend.shutdown()?;
+                assert_eq!(backend.validation_error_count(), 0);
+                assert_eq!(backend.validation_warning_count(), 0);
+                result?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires Windows Vulkan 1.3, validation layers, and an unobscured desktop for pixel capture"]
+fn rotating_in_place_preserves_radial_visibility_in_raster_and_brickmap() -> TestResult {
+    let event_loop = EventLoop::builder().with_any_thread(true).build()?;
+    let mut application = GpuTest {
+        radial_far_clip: true,
+        ..GpuTest::default()
+    };
     event_loop.run_app(&mut application)?;
     application.result.ok_or("GPU test did not run")?
 }
