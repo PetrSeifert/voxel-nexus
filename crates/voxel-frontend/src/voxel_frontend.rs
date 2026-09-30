@@ -22,6 +22,7 @@ mod sparse_publication;
 mod sparse_publication_tests;
 mod storage_counters;
 mod storage_tier;
+mod streamed_edits;
 mod streamed_publication;
 pub use cell_enumeration::{VoxelCell, VoxelCellCoordinate, VoxelCellEnumeration};
 use page_table::PageTable;
@@ -33,6 +34,7 @@ pub use storage_counters::{
 };
 use storage_counters::{record_publication_values_written, record_staged_values_allocated};
 use storage_tier::{BrickGrid, SparseStorage, Storage};
+pub use streamed_edits::StreamedEditStatistics;
 use streamed_publication::{MaterializationCache, ReadStorage, StreamedScene};
 pub use streamed_publication::{
     MaterializationCacheStats, StreamedVoxelScene, StreamedVoxelVolume, VoxelSourceError,
@@ -148,6 +150,16 @@ impl VoxelExtent {
 
     fn is_empty(self) -> bool {
         self.width == 0 || self.height == 0 || self.depth == 0
+    }
+
+    fn contains(self, coordinate: VoxelCoordinate) -> bool {
+        coordinate
+            .components()
+            .into_iter()
+            .zip(self.dimensions())
+            .all(|(component, extent)| {
+                u32::try_from(component).is_ok_and(|component| component < extent)
+            })
     }
 }
 
@@ -557,8 +569,6 @@ pub enum VoxelFrontendError {
         #[source]
         source: VoxelSourceError,
     },
-    #[error("edits to streamed Voxel Scenes are not supported yet")]
-    StreamedEditsUnsupported,
     #[error("Voxel Scene identity must not be empty")]
     EmptySceneIdentity,
     #[error("duplicate Voxel Material identity {identity:?}")]
@@ -759,23 +769,15 @@ impl VoxelFrontend {
         let published = publication
             .as_ref()
             .ok_or(VoxelFrontendError::SceneNotPublished)?;
-        if published.streamed.is_some() {
-            return Err(VoxelFrontendError::StreamedEditsUnsupported);
-        }
         let mut validated = HashMap::new();
         for edit in command.edits {
-            let volume = published
-                .volumes
-                .get(&edit.volume_identity)
-                .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
-                    identity: edit.volume_identity.clone(),
-                })?;
-            dense_index(volume.extent(), edit.coordinate).ok_or_else(|| {
-                VoxelFrontendError::EditCoordinateOutsideVolume {
+            let extent = published.volume_extent(&edit.volume_identity)?;
+            if !extent.contains(edit.coordinate) {
+                return Err(VoxelFrontendError::EditCoordinateOutsideVolume {
                     identity: edit.volume_identity.clone(),
                     coordinate: edit.coordinate,
-                }
-            })?;
+                });
+            }
             let value_index = match &edit.value {
                 VoxelValue::Empty => MaterialIndex::EMPTY,
                 VoxelValue::Occupied(material_identity) => *published
@@ -792,13 +794,24 @@ impl VoxelFrontend {
         }
         let mut changes_by_volume: HashMap<VoxelVolumeId, Vec<(VoxelCoordinate, MaterialIndex)>> =
             HashMap::new();
+        let mut generated_values = HashMap::new();
         for ((identity, coordinate), value) in validated {
-            let volume = published.volumes.get(&identity).ok_or_else(|| {
-                VoxelFrontendError::UnknownVolumeIdentity {
-                    identity: identity.clone(),
-                }
-            })?;
-            if volume.value(coordinate) != value {
+            let current = if let Some(streamed) = &published.streamed {
+                let generated =
+                    streamed.generated_value(&identity, coordinate, &published.material_indices)?;
+                generated_values.insert((identity.clone(), coordinate), generated);
+                streamed
+                    .overlay
+                    .value(&identity, coordinate)?
+                    .unwrap_or(generated)
+            } else {
+                published
+                    .volumes
+                    .get(&identity)
+                    .expect("validated unstreamed volume identities have storage")
+                    .value(coordinate)
+            };
+            if current != value {
                 changes_by_volume
                     .entry(identity)
                     .or_default()
@@ -818,14 +831,18 @@ impl VoxelFrontend {
         })?;
         let mut successor = PublishedScene::clone(published);
         successor.revision = successor_revision;
+        if let Some(streamed) = &mut successor.streamed {
+            streamed.overlay = streamed.overlay.successor(
+                successor_revision,
+                &changes_by_volume,
+                &generated_values,
+            )?;
+        }
         let mut changed_regions = Vec::new();
         for (identity, changes) in changes_by_volume {
-            let volume = successor.volumes.get_mut(&identity).ok_or_else(|| {
-                VoxelFrontendError::UnknownVolumeIdentity {
-                    identity: identity.clone(),
-                }
-            })?;
-            *volume = volume.successor(&changes);
+            if let Some(volume) = successor.volumes.get_mut(&identity) {
+                *volume = volume.successor(&changes);
+            }
             successor
                 .volume_content_versions
                 .insert(identity.clone(), successor_revision);

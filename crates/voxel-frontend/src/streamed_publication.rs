@@ -1,3 +1,4 @@
+use super::streamed_edits::OverlayVersion;
 use super::*;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -17,6 +18,9 @@ pub enum VoxelSourceError {
 pub trait VoxelVolumeSource: Send + Sync {
     fn scene_id(&self) -> &VoxelSceneId;
     fn requires_materials(&self) -> bool;
+    /// Evaluates one in-bounds coordinate without building a volume payload.
+    /// Its value must agree with `materialize` for the same immutable recipe.
+    fn value(&self, coordinate: VoxelCoordinate) -> Result<VoxelValue, VoxelSourceError>;
     fn materialize(&self) -> Result<SparseVoxelVolume, VoxelSourceError>;
 }
 
@@ -116,8 +120,9 @@ impl VoxelFrontend {
         }
         published.volume_metadata = metadata.into();
         published.streamed = Some(StreamedScene {
-            volumes,
+            volumes: Arc::new(volumes),
             cache: self.materialization_cache.clone(),
+            overlay: OverlayVersion::new(published.revision),
         });
         self.install(published)
     }
@@ -125,8 +130,39 @@ impl VoxelFrontend {
 
 #[derive(Clone)]
 pub(super) struct StreamedScene {
-    volumes: HashMap<VoxelVolumeId, StreamedVoxelVolume>,
+    volumes: Arc<HashMap<VoxelVolumeId, StreamedVoxelVolume>>,
     cache: Arc<MaterializationCache>,
+    pub(super) overlay: Arc<OverlayVersion>,
+}
+
+impl StreamedScene {
+    pub(super) fn generated_value(
+        &self,
+        identity: &VoxelVolumeId,
+        coordinate: VoxelCoordinate,
+        materials: &HashMap<VoxelMaterialId, MaterialIndex>,
+    ) -> Result<MaterialIndex, VoxelFrontendError> {
+        let volume = self
+            .volumes
+            .get(identity)
+            .expect("validated streamed volume identities have sources");
+        match volume.source.value(coordinate).map_err(|source| {
+            VoxelFrontendError::VolumeGeneration {
+                identity: identity.clone(),
+                source,
+            }
+        })? {
+            VoxelValue::Empty => Ok(MaterialIndex::EMPTY),
+            VoxelValue::Occupied(material_identity) => materials
+                .get(&material_identity)
+                .copied()
+                .ok_or_else(|| VoxelFrontendError::UnknownMaterialReference {
+                    volume_identity: identity.clone(),
+                    coordinate,
+                    material_identity,
+                }),
+        }
+    }
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -222,18 +258,20 @@ pub(super) enum MaterializationAdmission {
         reservation: CopyReservation,
         volume: StreamedVoxelVolume,
         materials: Arc<HashMap<VoxelMaterialId, MaterialIndex>>,
+        overlay: Arc<OverlayVersion>,
     },
 }
 
 impl MaterializationAdmission {
     pub(super) fn finish(self) -> Result<ReadStorage, VoxelFrontendError> {
-        let (mut reservation, volume, materials) = match self {
+        let (mut reservation, volume, materials, overlay) = match self {
             Self::Ready(storage) => return Ok(storage),
             Self::Generate {
                 reservation,
                 volume,
                 materials,
-            } => (reservation, volume, materials),
+                overlay,
+            } => (reservation, volume, materials, overlay),
         };
         let identity = &reservation.key.volume;
         let generated = volume.source.materialize().map_err(|error| match error {
@@ -253,12 +291,16 @@ impl MaterializationAdmission {
                 identity: identity.clone(),
             });
         }
-        let storage = generated.storage(&materials).map_err(|error| match error {
+        let mut storage = generated.storage(&materials).map_err(|error| match error {
             VoxelFrontendError::VolumeAllocation { .. } => {
                 VoxelFrontendError::MaterializationCacheExhausted
             }
             other => other,
         })?;
+        let changes = overlay.changes(identity)?;
+        if !changes.is_empty() {
+            storage = storage.successor(&changes);
+        }
         let cache = reservation.cache.clone();
         let key = reservation.key.clone();
         let mut entries = cache
@@ -298,6 +340,7 @@ impl MaterializationCache {
         key: MaterializationKey,
         volume: &StreamedVoxelVolume,
         materials: &Arc<HashMap<VoxelMaterialId, MaterialIndex>>,
+        overlay: &Arc<OverlayVersion>,
         for_selection: bool,
     ) -> Result<MaterializationAdmission, VoxelFrontendError> {
         let mut entries = self
@@ -343,6 +386,7 @@ impl MaterializationCache {
             },
             volume: volume.clone(),
             materials: materials.clone(),
+            overlay: overlay.clone(),
         })
     }
 
@@ -479,9 +523,13 @@ impl PublishedScene {
             }
         })?;
         let key = self.materialization_key(identity)?;
-        streamed
-            .cache
-            .prepare(key, volume, &self.material_indices, for_selection)
+        streamed.cache.prepare(
+            key,
+            volume,
+            &self.material_indices,
+            &streamed.overlay,
+            for_selection,
+        )
     }
 
     fn materialization_key(

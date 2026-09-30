@@ -18,6 +18,15 @@ impl VoxelVolumeSource for Recipe {
         true
     }
 
+    fn value(&self, _: VoxelCoordinate) -> Result<VoxelValue, VoxelSourceError> {
+        if self.batches.is_some() {
+            return Err(VoxelSourceError::Generation {
+                message: "this publication-only recipe has no coordinate evaluator".into(),
+            });
+        }
+        Ok(VoxelValue::Occupied(VoxelMaterialId::new("stone")))
+    }
+
     fn materialize(&self) -> Result<SparseVoxelVolume, VoxelSourceError> {
         self.generations.fetch_add(1, Ordering::SeqCst);
         Ok(SparseVoxelVolume::new(
@@ -284,6 +293,7 @@ struct ContentSource {
     scene: VoxelSceneId,
     requires_materials: bool,
     generate: Box<dyn Fn() -> Result<SparseVoxelVolume, VoxelSourceError> + Send + Sync>,
+    evaluate: Box<dyn Fn(VoxelCoordinate) -> Result<VoxelValue, VoxelSourceError> + Send + Sync>,
 }
 
 impl VoxelVolumeSource for ContentSource {
@@ -295,6 +305,10 @@ impl VoxelVolumeSource for ContentSource {
         self.requires_materials
     }
 
+    fn value(&self, coordinate: VoxelCoordinate) -> Result<VoxelValue, VoxelSourceError> {
+        (self.evaluate)(coordinate)
+    }
+
     fn materialize(&self) -> Result<SparseVoxelVolume, VoxelSourceError> {
         (self.generate)()
     }
@@ -304,12 +318,29 @@ fn source_volume(
     metadata: VoxelVolumeMetadata,
     generate: impl Fn() -> Result<SparseVoxelVolume, VoxelSourceError> + Send + Sync + 'static,
 ) -> StreamedVoxelVolume {
+    source_volume_with_value(
+        metadata,
+        |_| {
+            Err(VoxelSourceError::Generation {
+                message: "coordinate evaluation failed".into(),
+            })
+        },
+        generate,
+    )
+}
+
+fn source_volume_with_value(
+    metadata: VoxelVolumeMetadata,
+    evaluate: impl Fn(VoxelCoordinate) -> Result<VoxelValue, VoxelSourceError> + Send + Sync + 'static,
+    generate: impl Fn() -> Result<SparseVoxelVolume, VoxelSourceError> + Send + Sync + 'static,
+) -> StreamedVoxelVolume {
     StreamedVoxelVolume::new(
         metadata,
         Arc::new(ContentSource {
             scene: VoxelSceneId::new("streamed"),
             requires_materials: false,
             generate: Box::new(generate),
+            evaluate: Box::new(evaluate),
         }),
     )
 }
@@ -625,9 +656,9 @@ fn invalid_read_requests_do_not_materialize_content() -> Result<(), Box<dyn std:
         frontend.edit(VoxelEditCommand::new(
             identity.clone(),
             VoxelCoordinate::new(0, 0, 0),
-            VoxelValue::Empty
+            VoxelValue::Occupied(VoxelMaterialId::new("stone"))
         )),
-        Err(VoxelFrontendError::StreamedEditsUnsupported)
+        Ok(VoxelEditOutcome::Unchanged(_))
     ));
     assert_eq!(
         frontend.scene_view()?.revision(),
@@ -719,46 +750,67 @@ fn generated_terrain_reproduces_the_frozen_cpu_prototype_fingerprint_after_evict
         .map(|metadata| {
             let output_metadata = metadata.clone();
             let generations = generations.clone();
-            source_volume(metadata.clone(), move || {
-                generations.fetch_add(1, Ordering::SeqCst);
-                let mut batches = Vec::new();
-                // The frozen prototype has 8-voxel terraces and one enclosed empty cavity.
-                for z in 0..64 {
-                    for x in 0..64 {
-                        let height = 24 + (x / 8 + z / 8) % 9;
-                        let intervals = if (16..24).contains(&x) && (16..24).contains(&z) {
-                            vec![(0, 8), (16, height)]
+            source_volume_with_value(
+                metadata.clone(),
+                |coordinate| {
+                    let [x, y, z] = coordinate.components();
+                    let height = 24 + (x / 8 + z / 8) % 9;
+                    Ok(
+                        if y > height
+                            || ((16..24).contains(&x)
+                                && (8..16).contains(&y)
+                                && (16..24).contains(&z))
+                        {
+                            VoxelValue::Empty
+                        } else if y == height {
+                            VoxelValue::Occupied(VoxelMaterialId::new("grass"))
                         } else {
-                            vec![(0, height)]
-                        };
-                        for (bottom, top) in intervals {
+                            VoxelValue::Occupied(VoxelMaterialId::new("stone"))
+                        },
+                    )
+                },
+                move || {
+                    generations.fetch_add(1, Ordering::SeqCst);
+                    let mut batches = Vec::new();
+                    // The frozen prototype has 8-voxel terraces and one enclosed empty cavity.
+                    for z in 0..64 {
+                        for x in 0..64 {
+                            let height = 24 + (x / 8 + z / 8) % 9;
+                            let intervals = if (16..24).contains(&x) && (16..24).contains(&z) {
+                                vec![(0, 8), (16, height)]
+                            } else {
+                                vec![(0, height)]
+                            };
+                            for (bottom, top) in intervals {
+                                batches.push(SparseVoxelBatch::Fill(VoxelRegionFill::new(
+                                    VoxelRegion::new(
+                                        VoxelCoordinate::new(x, bottom, z),
+                                        VoxelExtent::new(1, (top - bottom) as u32, 1),
+                                    ),
+                                    VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+                                )));
+                            }
                             batches.push(SparseVoxelBatch::Fill(VoxelRegionFill::new(
                                 VoxelRegion::new(
-                                    VoxelCoordinate::new(x, bottom, z),
-                                    VoxelExtent::new(1, (top - bottom) as u32, 1),
+                                    VoxelCoordinate::new(x, height, z),
+                                    VoxelExtent::new(1, 1, 1),
                                 ),
-                                VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+                                VoxelValue::Occupied(VoxelMaterialId::new("grass")),
                             )));
                         }
-                        batches.push(SparseVoxelBatch::Fill(VoxelRegionFill::new(
-                            VoxelRegion::new(
-                                VoxelCoordinate::new(x, height, z),
-                                VoxelExtent::new(1, 1, 1),
-                            ),
-                            VoxelValue::Occupied(VoxelMaterialId::new("grass")),
-                        )));
                     }
-                }
-                Ok(SparseVoxelVolume::new(
-                    output_metadata.clone(),
-                    SparseVoxelBackground::Empty,
-                    batches,
-                )
-                .with_storage_tier(StorageTier::SparsePages))
-            })
+                    Ok(SparseVoxelVolume::new(
+                        output_metadata.clone(),
+                        SparseVoxelBackground::Empty,
+                        batches,
+                    )
+                    .with_storage_tier(StorageTier::SparsePages))
+                },
+            )
         })
         .collect();
-    let view = VoxelFrontend::new().publish_streamed(streamed(volumes))?;
+    let frontend = VoxelFrontend::new();
+    let view = frontend.publish_streamed(streamed(volumes))?;
     let mut values = vec![VoxelValue::Empty; 64 * 64 * 64];
     for identity in [
         VoxelVolumeId::new("first"),
@@ -770,31 +822,138 @@ fn generated_terrain_reproduces_the_frozen_cpu_prototype_fingerprint_after_evict
             VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(64, 64, 64)),
             &mut values,
         )?;
-        let hash = values
-            .iter()
-            .try_fold(0xcbf2_9ce4_8422_2325_u64, |hash, value| {
-                let code = match value {
-                    VoxelValue::Empty => 0,
-                    VoxelValue::Occupied(material)
-                        if material == &VoxelMaterialId::new("stone") =>
-                    {
-                        1
-                    }
-                    VoxelValue::Occupied(material)
-                        if material == &VoxelMaterialId::new("grass") =>
-                    {
-                        2
-                    }
-                    _ => return Err("unexpected material in frozen fixture"),
-                };
-                Ok((hash ^ code).wrapping_mul(0x100_0000_01b3))
-            })?;
-        assert_eq!(hash, 0x9660_d930_8d69_ede5);
+        assert_eq!(fixture_fingerprint(&values)?, 0x9660_d930_8d69_ede5);
         assert_eq!(
             view.volume_content_version(&identity)?,
             VoxelSceneRevision::new(7)
         );
     }
     assert_eq!(generations.load(Ordering::SeqCst), 3);
+    let volume = VoxelVolumeId::new("second");
+    let region = VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(64, 64, 64));
+    let edit_coordinates = [[4, 40, 4], [32, 20, 32], [20, 12, 20]];
+    let command = |values: [VoxelValue; 3]| {
+        VoxelEditCommand::from_edits(
+            edit_coordinates
+                .into_iter()
+                .zip(values)
+                .map(|([x, y, z], value)| {
+                    VoxelEdit::new(volume.clone(), VoxelCoordinate::new(x, y, z), value)
+                })
+                .collect(),
+        )
+    };
+    let edited = frontend
+        .edit(command([
+            VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+            VoxelValue::Empty,
+            VoxelValue::Occupied(VoxelMaterialId::new("grass")),
+        ]))?
+        .view()
+        .clone();
+    assert_eq!(generations.load(Ordering::SeqCst), 3);
+    let restored = frontend
+        .edit(command([
+            VoxelValue::Empty,
+            VoxelValue::Occupied(VoxelMaterialId::new("stone")),
+            VoxelValue::Empty,
+        ]))?
+        .view()
+        .clone();
+    assert_eq!(generations.load(Ordering::SeqCst), 3);
+    for (historical, expected) in [
+        (&edited, 0x478e_e4a9_737e_1ad7),
+        (&view, 0x9660_d930_8d69_ede5),
+        (&restored, 0x9660_d930_8d69_ede5),
+        (&edited, 0x478e_e4a9_737e_1ad7),
+    ] {
+        historical.read_region_into(&volume, region, &mut values)?;
+        assert_eq!(fixture_fingerprint(&values)?, expected);
+    }
+    assert_eq!(
+        restored.volume_content_version(&volume)?,
+        VoxelSceneRevision::new(9)
+    );
+    Ok(())
+}
+
+fn fixture_fingerprint(values: &[VoxelValue]) -> Result<u64, &'static str> {
+    values
+        .iter()
+        .try_fold(0xcbf2_9ce4_8422_2325_u64, |hash, value| {
+            let code = match value {
+                VoxelValue::Empty => 0,
+                VoxelValue::Occupied(material) if material == &VoxelMaterialId::new("stone") => 1,
+                VoxelValue::Occupied(material) if material == &VoxelMaterialId::new("grass") => 2,
+                _ => return Err("unexpected material in frozen fixture"),
+            };
+            Ok((hash ^ code).wrapping_mul(0x100_0000_01b3))
+        })
+}
+
+#[test]
+fn source_coordinate_failures_reject_the_entire_command_without_generating()
+-> Result<(), Box<dyn std::error::Error>> {
+    for invalid_material in [false, true] {
+        let first_metadata = metadata("first");
+        let second_metadata = metadata("second");
+        let generations = Arc::new(AtomicUsize::new(0));
+        let generation_counter = generations.clone();
+        let output_metadata = second_metadata.clone();
+        let frontend = VoxelFrontend::new();
+        let original = frontend.publish_streamed(streamed(vec![
+            StreamedVoxelVolume::new(
+                first_metadata.clone(),
+                Arc::new(recipe(first_metadata, None)),
+            ),
+            source_volume_with_value(
+                second_metadata,
+                move |_| {
+                    if invalid_material {
+                        Ok(VoxelValue::Occupied(VoxelMaterialId::new("undeclared")))
+                    } else {
+                        Err(VoxelSourceError::Generation {
+                            message: "coordinate evaluation failed".into(),
+                        })
+                    }
+                },
+                move || {
+                    generation_counter.fetch_add(1, Ordering::SeqCst);
+                    Ok(SparseVoxelVolume::new(
+                        output_metadata.clone(),
+                        SparseVoxelBackground::Empty,
+                        vec![],
+                    )
+                    .with_storage_tier(StorageTier::SparsePages))
+                },
+            ),
+        ]))?;
+        let before = frontend.streamed_edit_statistics()?;
+        let failure = frontend.edit(VoxelEditCommand::from_edits(
+            ["first", "second"]
+                .map(|name| {
+                    VoxelEdit::new(
+                        VoxelVolumeId::new(name),
+                        VoxelCoordinate::new(0, 0, 0),
+                        VoxelValue::Empty,
+                    )
+                })
+                .into(),
+        ));
+        if invalid_material {
+            assert!(matches!(
+                failure,
+                Err(VoxelFrontendError::UnknownMaterialReference { .. })
+            ));
+        } else {
+            assert!(matches!(
+                failure,
+                Err(VoxelFrontendError::VolumeGeneration { .. })
+            ));
+        }
+        assert_eq!(frontend.scene_view()?.revision(), original.revision());
+        assert_eq!(frontend.streamed_edit_statistics()?, before);
+        assert_eq!(generations.load(Ordering::SeqCst), 0);
+    }
     Ok(())
 }

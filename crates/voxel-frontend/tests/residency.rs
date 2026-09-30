@@ -22,6 +22,9 @@ impl VoxelVolumeSource for Recipe {
     fn requires_materials(&self) -> bool {
         true
     }
+    fn value(&self, _: VoxelCoordinate) -> Result<VoxelValue, VoxelSourceError> {
+        Ok(VoxelValue::Occupied(VoxelMaterialId::new("stone")))
+    }
     fn materialize(&self) -> Result<SparseVoxelVolume, VoxelSourceError> {
         let observe = || -> Result<(), Box<dyn std::error::Error>> {
             let frontend = self.frontend.upgrade().ok_or("frontend dropped")?;
@@ -121,6 +124,80 @@ impl Fixture {
             indices.into_iter().map(Self::volume),
         )
     }
+}
+
+#[test]
+fn edits_preserve_residency_and_share_only_matching_content_versions() -> TestResult {
+    let fixture = Fixture::new(3)?;
+    let frontend = &fixture.frontend;
+    let selected = fixture.selection(1, 0..2)?;
+    frontend.require_residency(selected.clone())?;
+    assert!(frontend.establish_residency()?);
+    let before = frontend.materialization_cache_stats()?;
+    let edited = frontend.edit(VoxelEditCommand::from_edits(
+        [0, 2]
+            .map(|index| {
+                VoxelEdit::new(
+                    Fixture::volume(index),
+                    VoxelCoordinate::new(0, 0, 0),
+                    VoxelValue::Empty,
+                )
+            })
+            .into(),
+    ))?;
+    assert_eq!(edited.view().revision(), VoxelSceneRevision::new(8));
+    assert_eq!(frontend.materialization_cache_stats()?, before);
+    assert_eq!(frontend.required_residency()?, Some(selected.clone()));
+    assert_eq!(frontend.installed_residency()?, Some(selected.clone()));
+    assert_eq!(
+        fixture
+            .generations
+            .iter()
+            .map(|counter| counter.load(Ordering::SeqCst))
+            .collect::<Vec<_>>(),
+        vec![1, 1, 0]
+    );
+
+    let copies = frontend.materialize_residency(&selected, edited.view())?;
+    assert_eq!(frontend.materialization_cache_stats()?.copies, 3);
+    assert_eq!(
+        fixture
+            .generations
+            .iter()
+            .map(|counter| counter.load(Ordering::SeqCst))
+            .collect::<Vec<_>>(),
+        vec![2, 1, 0]
+    );
+    let sample = |view: &VoxelSceneView, index| -> Result<VoxelValue, Box<dyn std::error::Error>> {
+        let samples = view.read_region(
+            &Fixture::volume(index),
+            VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(1, 1, 1)),
+        )?;
+        Ok(samples.first().ok_or("missing sample")?.value().clone())
+    };
+    assert_eq!(sample(copies.scene_view(), 0)?, VoxelValue::Empty);
+    assert_eq!(
+        sample(&fixture.view, 0)?,
+        VoxelValue::Occupied(VoxelMaterialId::new("stone"))
+    );
+    assert_eq!(sample(edited.view(), 2)?, VoxelValue::Empty);
+    assert_eq!(frontend.materialization_cache_stats()?.copies, 3);
+
+    let newest = edited.view().residency_selection(
+        VoxelResidencySelectionId::new(2),
+        [Fixture::volume(0), Fixture::volume(1)],
+    )?;
+    frontend.require_residency(newest.clone())?;
+    assert!(frontend.establish_residency()?);
+    assert_eq!(frontend.installed_residency()?, Some(newest));
+    assert_eq!(frontend.materialization_cache_stats()?.copies, 2);
+    assert_eq!(
+        sample(&fixture.view, 0)?,
+        VoxelValue::Occupied(VoxelMaterialId::new("stone"))
+    );
+    assert_eq!(sample(copies.scene_view(), 0)?, VoxelValue::Empty);
+    assert_eq!(frontend.materialization_cache_stats()?.copies, 2);
+    Ok(())
 }
 
 #[test]
