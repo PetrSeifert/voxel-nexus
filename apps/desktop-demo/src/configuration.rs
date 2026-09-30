@@ -43,6 +43,7 @@ pub(super) enum DesktopSceneSelection {
     Canonical(CanonicalSceneScale),
     WindingDiagnostic,
     LargeSparse,
+    StreamedWorld,
 }
 
 #[derive(Clone)]
@@ -75,6 +76,15 @@ pub(super) enum ComputeShutdownQualification {
 impl DesktopRenderConfiguration {
     pub(super) fn camera_pose(&self) -> Result<CameraPose, String> {
         match self.scene {
+            DesktopSceneSelection::StreamedWorld => CameraPose::new(
+                [160.0, 42.0, 160.0],
+                [176.0, 28.0, 176.0],
+                [0.0, 1.0, 0.0],
+                60.0,
+                0.1,
+                32.0,
+            )
+            .map_err(|error| error.to_string()),
             DesktopSceneSelection::LargeSparse => CameraPose::new(
                 [32.5, 88.0, 32.5],
                 [40.5, 80.0, 40.5],
@@ -114,6 +124,7 @@ impl DesktopRenderConfiguration {
 
     pub(super) fn camera_identity(&self) -> String {
         match self.scene {
+            DesktopSceneSelection::StreamedWorld => "streamed-world-start".to_owned(),
             DesktopSceneSelection::LargeSparse => "large-sparse-start".to_owned(),
             DesktopSceneSelection::Canonical(_) => self.camera.report_identity(),
             DesktopSceneSelection::WindingDiagnostic => "winding-diagnostic".to_owned(),
@@ -161,9 +172,39 @@ pub(super) fn require_qualification_argument(argument: &str) -> Result<(), Strin
 }
 
 pub(super) fn parse_render_configuration(
-    mut arguments: impl Iterator<Item = String>,
+    arguments: impl Iterator<Item = String>,
 ) -> Result<(DesktopRenderConfiguration, bool), String> {
+    let arguments: Vec<_> = arguments.collect();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--streamed-world")
+        && arguments.iter().any(|argument| {
+            matches!(
+                argument.as_str(),
+                "--large-sparse-scene"
+                    | "--scene-scale"
+                    | "--winding-diagnostic"
+                    | "--camera-pose"
+                    | "--camera-move-step"
+                    | "--hold-background-preparation"
+                    | "--hold-post-upload-candidate"
+                    | "--inject-raster-upload-failure"
+                    | "--edit-burst-demo"
+                    | "--compute-switch-demo"
+                    | "--compute-switch-lifecycle-demo"
+                    | "--portable-compute-ray-milestone-demo"
+                    | "--portable-compute-ray-milestone-timing"
+                    | "--compute-shutdown-qualification"
+                    | "--measurement-mode"
+                    | "--measurement-output"
+            )
+        })
+    {
+        return Err("StreamedWorldConflictingDemo: --streamed-world cannot combine with canonical-only demos or --large-sparse-scene".to_owned());
+    }
+    let mut arguments = arguments.into_iter();
     let mut large_sparse = false;
+    let mut streamed_world = false;
     let mut large_sparse_conflict = false;
     let mut explicit_dense = false;
     let mut compute_representation = compute_ray_render_path::ComputeRepresentation::Dense;
@@ -211,6 +252,7 @@ pub(super) fn parse_render_configuration(
                 | "--measurement-output"
         );
         match argument.as_str() {
+            "--streamed-world" => streamed_world = true,
             "--large-sparse-scene" => large_sparse = true,
             "--compute-representation" => {
                 compute_representation = match arguments.next().as_deref() {
@@ -397,6 +439,19 @@ pub(super) fn parse_render_configuration(
             unknown => return Err(format!("unknown desktop demo argument {unknown:?}")),
         }
     }
+    if streamed_world {
+        if explicit_dense {
+            return Err(
+                "StreamedWorldRequiresBrickmap: --streamed-world cannot use dense compute"
+                    .to_owned(),
+            );
+        }
+        scene = DesktopSceneSelection::StreamedWorld;
+        interactive = true;
+        compute_representation = compute_ray_render_path::ComputeRepresentation::Brickmap {
+            budget_bytes: brickmap_budget_bytes,
+        };
+    }
     if large_sparse {
         if large_sparse_conflict || explicit_dense {
             return Err("--large-sparse-scene requires brickmap compute and cannot combine with other demo modes, --scene-scale, camera selections, or raster-only options".to_owned());
@@ -581,6 +636,12 @@ pub(super) fn report_render_configuration(
     configuration: &DesktopRenderConfiguration,
 ) -> Result<(), String> {
     match configuration.scene {
+        DesktopSceneSelection::StreamedWorld => {
+            println!(
+                "Streamed scene: identity=streamed-qualification-v1 grid=16x16 volume_dimensions=64x64x64 storage=sparse-pages representation=brickmap presenter=raster camera={}",
+                configuration.camera_identity()
+            );
+        }
         DesktopSceneSelection::LargeSparse => {
             println!(
                 "Large sparse scene: dimensions=2048x256x2048 storage=sparse-pages representation=brickmap presenter=compute-ray camera={}",
@@ -614,6 +675,96 @@ mod tests {
 
     fn parse(arguments: &[&str]) -> Result<(DesktopRenderConfiguration, bool), String> {
         parse_render_configuration(arguments.iter().map(|argument| (*argument).to_owned()))
+    }
+
+    #[test]
+    fn streamed_world_launches_interactive_with_brickmap_and_switching() -> Result<(), String> {
+        let (configuration, report) =
+            parse(&["--streamed-world", "--report-canonical-configuration"])?;
+        assert!(configuration.interactive);
+        assert!(configuration.render_path_switching_enabled());
+        assert!(!configuration.compute_only());
+        assert!(configuration.admit_path_switch().is_ok());
+        assert!(matches!(
+            configuration.compute_representation,
+            compute_ray_render_path::ComputeRepresentation::Brickmap { .. }
+        ));
+        assert_eq!(configuration.camera_identity(), "streamed-world-start");
+        assert!(report);
+        Ok(())
+    }
+
+    #[test]
+    fn streamed_world_rejects_dense_and_canonical_only_modes_in_either_order() {
+        for (options, reason) in [
+            (
+                vec!["--compute-representation", "dense"],
+                "StreamedWorldRequiresBrickmap",
+            ),
+            (vec!["--scene-scale", "64"], "StreamedWorldConflictingDemo"),
+            (vec!["--winding-diagnostic"], "StreamedWorldConflictingDemo"),
+            (
+                vec!["--camera-pose", "overview"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec!["--camera-move-step", "0"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (vec!["--large-sparse-scene"], "StreamedWorldConflictingDemo"),
+            (
+                vec!["--compute-switch-demo"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec!["--compute-switch-lifecycle-demo"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec!["--portable-compute-ray-milestone-demo"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec!["--portable-compute-ray-milestone-timing"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec!["--compute-shutdown-qualification", "presenting"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (vec!["--edit-burst-demo"], "StreamedWorldConflictingDemo"),
+            (
+                vec!["--hold-background-preparation"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec!["--hold-post-upload-candidate"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec!["--inject-raster-upload-failure"],
+                "StreamedWorldConflictingDemo",
+            ),
+            (
+                vec![
+                    "--measurement-mode",
+                    "steady-state",
+                    "--measurement-output",
+                    "unused.json",
+                ],
+                "StreamedWorldConflictingDemo",
+            ),
+        ] {
+            for first in [true, false] {
+                let mut arguments = options.clone();
+                arguments.insert(if first { 0 } else { arguments.len() }, "--streamed-world");
+                arguments.push("--interactive");
+                let error = parse(&arguments)
+                    .err()
+                    .expect("the combination must be rejected");
+                assert!(error.contains(reason), "{arguments:?}: {error}");
+            }
+        }
     }
 
     #[test]

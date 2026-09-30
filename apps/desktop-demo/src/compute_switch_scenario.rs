@@ -158,7 +158,9 @@ impl ScenarioExecution<'_> {
             if retiring.strategy() != active_switch.source
                 || presenting.scene_identity() != retiring.scene_identity()
                 || presenting.visible_revision() != active_switch.revision
-                || presenting.visible_revision() != retiring.visible_revision()
+                || presenting.visible_revision() != retiring.required_revision()
+                || presenting.installed_selection() != retiring.required_selection()
+                || presenting.required_selection() != retiring.required_selection()
                 || presenting.camera_state_revision() != retiring.camera_state_revision()
                 || presenting.presentation_configuration() != retiring.presentation_configuration()
             {
@@ -168,14 +170,21 @@ impl ScenarioExecution<'_> {
                 );
             }
             if active_switch.replacement == RASTER_STRATEGY {
-                self.desktop.artifact_installer = Some(
-                    self.desktop
-                        .raster_replacement_installer
-                        .take()
-                        .ok_or_else(|| {
-                            "the raster replacement installer is unavailable".to_owned()
-                        })?,
-                );
+                self.desktop.artifact_installer = if matches!(
+                    self.desktop.render_configuration.scene,
+                    DesktopSceneSelection::StreamedWorld
+                ) {
+                    None
+                } else {
+                    Some(
+                        self.desktop
+                            .raster_replacement_installer
+                            .take()
+                            .ok_or_else(|| {
+                                "the raster replacement installer is unavailable".to_owned()
+                            })?,
+                    )
+                };
                 self.desktop.lifecycle_controller = Some(
                     self.desktop
                         .raster_replacement_lifecycle_controller

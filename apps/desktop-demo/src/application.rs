@@ -38,7 +38,7 @@ use render_backend::{
 use std::sync::{Arc, Mutex};
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
-use voxel_frontend::{VoxelExtent, VoxelFrontend, VoxelSceneRevision};
+use voxel_frontend::{VoxelExtent, VoxelFrontend, VoxelResidencySelectionId, VoxelSceneRevision};
 #[cfg(target_os = "windows")]
 use winit::application::ApplicationHandler;
 #[cfg(target_os = "windows")]
@@ -103,9 +103,13 @@ pub(super) struct DesktopRuntime {
     pub(super) artifact_installer: Option<RasterArtifactInstaller>,
     pub(super) camera_state: CameraPose,
     pub(super) camera_state_revision: CameraStateRevision,
+    pub(super) pending_camera: Option<(CameraPose, CameraStateRevision)>,
+    residency_identity: u64,
+    residency_revision: Option<VoxelSceneRevision>,
     pub(super) published_revision: Option<VoxelSceneRevision>,
     pub(super) drawable_extent: ash::vk::Extent2D,
-    pub(super) frontend: Option<VoxelFrontend>,
+    last_drawable_extent: ash::vk::Extent2D,
+    pub(super) frontend: Option<Arc<VoxelFrontend>>,
     pub(super) lifecycle_controller: Option<RasterLifecycleController>,
     pub(super) render_path_handoff_control: Option<RenderPathHandoffControl>,
     pub(super) raster_preparation_target: Option<RasterPreparationTarget>,
@@ -140,8 +144,10 @@ impl DesktopRuntime {
     }
 
     pub(super) fn publish_camera_state(&mut self, pose: CameraPose) -> Result<(), String> {
+        self.update_streamed_residency(pose)?;
         let next_revision = self
-            .camera_state_revision
+            .pending_camera
+            .map_or(self.camera_state_revision, |(_, revision)| revision)
             .checked_successor()
             .ok_or_else(|| "the Camera State Revision identity overflowed".to_owned())?;
         self.backend
@@ -151,8 +157,82 @@ impl DesktopRuntime {
             })?
             .publish_camera_state(pose, next_revision)
             .map_err(|error| error.to_string())?;
+        if self
+            .switch_diagnostics()?
+            .held_camera_state_revision()
+            .is_some()
+        {
+            self.pending_camera = Some((pose, next_revision));
+            return Ok(());
+        }
+        self.pending_camera = None;
         self.camera_state = pose;
         self.camera_state_revision = next_revision;
+        Ok(())
+    }
+
+    pub(super) fn update_streamed_residency(&mut self, pose: CameraPose) -> Result<(), String> {
+        if !matches!(
+            self.render_configuration.scene,
+            DesktopSceneSelection::StreamedWorld
+        ) {
+            return Ok(());
+        }
+        let frontend = self
+            .frontend
+            .as_ref()
+            .ok_or("the Voxel Frontend is unavailable")?;
+        let volumes = super::streamed_world::residency_volumes(pose);
+        let required = frontend
+            .required_residency()
+            .map_err(|error| error.to_string())?;
+        let view = self.latest_scene_view()?;
+        if required
+            .as_ref()
+            .is_some_and(|selection| selection.volumes() == volumes)
+            && self.residency_revision == Some(view.revision())
+        {
+            return Ok(());
+        }
+        let identity = self
+            .residency_identity
+            .checked_add(1)
+            .ok_or("the Voxel Residency Selection identity overflowed")?;
+        let selection = view
+            .residency_selection(VoxelResidencySelectionId::new(identity), volumes)
+            .map_err(|error| error.to_string())?;
+        frontend
+            .require_residency(selection.clone())
+            .map_err(|error| error.to_string())?;
+        // Render preparation must find complete shared copies rather than compete
+        // with the frontend's single materialization worker.
+        while !frontend
+            .establish_residency()
+            .map_err(|error| error.to_string())?
+        {
+            std::thread::yield_now();
+        }
+        self.backend
+            .as_mut()
+            .ok_or("the Render Backend is unavailable")?
+            .submit_residency_selection(selection)
+            .map_err(|error| error.to_string())?;
+        self.residency_identity = identity;
+        self.residency_revision = Some(view.revision());
+        Ok(())
+    }
+
+    pub(super) fn accept_pending_camera(&mut self) -> Result<(), String> {
+        if let Some((pose, revision)) = self.pending_camera {
+            let diagnostics = self.switch_diagnostics()?;
+            if diagnostics.held_camera_state_revision().is_none()
+                && diagnostics.presenting().camera_state_revision() == revision
+            {
+                self.camera_state = pose;
+                self.camera_state_revision = revision;
+                self.pending_camera = None;
+            }
+        }
         Ok(())
     }
 }
@@ -192,8 +272,12 @@ impl DesktopApplication {
                 artifact_installer: None,
                 camera_state,
                 camera_state_revision: CameraStateRevision::new(1),
+                pending_camera: None,
+                residency_identity: 0,
+                residency_revision: None,
                 published_revision: None,
                 drawable_extent: ash::vk::Extent2D::default(),
+                last_drawable_extent: ash::vk::Extent2D::default(),
                 frontend: None,
                 lifecycle_controller: None,
                 render_path_handoff_control: None,
@@ -311,8 +395,12 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             height: drawable_size.height,
         };
         self.desktop.drawable_extent = initial_drawable_extent;
-        let frontend = VoxelFrontend::new();
+        self.desktop.last_drawable_extent = initial_drawable_extent;
+        let frontend = Arc::new(VoxelFrontend::new());
         let (publication, occupied_voxels) = match self.desktop.render_configuration.scene {
+            DesktopSceneSelection::StreamedWorld => {
+                (frontend.publish_streamed(super::streamed_world::scene()), 0)
+            }
             DesktopSceneSelection::LargeSparse => {
                 let terrain = match canonical_scene::generate_large_terrain() {
                     Ok(terrain) => terrain,
@@ -374,7 +462,22 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         if event_loop.exiting() {
             return;
         }
-        self.desktop.frontend = Some(frontend);
+        self.desktop.frontend = Some(frontend.clone());
+        if view.is_streamed() {
+            let initial = view.residency_selection(
+                VoxelResidencySelectionId::new(1),
+                super::streamed_world::residency_volumes(self.desktop.camera_state),
+            );
+            if let Err(error) = initial.and_then(|selection| {
+                frontend.require_residency(selection)?;
+                frontend.establish_residency()
+            }) {
+                self.desktop.fail(event_loop, error);
+                return;
+            }
+            self.desktop.residency_identity = 1;
+            self.desktop.residency_revision = Some(view.revision());
+        }
         let published_revision = view.revision();
         if let Err(error) = self
             .scenario_state
@@ -385,7 +488,17 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             return;
         }
         let (render_path, artifact_installer): (Box<dyn render_backend::SwitchableRenderPath>, _) =
-            if self.desktop.render_configuration.compute_only() {
+            if view.is_streamed() {
+                let mut path = match self.desktop.build_streamed_raster(&view) {
+                    Ok(path) => path,
+                    Err(error) => {
+                        self.desktop.fail(event_loop, error);
+                        return;
+                    }
+                };
+                self.desktop.lifecycle_controller = Some(path.enable_lifecycle_control());
+                (Box::new(path), None)
+            } else if self.desktop.render_configuration.compute_only() {
                 let mut path = match compute_ray_render_path::ComputeRayRenderPathAdapter::new_with_representation(
                     view.clone(), self.desktop.camera_state, self.desktop.camera_state_revision,
                     self.desktop.render_configuration.compute_representation,
@@ -524,6 +637,16 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.desktop.artifact_installer = artifact_installer;
         self.desktop.render_path_handoff_control = Some(render_path_handoff_control);
         self.desktop.published_revision = Some(published_revision);
+        if view.is_streamed() {
+            if let Err(error) = self.scenarios().set_render_path_overlay() {
+                self.desktop.fail(event_loop, error);
+                return;
+            }
+            if let Some(window) = &self.desktop.window {
+                window.request_redraw();
+            }
+            return;
+        }
         if self.desktop.render_configuration.compute_only() {
             if let Err(error) = self.scenarios().set_render_path_overlay() {
                 self.desktop.fail(event_loop, error);
@@ -873,6 +996,12 @@ fn desktop_event_for_windows_message(message: u32) -> Option<DesktopEvent> {
 #[cfg(target_os = "windows")]
 pub(super) fn run() -> Result<(), String> {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--streamed-world")
+    {
+        parse_render_configuration(arguments.clone().into_iter())?;
+    }
     for argument in &arguments {
         require_qualification_argument(argument)?;
     }
@@ -952,6 +1081,48 @@ impl DesktopRuntime {
         &mut self,
         drawable_extent: ash::vk::Extent2D,
     ) -> Result<(), String> {
+        if matches!(
+            self.render_configuration.scene,
+            DesktopSceneSelection::StreamedWorld
+        ) && self.backend.is_some()
+            && self.last_drawable_extent.width > 0
+            && self.last_drawable_extent.height > 0
+            && drawable_extent.width > 0
+            && drawable_extent.height > 0
+        {
+            let previous_aspect =
+                self.last_drawable_extent.width as f32 / self.last_drawable_extent.height as f32;
+            let next_aspect = drawable_extent.width as f32 / drawable_extent.height as f32;
+            let camera = self.camera_state;
+            // The accepted camera must stay covered even when a newer move is held.
+            // Shortening before reconfiguration preserves its previous corner-distance bound.
+            let far = camera.far_plane() * (previous_aspect / next_aspect).min(1.0);
+            let pose = CameraPose::new(
+                camera.eye(),
+                camera.target(),
+                camera.up(),
+                camera.field_of_view_degrees(),
+                camera.near_plane().min(far * 0.25),
+                far,
+            )
+            .map_err(|error| error.to_string())?;
+            let revision = self
+                .pending_camera
+                .map_or(self.camera_state_revision, |(_, revision)| revision)
+                .checked_successor()
+                .ok_or("the Camera State Revision identity overflowed")?;
+            self.backend
+                .as_mut()
+                .ok_or("the Render Backend is unavailable")?
+                .publish_camera_state(pose, revision)
+                .map_err(|error| error.to_string())?;
+            self.camera_state = pose;
+            self.camera_state_revision = revision;
+            self.pending_camera = None;
+        }
+        if drawable_extent.width > 0 && drawable_extent.height > 0 {
+            self.last_drawable_extent = drawable_extent;
+        }
         self.drawable_extent = drawable_extent;
         if let Some(backend) = &mut self.backend {
             backend.set_drawable_extent(drawable_extent);

@@ -360,7 +360,8 @@ pub(super) fn render_path_switch_admission(
         return Err(RenderPathSwitchRequestError::SwitchInProgress);
     }
     let presenting = diagnostics.presenting();
-    if presenting.required_revision() != presenting.visible_revision()
+    if (presenting.required_selection() == presenting.installed_selection()
+        && presenting.required_revision() != presenting.visible_revision())
         || presenting.readiness() != RenderPathReadiness::Recordable
     {
         return Err(RenderPathSwitchRequestError::PresentingPathNotConverged {
@@ -579,6 +580,22 @@ impl ScenarioExecution<'_> {
                     return;
                 }
             },
+            None if matches!(
+                self.desktop.render_configuration.scene,
+                DesktopSceneSelection::StreamedWorld
+            ) =>
+            {
+                match self.desktop.switch_diagnostics() {
+                    Ok(diagnostics) if diagnostics.presenting().is_fully_converged() => {
+                        Some(diagnostics.presenting().visible_revision())
+                    }
+                    Ok(_) => None,
+                    Err(error) => {
+                        self.desktop.fail(event_loop, error);
+                        return;
+                    }
+                }
+            }
             None => None,
         };
         if !self.state.evidence.first_matching_frame_presented

@@ -114,6 +114,13 @@ fn application_exit_code(result: Result<(), String>) -> ExitCode {
 #[cfg(not(target_os = "windows"))]
 fn main() -> ExitCode {
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--streamed-world")
+        && let Err(error) = parse_render_configuration(arguments.clone().into_iter())
+    {
+        return application_exit_code(Err(error));
+    }
     for argument in &arguments {
         if let Err(error) = require_qualification_argument(argument) {
             eprintln!("{error}");
@@ -143,6 +150,10 @@ fn main() -> ExitCode {
 
 mod configuration;
 use configuration::*;
+#[cfg(any(target_os = "windows", test))]
+mod streamed_fixture_recipe;
+#[cfg(any(target_os = "windows", test))]
+mod streamed_world;
 
 #[cfg(target_os = "windows")]
 mod application;

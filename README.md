@@ -82,6 +82,29 @@ transitions using the interactive break/place command code. Every GPU result
 reports its installed revision and is compared with `observe_along_ray` and
 analytical expectations. The run requires zero validation warnings or errors.
 
+### Streamed Voxel Scene
+
+Launch the frozen `streamed-qualification-v1` fixture, a 16x16 grid of 64x64x64 Voxel Volumes:
+
+```powershell
+cargo run --release --locked --package desktop-demo --bin desktop-demo -- --streamed-world
+```
+
+The scene starts on Raster. Use the interactive camera and editing controls above, and
+Tab to switch between Raster and Brickmap compute while moving. A clipped 3x3 Voxel
+Residency Selection follows the camera without hysteresis. Camera moves wait for
+installed coverage when needed. The far plane is at most 32 voxels and shortens for wide windows so the view
+fits the neighbourhood. The overlay reports Required and Installed selection identities next
+to Required and Visible revisions.
+
+Edits survive eviction and return. Press R to restore every coordinate edited in this
+session to its generated value, including coordinates in evicted volumes. Restoration
+uses the same admission rule as other edits during replacement preparation.
+
+`--streamed-world` enables interactive mode and defaults to Brickmap compute. It accepts
+`--raster-region-extent`, `--brickmap-budget-bytes`, and explicit Brickmap selection.
+Dense compute and canonical-only demo modes are rejected during argument parsing.
+
 ### Compute switch qualification demo
 
 Launch the fixed Render Path switching demo with the small scene:

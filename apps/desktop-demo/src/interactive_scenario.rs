@@ -16,6 +16,7 @@ pub(super) struct InteractiveState {
     selected_material_index: usize,
     pub(super) control_feedback: String,
     last_overlay_report: Option<String>,
+    edited_coordinates: HashSet<(VoxelVolumeId, VoxelCoordinate)>,
 }
 
 impl InteractiveState {
@@ -32,6 +33,7 @@ impl InteractiveState {
             selected_material_index: 0,
             control_feedback: "Tab-waiting-for-convergence".to_owned(),
             last_overlay_report: None,
+            edited_coordinates: HashSet::new(),
         }
     }
 
@@ -95,11 +97,17 @@ pub(super) fn format_interactive_overlay(
 ) -> String {
     let presenting = diagnostics.presenting();
     format!(
-        "Presenter={} Switch={} Required={} Visible={} Target={target} Material={material} Control={control_feedback}",
+        "Presenter={} Switch={} Required={} Visible={} RequiredSelection={} InstalledSelection={} Target={target} Material={material} Control={control_feedback}",
         presenting.strategy().identifier(),
         render_path_switch_phase(diagnostics),
         presenting.required_revision(),
         presenting.visible_revision(),
+        presenting
+            .required_selection()
+            .map_or_else(|| "all".to_owned(), |selection| selection.to_string()),
+        presenting
+            .installed_selection()
+            .map_or_else(|| "all".to_owned(), |selection| selection.to_string()),
     )
 }
 
@@ -255,6 +263,24 @@ impl ScenarioExecution<'_> {
         match key {
             KeyCode::Escape => self.release_interactive_capture(),
             KeyCode::Tab => self.request_interactive_mode_switch(),
+            KeyCode::KeyR
+                if matches!(
+                    self.desktop.render_configuration.scene,
+                    DesktopSceneSelection::StreamedWorld
+                ) =>
+            {
+                let feedback = match self.restore_streamed_edits() {
+                    Ok(EditPublication::Changed(revision)) => {
+                        format!("Restore-published-{revision}")
+                    }
+                    Ok(EditPublication::Unchanged) => "Restore-unchanged".to_owned(),
+                    Err(InteractiveEditFailure::Rejected(reason)) => {
+                        format!("Restore-rejected-{}", reason.overlay_label())
+                    }
+                    Err(InteractiveEditFailure::Failed(error)) => format!("Restore-failed-{error}"),
+                };
+                self.set_control_feedback(feedback);
+            }
             key => {
                 let Some(index) = material_key_index(key) else {
                     return;
@@ -382,8 +408,16 @@ impl ScenarioExecution<'_> {
             .ok_or_else(|| "the interactive state is unavailable".to_owned())?;
         // Edits always target the latest revision, even while convergence still shows an
         // earlier one.
-        let observation = pick(&view, &interactive.camera)?;
-        let command = edit_command(action, &observation, view.volumes());
+        let observation = pick(
+            &view,
+            &FreeFlyCamera::from_camera_state(self.desktop.camera_state),
+        )?;
+        let command = edit_command(action, &observation, view.volumes())?;
+        let coordinates: Vec<_> = command
+            .edits()
+            .iter()
+            .map(|edit| (edit.volume_identity().clone(), edit.coordinate()))
+            .collect();
         interactive.pick = Some(observation);
         let frontend = self
             .desktop
@@ -395,7 +429,7 @@ impl ScenarioExecution<'_> {
             .backend
             .as_mut()
             .ok_or_else(|| "the Render Backend is unavailable".to_owned())?;
-        let publication = publish_edit(frontend, command?, |outcome| {
+        let publication = publish_edit(frontend, command, |outcome| {
             backend
                 .submit_edit_outcome(outcome)
                 .map_err(|error| error.to_string())
@@ -403,6 +437,69 @@ impl ScenarioExecution<'_> {
         if let EditPublication::Changed(revision) = publication {
             self.desktop.published_revision = Some(revision);
             interactive.pick_needed = true;
+            if view.is_streamed() {
+                interactive.edited_coordinates.extend(coordinates);
+            }
+            self.desktop.update_streamed_residency(
+                self.desktop
+                    .pending_camera
+                    .map_or(self.desktop.camera_state, |(pose, _)| pose),
+            )?;
+        }
+        Ok(publication)
+    }
+
+    fn restore_streamed_edits(&mut self) -> Result<EditPublication, InteractiveEditFailure> {
+        let diagnostics = self.desktop.switch_diagnostics()?;
+        edit_admission(
+            diagnostics.roles().replacement(),
+            diagnostics.presenting().readiness(),
+        )?;
+        let interactive = self
+            .state
+            .interactive
+            .as_mut()
+            .ok_or("the interactive state is unavailable".to_owned())?;
+        let command = VoxelEditCommand::from_edits(
+            interactive
+                .edited_coordinates
+                .iter()
+                .map(|(identity, coordinate)| {
+                    let [x, y, z] = coordinate.components();
+                    voxel_frontend::VoxelEdit::new(
+                        identity.clone(),
+                        *coordinate,
+                        super::streamed_fixture_recipe::material(
+                            super::streamed_fixture_recipe::generated_code(x, y, z),
+                        ),
+                    )
+                })
+                .collect(),
+        );
+        let frontend = self
+            .desktop
+            .frontend
+            .as_ref()
+            .ok_or("the Voxel Frontend is unavailable".to_owned())?;
+        let backend = self
+            .desktop
+            .backend
+            .as_mut()
+            .ok_or("the Render Backend is unavailable".to_owned())?;
+        let publication = publish_edit(frontend, command, |outcome| {
+            backend
+                .submit_edit_outcome(outcome)
+                .map_err(|error| error.to_string())
+        })?;
+        interactive.edited_coordinates.clear();
+        interactive.pick_needed = true;
+        if let EditPublication::Changed(revision) = publication {
+            self.desktop.published_revision = Some(revision);
+            self.desktop.update_streamed_residency(
+                self.desktop
+                    .pending_camera
+                    .map_or(self.desktop.camera_state, |(pose, _)| pose),
+            )?;
         }
         Ok(publication)
     }
@@ -422,36 +519,68 @@ impl ScenarioExecution<'_> {
 
     /// Applies input once per redraw so at most one Camera State is published per frame.
     pub(super) fn before_interactive_draw(&mut self, event_loop: &ActiveEventLoop) {
+        let previous_camera = self.desktop.camera_state;
+        if let Err(error) = self.desktop.accept_pending_camera() {
+            self.desktop.fail(event_loop, error);
+            return;
+        }
         let Some(interactive) = &mut self.state.interactive else {
             return;
         };
+        interactive.pick_needed |= previous_camera != self.desktop.camera_state;
         let look_x = std::mem::take(&mut interactive.pending_look_x);
         let look_y = std::mem::take(&mut interactive.pending_look_y);
         interactive.camera.look(look_x, look_y);
         let now = Instant::now();
         if let Some(last_movement_at) = interactive.last_movement_at {
-            interactive.camera.advance(
-                interactive.movement_input(),
-                now.saturating_duration_since(last_movement_at),
-            );
+            if self.desktop.pending_camera.is_none() {
+                interactive.camera.advance(
+                    interactive.movement_input(),
+                    now.saturating_duration_since(last_movement_at),
+                );
+            }
             interactive.last_movement_at = Some(now);
         }
-        let camera_state = match interactive.camera.camera_state() {
+        let camera_state = match interactive.camera.camera_state().and_then(|camera| {
+            if matches!(
+                self.desktop.render_configuration.scene,
+                DesktopSceneSelection::StreamedWorld
+            ) {
+                let extent = self.desktop.drawable_extent;
+                let far =
+                    super::streamed_world::camera_far_plane(camera, [extent.width, extent.height]);
+                render_backend::CameraState::new(
+                    camera.eye(),
+                    camera.target(),
+                    camera.up(),
+                    camera.field_of_view_degrees(),
+                    0.1_f32.min(far * 0.25),
+                    far,
+                )
+            } else {
+                Ok(camera)
+            }
+        }) {
             Ok(camera_state) => camera_state,
             Err(error) => {
                 self.desktop.fail(event_loop, error);
                 return;
             }
         };
-        let camera = interactive.camera;
+        if camera_state.far_plane() != interactive.camera.far_plane() {
+            interactive.camera = FreeFlyCamera::from_camera_state(camera_state);
+        }
         let mut pick_needed = std::mem::take(&mut interactive.pick_needed);
-        if camera_state != self.desktop.camera_state {
+        if camera_state != self.desktop.camera_state
+            && self.desktop.pending_camera.map(|(pose, _)| pose) != Some(camera_state)
+        {
             if let Err(error) = self.desktop.publish_camera_state(camera_state) {
                 self.desktop.fail(event_loop, error);
                 return;
             }
             pick_needed = true;
         }
+        let camera = FreeFlyCamera::from_camera_state(self.desktop.camera_state);
         if !pick_needed {
             return;
         }
@@ -478,7 +607,8 @@ impl ScenarioExecution<'_> {
         let converging = match self.desktop.switch_diagnostics() {
             Ok(diagnostics) => {
                 let presenting = diagnostics.presenting();
-                presenting.required_revision() != presenting.visible_revision()
+                !presenting.is_fully_converged()
+                    || diagnostics.held_camera_state_revision().is_some()
             }
             Err(error) => {
                 self.desktop.fail(event_loop, error);
