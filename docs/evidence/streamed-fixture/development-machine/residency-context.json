@@ -1,7 +1,7 @@
 {
-  "captured_utc": "2026-09-29T22:23:18.2998958Z",
-  "base_revision": "ca579dfc3fde5265e4dee2ac558f6ce1e8ebef21",
-  "cpu_toolchain": [
+  "captured_utc": "2026-09-30T11:33:24.8699217Z",
+  "source_revision": "f7f6be45d8b67de324ebed7b96dd4528f35ffc39",
+  "toolchain": [
     "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
     "binary: rustc",
     "commit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8",
@@ -17,144 +17,70 @@
     "BuildNumber": "26200"
   },
   "processor": "AMD Ryzen 5 7600 6-Core Processor              ",
-  "captured_gpu_device": {
+  "gpu_device": {
     "api_version": 4211017,
-    "device_id": 10118,
     "driver_version": 2497200128,
     "kind": "device",
-    "max_memory_allocation_count": 4294967295,
-    "max_storage_buffer_range": 4294967295,
     "name": "NVIDIA GeForce RTX 4070",
-    "vendor_id": 4318
+    "validation_enabled": true
   },
-  "current_cpu_executable_sha256": "22F74C80FD4D846CA9B380B881200BCCD89850685A829CDBA49D9000D938B450",
-  "gpu_provenance": "Exploratory pre-final-source captures; see host-failure.json for route binary hash and bookkeeping differences. GPU was not rerun after the host restart.",
+  "executable_sha256": "A9BC047C2B933B0F2ABFC9B386789EF25D11B61EB16DECB008EE9EAE40016487",
   "source_sha256": [
     {
       "path": "apps/desktop-demo/Cargo.toml",
-      "sha256": "8312DB71BFA0D5FE260418A1019137BE7726A9841E942BFA48B20656B63AE8E4"
+      "sha256": "530C1578D4198152ACF90E296E030819D6D45C68BE9B9B47D32B002A343E38D6"
     },
     {
       "path": "apps/desktop-demo/src/streamed_fixture_allocations.rs",
-      "sha256": "57AE7B1E361BFA0EA28CFA37B29B8260C988B47EC2C28C3904F31D8AD82743DF"
+      "sha256": "CD7A7A64DB24D7043738B90625D7DFCC6440172A9A46BD2F6B3A9DDFAD155B70"
     },
     {
       "path": "apps/desktop-demo/src/streamed_fixture_recipe.rs",
-      "sha256": "A5EB396B85D559F077F126C6887C6CF95C8D967D086C1FC05BB35DCAB7F76038"
+      "sha256": "805FD149C21412C6DECACD41BCC72D333AFAE54F0EBEA87D59BD88425678DBA2"
     },
     {
       "path": "apps/desktop-demo/src/streamed_residency_prototype.rs",
-      "sha256": "DAAFDFE8A49FDFB2A9D1D4F68FD8D3FF07BE3051298C3090588BA24A192F8FF8"
+      "sha256": "E2F40AD414436EDA568D4039831DCE78E1C06095EB96991228392A90A7CB81E0"
     },
     {
       "path": "apps/desktop-demo/src/streamed_residency_source.rs",
-      "sha256": "084B06BD633719E6BB7BAB2F49203C7BD177E1C533FFE5B87854D7C6E43DCEC9"
+      "sha256": "09B9137E9268AA86FF8F12B73D686D9AF3301C07835C584859EB926BA548DCD1"
     },
     {
       "path": "apps/desktop-demo/src/streamed_residency_cpu.rs",
-      "sha256": "C4D244B3B604FB757AA74DF6E975B653DFD6484E87783744FC6DBF4A4E9C83A5"
+      "sha256": "4DA631199F8D525FBAEF60333FF6BD4E974FADC4D7173E370287ED9E6C4B46B3"
     },
     {
       "path": "apps/desktop-demo/src/streamed_residency_paths.rs",
-      "sha256": "CE4C59C6A8ED69C2BD5E165153989D2DBADB1E766806D9CD3A2952B27B23F8DD"
+      "sha256": "D7C3F55B933D47DCC69214D0E85FF0A4A062DA20F548B82C63E782657A680BA0"
     },
     {
       "path": "apps/desktop-demo/src/streamed_residency_route.rs",
-      "sha256": "1C4C957705CB20EC11DF91D5AADF128B7CA9396EE3FE2EC6A1B62A5D35B1D2C2"
+      "sha256": "46C9B92E85574F8900F9F24C66F1628E4B57811AA5D10E3939CA4B9787DB9AB6"
     },
     {
       "path": "apps/desktop-demo/src/streamed_residency_runner.rs",
-      "sha256": "68367C36F8D415242132A2E4A55ECB618FA5E3B0DB07CEDCFD8FAD451B86462F"
+      "sha256": "1EAE2CF12DA81A4916FB4EEA2FA35076AB2DB2D81D20106BAECB1DF6A4207BF5"
     },
     {
       "path": "crates/voxel-frontend/src/qualification_views.rs",
-      "sha256": "3347A4702572B8C4E2D75319E469DEA8E343FC62ABBA7980DCDD27AC35C20029"
+      "sha256": "CFE815AF9FB2EAFF3BB3AC42D227ADF1A128BAAD3B1FFAA4D9A306D17BB71393"
     },
     {
       "path": "crates/raster-render-path/src/meshing.rs",
-      "sha256": "80D0B34FE4685E850ADD73E65FAE901E3092FED7959D69642C7B0FD377D43AA4"
+      "sha256": "E8A35DC8B6A68D005990F03A894414C740672DCFD4F79F4FC2D3F61E69FB5F09"
     },
     {
       "path": "crates/compute-ray-render-path/src/compute_scene.rs",
-      "sha256": "0984A5B86D27301EA031EB16808098A4A303594F03E6D483AF7963CBC5F9219E"
-    },
-    {
-      "path": "crates/compute-ray-render-path/src/compute_ray_render_path.rs",
-      "sha256": "A6FDF4EC8ECDBEE8E11B81F48D0108AEEDA087D4A719B65990D6E8A2D061AB74"
+      "sha256": "6AE87C870C7F608027E313CCB7E06F751BA717941E04AD5E2C15AAB8BFB9F2F6"
     },
     {
       "path": "crates/compute-ray-render-path/shaders/dense_dda.comp",
-      "sha256": "32C396BEF1BC11FEF5B31B773F0D7798D950DA10531D064B22F28DF944F69A31"
-    },
-    {
-      "path": "crates/semantic-ray-oracle/src/semantic_ray_oracle.rs",
-      "sha256": "B143CAA9381C8BA24A9315E7A1E7EF0136776C6F73A236A57AB42F8873062B82"
-    },
-    {
-      "path": "crates/render-backend/src/allocation_qualification.rs",
-      "sha256": "E5384F69F2D6F319791D1C826F2C3E35CD863BB27058C074A33FAD0518F4852C"
-    },
-    {
-      "path": "crates/render-backend/src/render_path.rs",
-      "sha256": "9738ADCDDAE0590067DD95B539D0A419F69E710A44AD08CECC74CA66F1D4239D"
-    },
-    {
-      "path": "crates/render-backend/src/render_backend.rs",
-      "sha256": "7D8172D3AA2A5E410AC400834021CBED62EDAED2D6F33ACC5F3027E0E9A6EA3C"
+      "sha256": "B8D8E4D39B4172CBFCEC0712006193F1CE3C72343E316637EA5BF9AF8639263C"
     },
     {
       "path": "scripts/verify-streamed-residency.ps1",
-      "sha256": "0A2B0AB153DC681D172D82CD14CD30BAE0D0369F5D20EBE7B73F79C9EFDA3DFC"
-    }
-  ],
-  "evidence_sha256": [
-    {
-      "path": "cpu-calibration.jsonl",
-      "sha256": "5A12AE00220ADA3FCC70EA50E1DBFA1BF29B837070D0ED102134F320AC9E1217"
-    },
-    {
-      "path": "cpu-baseline.jsonl",
-      "sha256": "E879FD68FCC9B789389171E89A3649760ECD86D49B5DA5095520772AE36CDEC2"
-    },
-    {
-      "path": "cpu-matched-8.jsonl",
-      "sha256": "EEBB62B62ECE8391069A320D04ED0EC4A6454911BDB6D439E3CD31CE873FC6F1"
-    },
-    {
-      "path": "cpu-matched-16.jsonl",
-      "sha256": "BF77D18F71E75D40B80AEE0A3646E0BBA42B82CAD3793629AE5A57E4FF8F47FD"
-    },
-    {
-      "path": "cpu-lifecycle.jsonl",
-      "sha256": "4D5EC15771EAFE3DBB70522A01E9CD46F623E22C16E4B4354A4454D69C67A232"
-    },
-    {
-      "path": "residency-calibration.jsonl",
-      "sha256": "045B1EA0CA6F5BDD401E700284D6136B77CCF1E986C8EB25F17DE55673CCDBA1"
-    },
-    {
-      "path": "residency-baseline.jsonl",
-      "sha256": "F91C87B2605236D0EC0F0C725030052E121D5806AF000C3CDC7D91B7F20846E8"
-    },
-    {
-      "path": "residency-matched-8.jsonl",
-      "sha256": "1026E5FE6FC86910BDF479735ED1D559E86F4E83B3451FA85F651F30F2678342"
-    },
-    {
-      "path": "residency-matched-16.jsonl",
-      "sha256": "A55385AFC840A312B4F3113F44A7991525273A7E8B30394203A82B7D222FED1B"
-    },
-    {
-      "path": "residency-raster.jsonl",
-      "sha256": "4867FF338CE92406465CFC82C268005D9996C34D645048D226FF473409F56C97"
-    },
-    {
-      "path": "residency-summary.json",
-      "sha256": "52760D967E1A1800262075C285D80C19F1ECB1448AA4D032612763FA8E9E0222"
-    },
-    {
-      "path": "host-failure.json",
-      "sha256": "203818136A92A0C9F51FCA149482A2C93C2E7AE057BEFFFDD1A5AA2F3A2C5F2F"
+      "sha256": "40A76B96EC211B9C440B62DA4058C7F9570278A1B605F48523CCC60A2ABCAA2D"
     }
   ]
 }
