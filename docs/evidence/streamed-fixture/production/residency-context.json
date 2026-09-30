@@ -1,0 +1,842 @@
+{
+  "gpu_device": {
+    "api_version": 4211017,
+    "driver_version": 2497200128,
+    "kind": "device",
+    "name": "NVIDIA GeForce RTX 4070",
+    "validation_enabled": true
+  },
+  "source_dirty": false,
+  "source_sha256": [
+    {
+      "sha256": "F097B1E796D81B440158086D9D1B679D5E4C576EA8E8BDD87CEBC056975A73E3",
+      "path": "apps/desktop-demo/Cargo.toml"
+    },
+    {
+      "sha256": "3DF4FD9287F8DCDE05551625371E6454C5B78A9585A7F358CEE8163731AA26CE",
+      "path": "apps/desktop-demo/src/application.rs"
+    },
+    {
+      "sha256": "AF6E079CD451926F2F2BB45208A63587F65B2499E0B75A068A3E265C62485C07",
+      "path": "apps/desktop-demo/src/camera_scenario.rs"
+    },
+    {
+      "sha256": "9B68686B82A0174B9B3F0A6B296032F4C2FB0A4E5900831E277FC4F54C3C9974",
+      "path": "apps/desktop-demo/src/compute_edit_scenario.rs"
+    },
+    {
+      "sha256": "C7EF48B2B5A02CB62ADBEC7A5F473DCAA4742A08F9CA56AE92EB188D42304A80",
+      "path": "apps/desktop-demo/src/compute_switch_scenario.rs"
+    },
+    {
+      "sha256": "AAC0D0631FD3AEE7256CE02E00D1CFDF1092EA05633499FCAFB97CD26690CEFD",
+      "path": "apps/desktop-demo/src/configuration.rs"
+    },
+    {
+      "sha256": "344D25A17ACC9E81E86EC8D90A313B7B536917D07672D2752CC10B0FE9B05E40",
+      "path": "apps/desktop-demo/src/diagnostics.rs"
+    },
+    {
+      "sha256": "49B1A1BB5CFCC83A4A9F3D3EA45988490B4C0D12F39B5EC7451382D7657DC0F9",
+      "path": "apps/desktop-demo/src/evidence.rs"
+    },
+    {
+      "sha256": "5BD15FE5788E60E111EB1828872552CBC75C668BD3AC26A45D8666514A77A93E",
+      "path": "apps/desktop-demo/src/free_fly_camera.rs"
+    },
+    {
+      "sha256": "6B446D79326D7048A3C432D663AE01B73A641D158C7C3D654E7EA25B05F6C6C0",
+      "path": "apps/desktop-demo/src/interactive_scenario.rs"
+    },
+    {
+      "sha256": "0DE0EB8E590423D4CEAED47CE379908F2FFB0EFEF594E41F544AD95A196F1FE7",
+      "path": "apps/desktop-demo/src/large_sparse_measurement.rs"
+    },
+    {
+      "sha256": "2A9D3F32F5A3396DFCEE131F1B2440172552C444F4C86A9F4695DBCC5252D7EA",
+      "path": "apps/desktop-demo/src/large_sparse_probes.rs"
+    },
+    {
+      "sha256": "39D3565766361AAC9D40CE75B63037AF95AA1ECD4E128FB29654A1098566506F",
+      "path": "apps/desktop-demo/src/large_sparse_runner.rs"
+    },
+    {
+      "sha256": "6CA6DAAC5EF2EF434A8D5F3721C807B708B936C17B84A778007AE2B229E2AEE7",
+      "path": "apps/desktop-demo/src/main.rs"
+    },
+    {
+      "sha256": "4DF563E6C8B41A0A00802F49926F9D080DC29395717AA3420414ED307E42CBF5",
+      "path": "apps/desktop-demo/src/measurement_tests.rs"
+    },
+    {
+      "sha256": "B2F893DE43D95E0A32564FE91EDC8EEAD507A38C497309E3DF1D9C605BD6E666",
+      "path": "apps/desktop-demo/src/qualification_unavailable.rs"
+    },
+    {
+      "sha256": "92B9BB472AC43C78F16A224CC5233F6AC51EC6A0B77754415E8C49EA0AFF56C2",
+      "path": "apps/desktop-demo/src/raster_scenario.rs"
+    },
+    {
+      "sha256": "FDFA93E1CAB2AD83DE1091AE8BCCCF105E06068D4139C4C488E7F4FC5416A394",
+      "path": "apps/desktop-demo/src/render_path_switch.rs"
+    },
+    {
+      "sha256": "68385C7D0B324C72FE2D76139CB225B141E60087C4B68F47B049ABA238D96621",
+      "path": "apps/desktop-demo/src/scenarios.rs"
+    },
+    {
+      "sha256": "27D817F4BC7627E4C8391FB13595498EAA408773DF0640A9A077AAAC4CE4FCC9",
+      "path": "apps/desktop-demo/src/streamed_fixture_allocations.rs"
+    },
+    {
+      "sha256": "6D38C0BC68BD7CBB34AD08601F04D73A6996057C1ECB0CFC2DBDF6384F3FCFE7",
+      "path": "apps/desktop-demo/src/streamed_fixture_profile.rs"
+    },
+    {
+      "sha256": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
+      "path": "apps/desktop-demo/src/streamed_fixture_recipe.rs"
+    },
+    {
+      "sha256": "797DD4E8F779D422559B442039425ECE3205AFDBD8939302E4B44244E56A4730",
+      "path": "apps/desktop-demo/src/streamed_fixture_vulkan.rs"
+    },
+    {
+      "sha256": "FE3161EBE58AF06BA35542DEC2E6A03BB35C930138AFF9A3A385D50F4C92BAFF",
+      "path": "apps/desktop-demo/src/streamed_qualification_observation.rs"
+    },
+    {
+      "sha256": "BA2FC9FF622DCD4A178D3818F7BA709E2A1E640A39709AC2367199657F739C67",
+      "path": "apps/desktop-demo/src/streamed_qualification_oracle.rs"
+    },
+    {
+      "sha256": "5D60C901D59D29F0BE9C760B944A97DEF14946961B703E59FE1AF73EBC5A7398",
+      "path": "apps/desktop-demo/src/streamed_qualification.rs"
+    },
+    {
+      "sha256": "A5CACBDEFE0FD27580F85B0096B27B463CDA60AA835802B472CA487B6CAFBF90",
+      "path": "apps/desktop-demo/src/streamed_residency_probes.rs"
+    },
+    {
+      "sha256": "C3611395284C622B83E913376FB65A3B8AE4B305A6E4CFB43D04E62DE01C248F",
+      "path": "apps/desktop-demo/src/streamed_residency_qualification.rs"
+    },
+    {
+      "sha256": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
+      "path": "apps/desktop-demo/src/streamed_residency_route.rs"
+    },
+    {
+      "sha256": "ADAF34F558ADB52BB0CE7B2AFC1EEFECEFAAF2EE6C02C1E2AD7AAA0C4186D47F",
+      "path": "apps/desktop-demo/src/streamed_residency_runner.rs"
+    },
+    {
+      "sha256": "448AD0609CBAD1378D97DB225EB50B8003BFCD4A483A2AFA98F8F2C07BA243A9",
+      "path": "apps/desktop-demo/src/streamed_world.rs"
+    },
+    {
+      "sha256": "B9733C38EC7525F9C91AFC1286CE75DCC9E762129A0655D5E9CFF7AC948DD478",
+      "path": "apps/desktop-demo/src/voxel_editing.rs"
+    },
+    {
+      "sha256": "08B2E4E51D96868EFB5C7835C0C1EF04CF869B4E36C3E032E77AB0AB35B314E1",
+      "path": "apps/desktop-demo/src/windows_adapter.rs"
+    },
+    {
+      "sha256": "D26019C2F47109CCAAF3C9FAEBFBEFC76F96BFE176DE30529533C5EC7665491A",
+      "path": "apps/desktop-demo/tests/canonical_configuration.rs"
+    },
+    {
+      "sha256": "681211BA4BDA225926FDAC8E58788688BE92FDEB7F3710A1481817F6E421E3DF",
+      "path": "apps/desktop-demo/tests/compute_dda_gpu.rs"
+    },
+    {
+      "sha256": "A653AB298F1E4BC5264D616E3133B0803105C5C4DAB90E15E239C70DBA03D394",
+      "path": "apps/desktop-demo/tests/frame_recording_failure_gpu.rs"
+    },
+    {
+      "sha256": "00898BDEB9FD69D800B889D13BA6E567CDDA69321A7D8A976830E491D128F702",
+      "path": "apps/desktop-demo/tests/large_sparse_gpu.rs"
+    },
+    {
+      "sha256": "B9ABE268B8988361085F5C4B803B233ABEBD989FB22F0F3BF6CAEB10FB92896D",
+      "path": "apps/desktop-demo/tests/overlapping_volumes_gpu.rs"
+    },
+    {
+      "sha256": "B40064C531CBC7D4DCC5E8F81B4B09EE51B723E7D0635F0AF038A9E47747744F",
+      "path": "apps/desktop-demo/tests/qualification_features.rs"
+    },
+    {
+      "sha256": "84352B6D738D9FD3FDC45CAEB73FCA40381ADD33B00A8EBAA11B60202DDC1428",
+      "path": "apps/desktop-demo/tests/render_path_failures.rs"
+    },
+    {
+      "sha256": "0AA08B19544548458FC078DE48380B0A8600142B26E07F8B1546F675567D2ED8",
+      "path": "apps/desktop-demo/tests/streamed_qualification.rs"
+    },
+    {
+      "sha256": "572BCFBDD9AB697D9803B8FA2DCDB97C19DEE008BAA29F99E4D5C8BA944E94C4",
+      "path": "apps/desktop-demo/tests/unsupported_prerequisites.rs"
+    },
+    {
+      "sha256": "7FCCCB8B47C24094308C09D97A926250689093A3B3D1D98E5FAA8B901962FE32",
+      "path": "crates/canonical-inspection/Cargo.toml"
+    },
+    {
+      "sha256": "94E8333E639CDA9E456FEE3693E7578AF7E33B16981610309FED8F6AC2812588",
+      "path": "crates/canonical-inspection/src/canonical_inspection.rs"
+    },
+    {
+      "sha256": "361B008087B48528D113A58D6869ECF658AFA264EEB2AC61692CFEAEC3D1B372",
+      "path": "crates/canonical-inspection/tests/camera.rs"
+    },
+    {
+      "sha256": "1E2A6296892DA2BC64FE6BD5F5F4F3C34969EC92266EB02C7757A67A048199D4",
+      "path": "crates/canonical-scene/Cargo.toml"
+    },
+    {
+      "sha256": "103CE6DF261439D328F4005020953A21C7DED34590E39D8FEDB87349FA438A0C",
+      "path": "crates/canonical-scene/examples/large_terrain_publication.rs"
+    },
+    {
+      "sha256": "8657539E7D018EC1DDEC9BBEA90531EACF05923625DE0A448EEE2A6129055D40",
+      "path": "crates/canonical-scene/examples/publication_memory.rs"
+    },
+    {
+      "sha256": "4503B37A1AF23653814C91D3362CB680D75DAA70849333898D443E9CBB1DB209",
+      "path": "crates/canonical-scene/examples/support/allocation.rs"
+    },
+    {
+      "sha256": "FA45EBF0218A036DA35E146930BAE1F5E640B5751BD594C87858129F8A24D0DA",
+      "path": "crates/canonical-scene/src/canonical_scene.rs"
+    },
+    {
+      "sha256": "6EBE30E86AA8F63AD51C9AD60A849AF4DC70B1A7287631FDA1C7E61C94CDA798",
+      "path": "crates/canonical-scene/src/large_terrain.rs"
+    },
+    {
+      "sha256": "1D85EE5BF744285E6329D4665283A820026AED3BF1BD88E4C380AB681F514C68",
+      "path": "crates/canonical-scene/tests/generation.rs"
+    },
+    {
+      "sha256": "840AF1ED4D1D93FDB904ACB9A137CED68919E9BB321D76DB0BD8326136232CFE",
+      "path": "crates/canonical-scene/tests/large_terrain.rs"
+    },
+    {
+      "sha256": "FC8E614280A5DC1E5D28A7DE523E91E0BCD34836DADA4005E9D38BDE62A07CAE",
+      "path": "crates/canonical-scene/tests/semantic_rays.rs"
+    },
+    {
+      "sha256": "854F29E5C8CFE56501640C0FA9668E69E0335B9CE6483D9E752DC3B0AA119DD8",
+      "path": "crates/completion-evidence/Cargo.toml"
+    },
+    {
+      "sha256": "0886FCDE775702DCF2F01EFB6D098BF3DAB20209F6DF78B93E7C92073A2EA6F1",
+      "path": "crates/completion-evidence/src/completion_evidence.rs"
+    },
+    {
+      "sha256": "590F8E8294413D24C9ED20173A5B31851510E9BBB2E9CA0ED837991C420E7288",
+      "path": "crates/completion-evidence/src/verify_completion_evidence.rs"
+    },
+    {
+      "sha256": "A5F3862EF7DA32A74C2FF7093D521F1B086CDF59082F7BA2C3EE935B824AEC43",
+      "path": "crates/completion-evidence/tests/public_contract.rs"
+    },
+    {
+      "sha256": "140AD55D547D0E788C3BA4D86CD5ADC4B231EF5C6766DE0F453281F4769F8CC2",
+      "path": "crates/compute-ray-render-path/build.rs"
+    },
+    {
+      "sha256": "474CF0E951A995A336A4DBCBDEBD327203C9D125977D493D0B3BD75780323981",
+      "path": "crates/compute-ray-render-path/Cargo.toml"
+    },
+    {
+      "sha256": "5764F4D954974BC6806DEC643C6BACB1EB26DAE702FA49B35AC3FC390446E523",
+      "path": "crates/compute-ray-render-path/examples/large_terrain_footprint.rs"
+    },
+    {
+      "sha256": "CDD0525D8D88760383B0B91E5E25E3AA87E16D626DA9C3DA2D7D0AC38DC0F1E7",
+      "path": "crates/compute-ray-render-path/shaders/composite.frag"
+    },
+    {
+      "sha256": "1C77F4BFDC7DE941A1853BB3F71D64966B24020D6D67C1AFAF174FF5BE5A7A67",
+      "path": "crates/compute-ray-render-path/shaders/composite.vert"
+    },
+    {
+      "sha256": "7C06387E987EC24FC712D5880779C05F38ED127EAC684F04F4937C4D6717BF85",
+      "path": "crates/compute-ray-render-path/shaders/dense_dda.comp"
+    },
+    {
+      "sha256": "E8BCAB4CCCB8454BE3FE248D3384350FA5568B5C049D6F901E55C1963B1C65AB",
+      "path": "crates/compute-ray-render-path/src/brickmap_patch.rs"
+    },
+    {
+      "sha256": "66B02E224191BBA5254863B1FB0BCA35542DDCF38DC2B44DBF54CED95EFF7170",
+      "path": "crates/compute-ray-render-path/src/brickmap_scene.rs"
+    },
+    {
+      "sha256": "D50C4BD8FB13D52237203E921FFA59D65E8AE7CE68269D9C35BBAA530BBC5814",
+      "path": "crates/compute-ray-render-path/src/brickmap_validation.rs"
+    },
+    {
+      "sha256": "40B1FE3EB6B912AB4EFE98F7D81A426E34DFEF2652F959091989CDFC27E5E1C3",
+      "path": "crates/compute-ray-render-path/src/capabilities.rs"
+    },
+    {
+      "sha256": "8317C28F4D74FDDFA63523BC900A1DEE5787E8DDE7A60E8CEF55B4FD58D01586",
+      "path": "crates/compute-ray-render-path/src/compute_convergence.rs"
+    },
+    {
+      "sha256": "4F6B3476AFD6A54CECBA793ABD7AEB51E3B360F9AD63026E8D3CE7B6C6C85698",
+      "path": "crates/compute-ray-render-path/src/compute_ray_render_path.rs"
+    },
+    {
+      "sha256": "A20AB19EE3D08EA369BF895D46F49E197310046FA32164B9AA2C59FBFD183E09",
+      "path": "crates/compute-ray-render-path/src/compute_scene.rs"
+    },
+    {
+      "sha256": "46FDAB8806F6F46C969C49575362E707E7D37FFE08FADFDA51FF4E4B4D4C50FF",
+      "path": "crates/compute-ray-render-path/src/gpu_resources.rs"
+    },
+    {
+      "sha256": "891DAEE794724B5963C44EFE99D327B84E2DC009CFC376745BDCE96A05BC0DC6",
+      "path": "crates/compute-ray-render-path/src/installation.rs"
+    },
+    {
+      "sha256": "4B55983C5FAC96D9E51FEE6E48C6FB7510209B21FE535347B98843C3D06F53BB",
+      "path": "crates/compute-ray-render-path/src/observation.rs"
+    },
+    {
+      "sha256": "DF8B41EA0A70FD60C5E87B32C56DBE7679B6B9C1E9D47FA0F80CA3A15598F7E0",
+      "path": "crates/compute-ray-render-path/src/resource_error.rs"
+    },
+    {
+      "sha256": "060381C06A31E41DD5AADE426DCE65EC54E1AE8AB7A4348F08A687BE7AC0BAAE",
+      "path": "crates/compute-ray-render-path/src/scene_words.rs"
+    },
+    {
+      "sha256": "C6B01CE288DD7595DDB525358FB85345E74903635213CF5A8C45108EAAA52F10",
+      "path": "crates/compute-ray-render-path/src/semantic_rays.rs"
+    },
+    {
+      "sha256": "83F402E30DB8EDB749D9E455343999F139026BF3F40A26DE8E8230E7B88687DC",
+      "path": "crates/compute-ray-render-path/src/streamed_tests.rs"
+    },
+    {
+      "sha256": "D793A53CFC58375CDA218CE629D5DC4C6BF56513438D373A226C8949DF45661B",
+      "path": "crates/compute-ray-render-path/src/tests.rs"
+    },
+    {
+      "sha256": "B03049C4AD8B0473465AC7B12CD8749AE6DF4BDBC52B12C75ED95FBE27D03F42",
+      "path": "crates/compute-ray-render-path/tests/brickmap_gpu_limits.rs"
+    },
+    {
+      "sha256": "AF052D7B4F32A5CE1B600BBA94E0F6FAFA59F6B13CD5C19170A64BA6E161951F",
+      "path": "crates/compute-ray-render-path/tests/brickmap_scene.rs"
+    },
+    {
+      "sha256": "9E3EEFD70D0E94ABB6A211083D9E3138946FEFAA66BA571CA80C6E2DB70AACE2",
+      "path": "crates/compute-ray-render-path/tests/capability_qualification.rs"
+    },
+    {
+      "sha256": "89C23AF1FEC08A13CD0E4826018034C61F332B5AF07D78400A6717664F969080",
+      "path": "crates/compute-ray-render-path/tests/dense_scene.rs"
+    },
+    {
+      "sha256": "2F6010E7D4C766DA5CD2CDD9A13C6B3A8BC36C7FE1364FF47EBBD1B9F6C23A6D",
+      "path": "crates/compute-ray-render-path/tests/region_read_timing.rs"
+    },
+    {
+      "sha256": "A0B9DF8EFCF07038B583F84ACCDF000A33F7B9A5EEF923D4D4FC967CA683B6D7",
+      "path": "crates/compute-ray-render-path/tests/storage_tiers.rs"
+    },
+    {
+      "sha256": "B5E10A928798A9E45B0BBDED32755C831FD2E1E4715AB08AD25669BC931D2076",
+      "path": "crates/compute-ray-render-path/tests/streamed_scene.rs"
+    },
+    {
+      "sha256": "0CDD6F6E3BAFA036F89892C10BC8B5941569AC263AA23E438DE5DDD16B93FFF7",
+      "path": "crates/compute-ray-render-path/tests/switching_adapter.rs"
+    },
+    {
+      "sha256": "A73CD4CA13CB400B8DB17A0A854E7F5A97E987F01A7D764DA660C544B3CB2FF9",
+      "path": "crates/localized-raster-evidence/Cargo.toml"
+    },
+    {
+      "sha256": "1F2C660348154AB1DC775FDD81E4E5BA7A93BE3A416D80C1F22C26446D148EE3",
+      "path": "crates/localized-raster-evidence/src/localized_raster_evidence.rs"
+    },
+    {
+      "sha256": "852473379318128C32EEDA6883F136667B744283864AC8AAA5A0DADBD25B239C",
+      "path": "crates/localized-raster-evidence/src/verify_localized_raster_evidence.rs"
+    },
+    {
+      "sha256": "F31A36A7A8E485E2D4B258BE410C6B6E7059A6E3DB9809060A063AA5ADF269F8",
+      "path": "crates/localized-raster-evidence/tests/public_contract.rs"
+    },
+    {
+      "sha256": "035CF70A95644BB627027EE1818017572BD3771AE99A5D8D040E45FAB22147C4",
+      "path": "crates/localized-raster-evidence/tests/retained_bundle.rs"
+    },
+    {
+      "sha256": "8A0EACDABD2B3C52E958300FB19AD1649796B9B33D608BBBBF66DDEFCFAAD7C3",
+      "path": "crates/measurement-evidence/Cargo.toml"
+    },
+    {
+      "sha256": "9490BF189E780287E75A635EF9D2CD60A2ED410B8B30AC79128FBBB05CFA7B69",
+      "path": "crates/measurement-evidence/src/large_sparse_report.rs"
+    },
+    {
+      "sha256": "DAD6FABDD66DD67ABC2F26DEB2CFDB7E59953BDB1FB2406D2DBBA7E166EE634F",
+      "path": "crates/measurement-evidence/src/large_sparse.rs"
+    },
+    {
+      "sha256": "F2BC0CFB8F3E60AD54ED02113FEB030B3BD3BAE824CB6AA175D78820FB623693",
+      "path": "crates/measurement-evidence/src/measurement_evidence_report.rs"
+    },
+    {
+      "sha256": "D971405DC8CE6909713FAF604B6DEE20AE3F0B3982483EED7317936EE28B490D",
+      "path": "crates/measurement-evidence/src/measurement_evidence.rs"
+    },
+    {
+      "sha256": "600A51494D089310DC778F69447E44088F9E9AAA65D5E14D09BA8D155A5F73DB",
+      "path": "crates/measurement-evidence/src/raster_region_extent_report.rs"
+    },
+    {
+      "sha256": "222A84447EAC151D059DB4CEC9DB91AE535A68D372D396C44945D425B801737C",
+      "path": "crates/measurement-evidence/src/render_path_evidence_report.rs"
+    },
+    {
+      "sha256": "0581B4054F5D0E558ED23EEC765BA681A57C0DFC229440C8519183DE6F91A7BD",
+      "path": "crates/measurement-evidence/tests/large_sparse.rs"
+    },
+    {
+      "sha256": "A8B232F1506FF8C450324742DF18206DA7D76C43BDFDE0A58AF4A114CBB482FA",
+      "path": "crates/measurement-evidence/tests/public_contract.rs"
+    },
+    {
+      "sha256": "B11D9E6335B51E659E8487782AAE3A2E15DA6E7FE9221C107F524C30BB1827FF",
+      "path": "crates/portable-compute-ray-evidence/Cargo.toml"
+    },
+    {
+      "sha256": "4BA1B1D6A06FD05034A4BF9326E1FD2559DEF7CD65EF0A6C02F330F16133CC92",
+      "path": "crates/portable-compute-ray-evidence/src/portable_compute_ray_evidence.rs"
+    },
+    {
+      "sha256": "5E7557B9FA84C13415E1BC380A372DE2BB48B6BEFF8AF687F720EFE0F83C19B9",
+      "path": "crates/portable-compute-ray-evidence/src/verify_portable_compute_ray_evidence.rs"
+    },
+    {
+      "sha256": "DB590351A088FB743347246B5C5F4792ECBBA3DCA73359ABC5AA0BC64F30B243",
+      "path": "crates/portable-compute-ray-evidence/tests/public_contract.rs"
+    },
+    {
+      "sha256": "F4999D63F4255EB58D0B559B443771B2273E4E84EAB8ADF0D5AE1F90CECAF223",
+      "path": "crates/raster-render-path/build.rs"
+    },
+    {
+      "sha256": "FAE6D4D9E410F3C99217A61503BB1277A72B4BA769B1C9777861F938B679A65C",
+      "path": "crates/raster-render-path/Cargo.toml"
+    },
+    {
+      "sha256": "60F4609096C4F1F5F49A5F05FF727621F6DB1648D41651C0D25BE21430630385",
+      "path": "crates/raster-render-path/examples/brush_edit.rs"
+    },
+    {
+      "sha256": "2CA389A725AA76E3904E41F42007895955CC282AF76BBEEAF92E8B98D9FD7DEA",
+      "path": "crates/raster-render-path/shaders/raster.frag"
+    },
+    {
+      "sha256": "FC4C38619755D06B8EE90212760731F5CC00770CA81B34AB83618904F4D74FD9",
+      "path": "crates/raster-render-path/shaders/raster.vert"
+    },
+    {
+      "sha256": "3FAB8E94D2E8EE75B615E491667B5265D4D64B86A2F92F46CC7942AC41E1D918",
+      "path": "crates/raster-render-path/src/convergence_tests.rs"
+    },
+    {
+      "sha256": "B5360E7142BCF979E92F92B941356F257F290DDBC882D242D001AB15225E6695",
+      "path": "crates/raster-render-path/src/convergence.rs"
+    },
+    {
+      "sha256": "90FB1CCC9A51F89035FE8F2F16ABEED110918D53184017132EE7684752B2076F",
+      "path": "crates/raster-render-path/src/gpu_resources.rs"
+    },
+    {
+      "sha256": "E4E20C9A1DD0403E19B86725DC1FAFCF5F6A45986FEFFB4079AF16E3D294B80C",
+      "path": "crates/raster-render-path/src/installation_measurements.rs"
+    },
+    {
+      "sha256": "2734194C638F1851F39F1067E9A9B31C8EA4AC7B9AEE4C2B52855581C108C58F",
+      "path": "crates/raster-render-path/src/installation.rs"
+    },
+    {
+      "sha256": "3D0C3DF2A06703926C60564F159087E0E4BB3BA4E112840417D80789D283CC12",
+      "path": "crates/raster-render-path/src/lifecycle.rs"
+    },
+    {
+      "sha256": "6614EF9C99E0FF0ED30B1C8530BAACB3F27385CB53AD2453827B9BF86CA4EB0B",
+      "path": "crates/raster-render-path/src/meshing.rs"
+    },
+    {
+      "sha256": "8AF3FDFC3995A9E1CA4772437FC407739BE36FD94F426059905634A839F1F21D",
+      "path": "crates/raster-render-path/src/preparation.rs"
+    },
+    {
+      "sha256": "8961B12F18063C8E7423B42E225A9EF50926B030190AA146C324C1AFA859FF44",
+      "path": "crates/raster-render-path/src/raster_preparation_barrier.rs"
+    },
+    {
+      "sha256": "2B13777C73C6E070AE7021A6EC5EB142CB1CA3C3AE9703C417FC5DD620AA241D",
+      "path": "crates/raster-render-path/src/raster_render_path.rs"
+    },
+    {
+      "sha256": "BAF2927BE920CC865FBA02406AFBBCA3DF60935BC9F746DFCBA659970C535007",
+      "path": "crates/raster-render-path/src/residency.rs"
+    },
+    {
+      "sha256": "842D3A2200555674E1DD30E1BC3E3C7C1DA256AAF784A299552BC01B3D68D8C1",
+      "path": "crates/raster-render-path/src/semantic_faces.rs"
+    },
+    {
+      "sha256": "BE63905D1419530ECE691F970F608FCFF96726E5F709A10BDC546FBFDA845B70",
+      "path": "crates/raster-render-path/src/worker_pool.rs"
+    },
+    {
+      "sha256": "52B5F491D23E53A0F6F1244B641F5160393A714818CB41FC26ECB7587C1ABB60",
+      "path": "crates/raster-render-path/tests/artifact_gate.rs"
+    },
+    {
+      "sha256": "CAE063ED89C1F8C221CD15AD80C29C948E64A5F5018904AA5D84A67FF20B184C",
+      "path": "crates/raster-render-path/tests/convergence.rs"
+    },
+    {
+      "sha256": "D60702176F22334E578283245FF190ADC609BA020E78DD2335F740F95F96AAA8",
+      "path": "crates/raster-render-path/tests/derivation.rs"
+    },
+    {
+      "sha256": "EB3AB7F0FCE79CF277AC56B9AA8D7009785FF4E709B651125288C5CFF47B57E2",
+      "path": "crates/raster-render-path/tests/failures.rs"
+    },
+    {
+      "sha256": "AEC67C0880D6D143FECD463D27F7EB7CA2C96E20CCB74F48D2F74D8B50BF155F",
+      "path": "crates/raster-render-path/tests/front_face.rs"
+    },
+    {
+      "sha256": "0AA1B2A0BAC1B60CD56CE6F3D0164B51287DBE94AE9E76CAA893D99C64E309C4",
+      "path": "crates/raster-render-path/tests/localized_replacement.rs"
+    },
+    {
+      "sha256": "168BCE86F2CB33CC796C78A4DD3F3073120ED8D5281FB41D8CBC0D45A666D9C9",
+      "path": "crates/raster-render-path/tests/preparation.rs"
+    },
+    {
+      "sha256": "B91AE4285D09314D19BDBEF62B2D24BE46C73D6C7D96CB4B2E90344BC60853D7",
+      "path": "crates/raster-render-path/tests/region_read_timing.rs"
+    },
+    {
+      "sha256": "5F27876ED2C1B85BE1EA8422C175F2DDC24E5A8D601133FD624745A17CB7E2FB",
+      "path": "crates/raster-render-path/tests/regions.rs"
+    },
+    {
+      "sha256": "C6B8BBC39C1718A446B8D6C2BEBD41B62BD48929913A1561DFCE0134C6B36DBA",
+      "path": "crates/raster-render-path/tests/residency.rs"
+    },
+    {
+      "sha256": "66B06EAF5B605CB8F22DCCCFCB761B3C3387CED70DEC613524E6E17188DC4A01",
+      "path": "crates/raster-render-path/tests/semantic_qualification.rs"
+    },
+    {
+      "sha256": "5CA602DF59EFC55BA9B2860D122932D48B396E597F41D05C71B379CE486D1ED1",
+      "path": "crates/raster-render-path/tests/switching_adapter.rs"
+    },
+    {
+      "sha256": "DC2C16143C0D652E037508F75C562CD3DCFF85DA8345F3119E36D42405D9E054",
+      "path": "crates/render-backend/Cargo.toml"
+    },
+    {
+      "sha256": "6DDF71F581F55EEA9CEE2B243BFF1C4EC74D6B75D9647D396A9C37BA6241613A",
+      "path": "crates/render-backend/src/allocation_qualification.rs"
+    },
+    {
+      "sha256": "6CDB2B71520D64B63D0FA75EC2E61A6C5A4CD6CE76EF04F33B2C6A6AD1A4EB5B",
+      "path": "crates/render-backend/src/camera.rs"
+    },
+    {
+      "sha256": "0605652EFC1E9AEEF33DAE2043398F82D2F0ECAEFFA5A1731A2ED06093CF88BE",
+      "path": "crates/render-backend/src/configuration.rs"
+    },
+    {
+      "sha256": "DC543D9FDB636EEE7D4FB612CF12DDFB8509D56E72D99EEDD095780761CA8AFE",
+      "path": "crates/render-backend/src/device.rs"
+    },
+    {
+      "sha256": "60A429186FF5CE6BBD8814487EF737C22CF2D450816746D5533B82B00B9566A6",
+      "path": "crates/render-backend/src/frame_observation.rs"
+    },
+    {
+      "sha256": "0C08BD5732BF6F939AFA681F385BB078015C804DD1C29E686AE8D7C68A7E6268",
+      "path": "crates/render-backend/src/presentation.rs"
+    },
+    {
+      "sha256": "3E3A6AF3FC1E859DEBE6411374DAA85FC74D989F2FFFEB19D90CB084E7201F2C",
+      "path": "crates/render-backend/src/render_backend.rs"
+    },
+    {
+      "sha256": "04F46299A5A6A2A47434E40EAD5F2CE05518E75C36FD9C41CB6D8FF64892C0D3",
+      "path": "crates/render-backend/src/render_path_switching.rs"
+    },
+    {
+      "sha256": "94FAAD01EFF998A40BD80EAAD0BABB32ECBC37CD8811A415E5D541270DB9D395",
+      "path": "crates/render-backend/src/render_path.rs"
+    },
+    {
+      "sha256": "74F970974B5846C29275C2A42EE0B90EC1D7C3BA97386FBAE8D8EA27C673EDAB",
+      "path": "crates/render-backend/src/residency_coverage.rs"
+    },
+    {
+      "sha256": "CC9AD30996904ED9EE7DD522F2A9ACF2C5C5F81CBF3B579FC17C535622D43E67",
+      "path": "crates/render-backend/src/tests.rs"
+    },
+    {
+      "sha256": "9CE5B714ECA8E264E3768B892B4162755AC21F1D8B6CD16F55ED24AA105D1516",
+      "path": "crates/render-backend/tests/camera.rs"
+    },
+    {
+      "sha256": "EFD34B0349A0492B94ADA692BECC027BBEB92B7A3B9225EAB4262BE703BD74AA",
+      "path": "crates/render-backend/tests/device_qualification.rs"
+    },
+    {
+      "sha256": "AD90059F1AFC209131BEDB8E45CC3FA61829EC25CA6374FEA656E6277BD7F971",
+      "path": "crates/render-backend/tests/frame_observation.rs"
+    },
+    {
+      "sha256": "1C3C2498CCF80A591E951CDAEE814C1D3479144A48432183ACFEBAB56B8434AE",
+      "path": "crates/render-backend/tests/render_path_protocol.rs"
+    },
+    {
+      "sha256": "AFCDB515170C75F9EA1757C41DAC8B5E20D1FE26807DB7E7DF62F50D304567CC",
+      "path": "crates/render-backend/tests/runtime_diagnostics.rs"
+    },
+    {
+      "sha256": "D8A9AEBCAC96C7AB944CCD8D58F28BE8495174177E7EAA0D3AE47AC1751FA792",
+      "path": "crates/render-backend/tests/swapchain_configuration.rs"
+    },
+    {
+      "sha256": "C827EC0E65476404C33ABB9A7A1E96A366E2584BF4841F19BA05755E0499EE4A",
+      "path": "crates/semantic-ray-oracle/Cargo.toml"
+    },
+    {
+      "sha256": "B143CAA9381C8BA24A9315E7A1E7EF0136776C6F73A236A57AB42F8873062B82",
+      "path": "crates/semantic-ray-oracle/src/semantic_ray_oracle.rs"
+    },
+    {
+      "sha256": "208AA300525D1DABD810FD1F5AD74B3B2F9938811F4CD68D6F26D9299E1EE0B4",
+      "path": "crates/semantic-ray-oracle/tests/along_ray.rs"
+    },
+    {
+      "sha256": "AAE440294F16C71B2273AF0BAA6D060B3ADF02EDD12989E38B339C6479F1DEBF",
+      "path": "crates/semantic-ray-oracle/tests/oracle.rs"
+    },
+    {
+      "sha256": "E36D5893D325A40B70FA89AC2990D5D6F7D49F48E6CF53A2BD43FF525D7B52FA",
+      "path": "crates/voxel-frontend/Cargo.toml"
+    },
+    {
+      "sha256": "CE6B1A77E7A66C23A53843EC7D5402D15236D0BFD6082448DF87F6B0099A6FEA",
+      "path": "crates/voxel-frontend/examples/edit_storage_measurement.rs"
+    },
+    {
+      "sha256": "0650136CF240596A2CE6FDD2DAF2C9C60E42A9711E10B6BE67E2395BE788D9DA",
+      "path": "crates/voxel-frontend/src/allocation_observation.rs"
+    },
+    {
+      "sha256": "09EACF4364A144B4088817B5B25A6368A7360E8CBCCDB5EE739D66278A479184",
+      "path": "crates/voxel-frontend/src/brick_storage_tests.rs"
+    },
+    {
+      "sha256": "BB97ACCD301E51EE0104460C9E0A29832D55BDC2B49A2C59C80745B8CDF70287",
+      "path": "crates/voxel-frontend/src/cell_enumeration_tests.rs"
+    },
+    {
+      "sha256": "C720E109526EBED3629AE48A69496E987DAE1022391CA2C01D42A217D4225711",
+      "path": "crates/voxel-frontend/src/cell_enumeration.rs"
+    },
+    {
+      "sha256": "26FF0EB16A0CEDCE7BF01ABD6B396F18EEB99129536CCB82E3408DB20E7DDD15",
+      "path": "crates/voxel-frontend/src/page_table.rs"
+    },
+    {
+      "sha256": "69424CEDF0493DE586A5C1A6ACEA00E806096DFBD01764555D1DB020F5443973",
+      "path": "crates/voxel-frontend/src/qualification_views.rs"
+    },
+    {
+      "sha256": "647F312C2034DF4A0810F8783C45E66840EB21AD89AF36A07738081B05F298FB",
+      "path": "crates/voxel-frontend/src/residency.rs"
+    },
+    {
+      "sha256": "E96766CFE5E2EE9901D8CE760EEB3A58FA9C538012E1F0F5E1D6CA5869B38611",
+      "path": "crates/voxel-frontend/src/sharing_tests.rs"
+    },
+    {
+      "sha256": "16A370ADC4A0CAC23709AB593967A10B544B45271195350AB7D0777FDDE47A19",
+      "path": "crates/voxel-frontend/src/sparse_publication_tests.rs"
+    },
+    {
+      "sha256": "1C4152FC2FBFA6764FC16FDCB4187467A5C69BBE5C642E1E94DC4A61051B515F",
+      "path": "crates/voxel-frontend/src/sparse_publication.rs"
+    },
+    {
+      "sha256": "6B80267B35BFF4E46E8E8F3D6E2F3D0907B3E01014693FABB6CBBDF768310410",
+      "path": "crates/voxel-frontend/src/storage_counters.rs"
+    },
+    {
+      "sha256": "B7057541075D004778C97D4361AEED7C8905B38276D6620C9E1E5F0FE2F802ED",
+      "path": "crates/voxel-frontend/src/storage_tier.rs"
+    },
+    {
+      "sha256": "487518605A343F27C80630797157667A942CF45648750A8396C2AEF6CDCE08F4",
+      "path": "crates/voxel-frontend/src/streamed_edits.rs"
+    },
+    {
+      "sha256": "F71774CB2AEBEBD17E9522DE2A8E595255B4781D696F11E3C3C703B37A32DDF4",
+      "path": "crates/voxel-frontend/src/streamed_publication.rs"
+    },
+    {
+      "sha256": "CFB41187C5E27AC6071FD9C6C5E0ABCA4B4F2A5607B4FDBC15C5CCF813B8D863",
+      "path": "crates/voxel-frontend/src/voxel_frontend.rs"
+    },
+    {
+      "sha256": "95A400F69046CAD5048840D17B8B8D8399DCA1059795771EDDE60ECD2CE19103",
+      "path": "crates/voxel-frontend/tests/atomic_edits.rs"
+    },
+    {
+      "sha256": "29582FA5DF8883317583BEDC8AF023B74528ECD7B47DF6DE8670F517803F370F",
+      "path": "crates/voxel-frontend/tests/cell_enumeration.rs"
+    },
+    {
+      "sha256": "DBADA4A3D2B3F75E35CA32657C8B2CA52CE4F37D019DB8A71C80C52EAC973843",
+      "path": "crates/voxel-frontend/tests/editing.rs"
+    },
+    {
+      "sha256": "29BB49713DFE2674D397F2382DD233F7DA2842A89D0D96EF23CEA961B70D5981",
+      "path": "crates/voxel-frontend/tests/publication.rs"
+    },
+    {
+      "sha256": "B167133E84B5ECD82CA6C910DF0906E8A96EBE0B32FB08536511F9E416943E81",
+      "path": "crates/voxel-frontend/tests/residency.rs"
+    },
+    {
+      "sha256": "B90B3642B3B8E9B413C565515F0EF281CC333216CC10285BAC8D46E70F3A2515",
+      "path": "crates/voxel-frontend/tests/sparse_publication.rs"
+    },
+    {
+      "sha256": "DDE0B926D21353DEC80269AFC2F675E5106A1D9967D0CEEE5F5CB497C9E8CF11",
+      "path": "crates/voxel-frontend/tests/storage_tiers.rs"
+    },
+    {
+      "sha256": "AE84E886B2DE51A0F743B0D0F99649CDCCB7B71A99BF2B6D3C04EDBF662AD7D9",
+      "path": "crates/voxel-frontend/tests/streamed_edits.rs"
+    },
+    {
+      "sha256": "B796ABDF9273DC6C777D2350A45B65A0765E04C41D2355F8C199596470A0CEEB",
+      "path": "crates/voxel-frontend/tests/streamed_publication.rs"
+    },
+    {
+      "sha256": "C5066C70DAECDB68CD60D0E0FD008260F143F9631D506331419A90E3B0F9FA83",
+      "path": "crates/voxel-frontend/tests/validation.rs"
+    },
+    {
+      "sha256": "6F650F3DBE2C1BDD92A8335C4DA5BDF84695170993CDB727A13842D828F18A4D",
+      "path": "scripts/assemble-localized-raster-evidence.ps1"
+    },
+    {
+      "sha256": "4A8CA9259D705837BE7150AE4B5939DBB52559DD7D65E706B849A5E637A69BFF",
+      "path": "scripts/capture-milestone-completion.ps1"
+    },
+    {
+      "sha256": "86A7EE464E872D299C9C66E6F3A7E6BB3AE819D6FD4CED219E097B0E4ABF257D",
+      "path": "scripts/capture-portable-compute-ray-evidence.ps1"
+    },
+    {
+      "sha256": "313ACA8432D03FC100DB8BD1924E9CC186BA104048A41C85C558F341184C8CA5",
+      "path": "scripts/characterize-raster-region-scales.ps1"
+    },
+    {
+      "sha256": "4CEA03ECF7ECD0915067FDACC549B953C5DE255F9D503DABC1275C6B54E10A1D",
+      "path": "scripts/collect-timing-evidence.ps1"
+    },
+    {
+      "sha256": "096ACF8CA0667F2F051129A78550A697301249BD280CA4449F67531DA359451E",
+      "path": "scripts/profile-streamed-fixture.ps1"
+    },
+    {
+      "sha256": "BFC169409CD75B173F5BB4729BC6694DF35B7D202C5CA27D269CB3FBE578F1A2",
+      "path": "scripts/qualify-raster-region-extents.ps1"
+    },
+    {
+      "sha256": "0B71FE36C681FEE783346E8A0ECF719C0C8EFC638664F53189FF28502FFD5EC7",
+      "path": "scripts/streamed-residency-contract.json"
+    },
+    {
+      "sha256": "C747CBD9A28D607549D812456D59F4D83564B0CE48FAB5A225681003F95F72F8",
+      "path": "scripts/test-streamed-residency-verifier.ps1"
+    },
+    {
+      "sha256": "64B53F7ABAE1D7D4625BB986B70BAD068BBA90C8877C585D2669444508CC820D",
+      "path": "scripts/verify-compute-shutdown.ps1"
+    },
+    {
+      "sha256": "E95182326FDC54AEAF2A7924790F238CE07D8D0F2133D300AC526C0A7D367C06",
+      "path": "scripts/verify-edit-burst-demo.ps1"
+    },
+    {
+      "sha256": "875C7DEF63B2BE7B1F46623B48DC87C6B2D6C5F649CC420D334851334EDA03B0",
+      "path": "scripts/verify-large-sparse.ps1"
+    },
+    {
+      "sha256": "7AD4E304C1733598AC80C61CB5B4BE2F81FFE45E637EB1F052514A933454A69A",
+      "path": "scripts/verify-localized-raster-source-processes.ps1"
+    },
+    {
+      "sha256": "DA0B3588CD1699D6818AEC0BC68AE48EB8F02588A4B73FC138CD0CC8337DCCE0",
+      "path": "scripts/verify-portable-compute-ray-milestone.ps1"
+    },
+    {
+      "sha256": "5F62E701699DF09133BE58B1B012BE3BDE921531E5DE04E98DF480484C68054B",
+      "path": "scripts/verify-streamed-residency.ps1"
+    },
+    {
+      "sha256": "F2037B6489666C9097640CDE9BB3D0285D527E51F8C7BB9A80B6D55F27CAD9EF",
+      "path": "scripts/verify-windows-lifecycle.ps1"
+    },
+    {
+      "sha256": "A6FA21186641E3FE741FD76A0A7B91E3D4E4799FD55A30B6F31373CBF78994AD",
+      "path": "Cargo.toml"
+    },
+    {
+      "sha256": "E0BFE454147684D3F8B7671848FDECBFC11333E2D798A8838ED5F8EDBC8FB906",
+      "path": "Cargo.lock"
+    }
+  ],
+  "toolchain": [
+    "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
+    "binary: rustc",
+    "commit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8",
+    "commit-date: 2026-07-08",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.99.0-nightly",
+    "LLVM version: 22.1.8"
+  ],
+  "frozen_sha256": {
+    "probes": "1D7859D8991737C70EC81358B487C63DC511880898AC5E2E647E2FD5F4EE5F25",
+    "fixture": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
+    "recipe": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
+    "route": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
+    "edit_script": "0B71FE36C681FEE783346E8A0ECF719C0C8EFC638664F53189FF28502FFD5EC7",
+    "crossing_clock": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
+    "coverage": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882"
+  },
+  "source_revision": "03cee4fdc0575d5308c603017c75cc1c94a8acc9",
+  "capture_kind": "gpu",
+  "executable_sha256": "28C2A8C0E8A36133BEA687B47515269EEC7A14E8B55A2A90DFBD1807490A5A55",
+  "cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)"
+}

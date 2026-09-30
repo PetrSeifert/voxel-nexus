@@ -1,0 +1,10 @@
+{"fingerprint":"9660d9308d69ede5","kind":"fingerprint","phase":"generated"}
+{"copies":1,"cpu_allocations":[24,34,0,265,105,526,3],"cpu_live":[1704,395912,0,1023736,88664,118688,256],"cpu_peak":[3248,1301672,1539408,1173680,308360,118688,256],"edited_coordinates":0,"generating":0,"history_entries":0,"kind":"cpu-residency","live_historical_views":0,"live_versions":1,"material_count":2,"metadata_entries":256,"peak_copies":1,"peak_historical_views":0,"phase":"generated","query_copies":0,"source_recipe_count":1}
+{"kind":"cpu-released","live":[0,0,0,0,0,0]}
+{"fingerprint":"478ee4a9737e1ad7","kind":"fingerprint","phase":"edited"}
+{"copies":1,"cpu_allocations":[24,35,0,270,105,527,7],"cpu_live":[1696,412320,0,1026416,92760,118728,600],"cpu_peak":[4040,1301672,1539408,1176360,385160,118728,672],"edited_coordinates":3,"generating":0,"history_entries":3,"kind":"cpu-residency","live_historical_views":0,"live_versions":1,"material_count":2,"metadata_entries":256,"peak_copies":1,"peak_historical_views":0,"phase":"edited","query_copies":0,"source_recipe_count":1}
+{"kind":"cpu-released","live":[0,0,0,0,0,0]}
+{"fingerprint":"9660d9308d69ede5","kind":"fingerprint","phase":"restored"}
+{"copies":1,"cpu_allocations":[24,34,0,265,105,526,3],"cpu_live":[1696,395912,0,1023736,88664,118688,256],"cpu_peak":[4040,1301672,1539408,1176360,385160,118728,720],"edited_coordinates":0,"generating":0,"history_entries":0,"kind":"cpu-residency","live_historical_views":0,"live_versions":1,"material_count":2,"metadata_entries":256,"peak_copies":1,"peak_historical_views":0,"phase":"restored","query_copies":0,"source_recipe_count":1}
+{"kind":"cpu-released","live":[0,0,0,0,0,0]}
+{"cpu_only":true,"gpu_dispatched":false,"kind":"context","mode":"cpu-calibration","production":true}

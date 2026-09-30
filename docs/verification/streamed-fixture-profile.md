@@ -1,8 +1,8 @@
-# Streamed fixture qualification: passed
+# Streamed fixture production qualification: passed
 
-The fixed streamed qualification passes on the NVIDIA GeForce RTX 4070, driver 0x94d84000. Every CPU and GPU mode was captured from committed source revision `f7f6be45d8b67de324ebed7b96dd4528f35ffc39`; `residency-context.json` records that revision, the toolchain, the device, the executable hash and source hashes. The byte-cap formulas and numeric caps below were ratified on 2026-09-30 in [#118](https://github.com/PetrSeifert/voxel-nexus/issues/118). `residency-summary.json` still says ratification is pending because it describes the evidence at capture time; changing the capture script would invalidate its recorded source hash.
+The production streamed qualification passes on the NVIDIA GeForce RTX 4070, driver `0x94d84000`. All CPU and GPU modes were captured on 2026-09-30 from the clean committed source revision `03cee4fdc0575d5308c603017c75cc1c94a8acc9`. The [production context](../evidence/streamed-fixture/production/residency-context.json) records the revision, toolchain, device, executable hash and source hashes. The [production summary](../evidence/streamed-fixture/production/residency-summary.json) records `PASS` under the complete verifier contract from [#131](https://github.com/PetrSeifert/voxel-nexus/issues/131).
 
-The numbers in this report describe the archived prototype capture. [#131](https://github.com/PetrSeifert/voxel-nexus/issues/131) replaces its runner with `streamed-residency-qualification`, using production streamed publication, edits, residency and Render Paths. The ratified constants, formulas, fixture and route remain fixed. Production capture on the RTX 4070 is tracked separately in [#132](https://github.com/PetrSeifert/voxel-nexus/issues/132).
+The byte-cap formulas and numeric caps below were ratified on 2026-09-30 in [#118](https://github.com/PetrSeifert/voxel-nexus/issues/118). The constants, formulas, fixture, route, edit script, crossing clock, coverage rule and probe definitions are unchanged. The verifier checks every live and peak sample against those caps and the plain bounds. This capture completes [#132](https://github.com/PetrSeifert/voxel-nexus/issues/132).
 
 [#117](https://github.com/PetrSeifert/voxel-nexus/issues/117) first recorded a failure: after the Raster-to-Brickmap handoff, GPU frame progress stopped and the host required a restart. #118 traced that to the Brickmap traversal loop. Near an empty-brick corner, a coarse skip could move an untied axis back into the previous cell, so two cells alternated forever in an unbounded loop. Untied axes can no longer retreat, and a per-volume step cap turns any future violation into a miss; see [the compute DDA regression](compute-dda-regression.md). No budget was enlarged, no proof was reduced and no hysteresis was added. `host-failure.json` preserves the original incident.
 
@@ -14,7 +14,7 @@ Sparse publication emits column fills and surface details. The three-coordinate 
 
 The script retains revisions 1 and 2, edits `(3,3)`, evicts `(2,2)` at center `(4,3)`, edits that non-resident volume, reloads it, verifies historical reads, restores both volumes, drops history and repeats travel. Bounds are six edited coordinates and two historical views. Sources retain immutable recipe/compact versioned edits rather than voxel payloads. Shared copies use one fixed scene identity plus volume coordinate and content version. One synchronous generation admission reserves inside the nineteen-copy cap; a superseded target can complete its current volume, then its unneeded copy is released before the newest target's admission.
 
-Raster uses 16-cubed regions and caches immutable per-volume geometry by the same key. Brickmap is explicit; the qualification streamed constructor rejects Dense with `ComputeSceneBuildError::StreamedDense`. Both paths participate in construction, installation and retirement. These are qualification adapters, not a production streaming API. Complete packed compute replacements are rebuilt and timed rather than assumed incremental.
+Raster uses 16-cubed regions and caches immutable per-volume geometry by the same key. Brickmap is explicit; the qualification streamed constructor rejects Dense with `ComputeSceneBuildError::StreamedDense`. Both paths participate in construction, installation and retirement. The qualification runner exercises the production streamed publication, residency, edit and Render Path APIs. Only the independent whole-scene oracle input remains qualification-only. Complete packed compute replacements are rebuilt and timed rather than assumed incremental.
 
 ## Projection and clock
 
@@ -56,9 +56,38 @@ Counts were fixed independently of total observed peaks: nineteen CPU copies inc
 
 The baseline exceeds every residency-scaled category, even using its unconfigured CPU representation bytes as a lower bound. Coefficients bound generated, edited and restored states. They are derived from per-volume costs and measured assembly overhead, not fitted to the residency peak. The raster cap is 811,200 bytes below the #117 value: the final source charges audit bookkeeping to Control, not the calibrated renderer.
 
-Plain proposed bounds are Control heap 16,777,216 bytes, metadata heap 262,144 bytes, source/edit/history heap 16,384 bytes, and application-owned fixed GPU memory `3 * 8,847,968 = 26,543,904` bytes. Metadata is bounded to 256 entries, sources to one recipe/two materials, live historical views to two and edited coordinates to six. Fixed Vulkan objects have at most three renderer pipeline owners, nine owner camera/probe/output allocations, three depth/output images and nine framebuffers over three swapchain images. Driver-owned swapchain images and private pipeline/driver allocations have object-count bounds; their private memory is not claimed as measured application allocation bytes. Qualification audit bookkeeping is bounded to 65,536 entries and charged to Control in the final prototype.
+Plain bounds are Control heap 16,777,216 bytes, metadata heap 262,144 bytes, source/edit/history heap 16,384 bytes, and application-owned fixed GPU memory `3 * 8,847,968 = 26,543,904` bytes. Metadata is bounded to 256 entries, sources to one recipe/two materials, live historical views to two and edited coordinates to six. Fixed Vulkan objects have at most three renderer pipeline owners, nine owner camera/probe/output allocations, three depth/output images and nine framebuffers over three swapchain images. Driver-owned swapchain images and private pipeline/driver allocations have object-count bounds; their private memory is not claimed as measured application allocation bytes. Qualification audit bookkeeping is bounded to 65,536 entries and charged to Control.
 
-## Observed results and limits
+## Production results and limits
+
+The production capture runs `cpu-calibration`, `cpu-matched-8`, `cpu-matched-16`, `cpu-lifecycle`, `matched-8`, `matched-16`, `raster` and `brickmap`. The CPU modes create no window or Vulkan instance. They preserve generated, edited and restored fingerprints, replay non-resident edits and historical reads, verify unrelated-edit reuse and compaction, and reach nineteen shared copies with one query copy. Both CPU travel laps settle to identical allocation bytes and counts with nine copies.
+
+Each GPU route starts on its named Render Path and completes two laps. Each records 16/16 fence-safe installations, four switches covering both directions on each lap, zero coverage stalls and 64 matching covered rendered/oracle route probes. Revision replacement has its own covered probe batch. Both routes exercise nineteen-copy admission, rejection of a second query copy, upload-failure recovery that preserves presentation, failed-candidate cleanup and twelve boundary-churn installations without hysteresis. Their settled lap allocation bytes and counts match. All four GPU modes report zero Vulkan validation warnings/errors, zero residency cleanup debt, zero GPU allocations/objects and zero workers after shutdown.
+
+| Route | Worst crossing, s | Worst switch, s | Raster GPU peak, bytes | Brickmap GPU peak, bytes | Fixed GPU peak, bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Starting on Raster | 0.351752907 | 0.3460059 | 207,520 | 1,512,128 | 17,695,328 |
+| Starting on Brickmap | 0.217307001 | 0.2095046 | 239,680 | 1,524,416 | 17,695,328 |
+
+The verifier checks all 927 CPU/GPU residency samples. The following maxima cover every captured mode. Materialization/generation conservatively sums both category peaks in each sample. The original ratified constants and caps remain unchanged.
+
+| Category | Production peak, bytes | Cap or plain bound, bytes |
+| --- | ---: | ---: |
+| CPU materialization/generation | 9,967,496 | 10,300,368 |
+| Raster CPU artifacts/construction | 15,059,728 | 58,242,848 |
+| Brickmap CPU artifacts/construction | 4,049,600 | 8,914,536 |
+| Raster GPU data | 239,680 | 980,640 |
+| Brickmap GPU data | 1,524,416 | 4,760,640 |
+| Control heap | 8,666,376 | 16,777,216 |
+| Metadata heap | 183,512 | 262,144 |
+| Source/edit/history heap | 1,184 | 16,384 |
+| Fixed GPU memory | 17,695,328 | 26,543,904 |
+
+An initial capture exposed 56 bytes of standard-library blocking-channel state first allocated inside Raster accounting. That state is cached until the event-loop thread exits. The committed runner initializes it under Control before rendering, where the same fixed Control bound still applies. The ignored GPU cleanup regression failed before this change and passes across three fresh matched-scene processes after it. No cleanup check, cap, deadline or frozen definition changed.
+
+## Archived prototype results and limits
+
+The numbers in this section describe the archived [#121](https://github.com/PetrSeifert/voxel-nexus/issues/121) prototype capture in `docs/evidence/streamed-fixture/development-machine`, from revision `f7f6be45d8b67de324ebed7b96dd4528f35ffc39`. Those evidence files remain unmodified. Its `residency-summary.json` still says ratification is pending because it describes the evidence at capture time.
 
 CPU-only replay reaches nineteen copies with disjoint old/new selections and a query, rejects a second global query, preserves version reuse during unrelated edits, reconstructs historical fingerprints, restores generated values and drops all tracked residency/source/metadata allocations. A query-to-selection ownership transfer generates no duplicate copy. Two simulated travel laps return to identical allocation bytes and counts, with nine settled copies. These are CPU lifecycle checks, not rendered motion or latency evidence.
 
@@ -85,10 +114,14 @@ The earlier isolated-allocation calibration remains as archived `calibration.jso
 
 ## Verify and recapture
 
+The recorded capture command was `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -RunGpu -EvidenceDirectory artifacts/streamed-production-132-final`. Its verified outputs are committed separately in `docs/evidence/streamed-fixture/production`. Recheck those files without dispatching graphics with `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1`.
+
 The production verifier defaults to `docs/evidence/streamed-fixture/production`; the prototype evidence above remains archived. Run `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -EvidenceDirectory artifacts/streamed-cpu` to generate and verify CPU residency, fixed caps and the edit lifecycle without creating a window or Vulkan instance. The `cpu-baseline` runner mode remains available as a separate fully resident comparison.
 
 `-RunGpu` requires a clean committed tree and captures both route starts, two laps each, plus matched scenes. Every GPU invocation requires `--allow-gpu`. The verifier checks each live and peak allocation category against the ratified caps, along with fixed GPU memory, object counts, complete covered probe batches, clock origins, switch directions, replacement recovery and repeated allocation plateaus. `-DryRun` verifies local uncommitted GPU runs with a distinct verdict; it cannot be combined with recorded capture.
 
 Run `pwsh -NoProfile -File scripts/test-streamed-residency-verifier.ps1` for the positive and negative verifier fixtures. They create JSON evidence only and dispatch no graphics work. The qualification integration suite also runs them on Windows.
 
-Validation: frontend/oracle/raster/compute/backend release regression suites with all features, the ignored `compute_dda_gpu` test on the RTX 4070, `cargo fmt --all`, and workspace/all-target/all-feature Clippy. Production streaming architecture, durable persistence, networking, gameplay, dense streamed compute and large-terrain raster remain deferred.
+Validation for this production recapture: `cargo fmt --all`, zero-warning `cargo clippy --workspace --all-targets --all-features`, `cargo test --locked --workspace --features qualification`, the explicit ignored matched GPU cleanup regression and the complete recorded CPU/GPU verifier. The workspace suite includes the negative verifier fixtures and unchanged canonical, dense/sparse, switching and large sparse terrain regressions. The GPU cleanup regression is ignored by ordinary test runs; CPU qualification and negative verifier fixtures dispatch no graphics work.
+
+The observations qualify this fixture on this device under the fixed caps and deadline. They do not establish cross-machine performance. Durable persistence, networking, gameplay, dense streamed compute and large-terrain raster remain deferred.
