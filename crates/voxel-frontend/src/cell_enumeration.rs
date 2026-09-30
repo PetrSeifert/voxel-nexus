@@ -51,6 +51,7 @@ pub struct VoxelCellEnumeration {
     identity: VoxelVolumeId,
     batch_capacity: usize,
     source: Option<Box<dyn CellSource>>,
+    materialization: Option<ReadStorage>,
 }
 
 impl VoxelCellEnumeration {
@@ -60,26 +61,24 @@ impl VoxelCellEnumeration {
         cell_edge: u32,
         batch_capacity: usize,
     ) -> Result<Self, VoxelFrontendError> {
-        let storage = view.published.volumes.get(&identity).ok_or_else(|| {
-            VoxelFrontendError::UnknownVolumeIdentity {
-                identity: identity.clone(),
-            }
-        })?;
+        let extent = view.published.volume_extent(&identity)?;
         if batch_capacity == 0 {
             return Err(VoxelFrontendError::ZeroCellBatchCapacity { identity });
         }
-        let grid = CellGrid::new(storage.extent(), cell_edge).ok_or_else(|| {
+        let grid = CellGrid::new(extent, cell_edge).ok_or_else(|| {
             VoxelFrontendError::InvalidCellEdge {
                 identity: identity.clone(),
                 cell_edge,
             }
         })?;
-        let source = Arc::clone(storage).cell_source(grid);
+        let storage = view.published.read_storage(&identity)?;
+        let source = Arc::clone(&storage.storage).cell_source(grid);
         Ok(Self {
             view,
             identity,
             batch_capacity,
             source: Some(source),
+            materialization: Some(storage),
         })
     }
 
@@ -99,6 +98,7 @@ impl VoxelCellEnumeration {
             })?
             else {
                 self.source = None;
+                self.materialization = None;
                 break;
             };
             let cell = self.public_cell(cell).ok_or_else(|| {
@@ -156,6 +156,7 @@ impl Iterator for VoxelCellEnumeration {
             Ok(batch) => Some(Ok(batch)),
             Err(error) => {
                 self.source = None;
+                self.materialization = None;
                 Some(Err(error))
             }
         }

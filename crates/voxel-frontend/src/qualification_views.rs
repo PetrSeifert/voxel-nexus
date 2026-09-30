@@ -9,6 +9,8 @@ pub enum QualificationViewError {
     Empty,
     #[error("qualification views must belong to one scene with identical material palettes")]
     Palette,
+    #[error("qualification assembly requires unstreamed materialized views")]
+    StreamedAssembly,
     #[error(transparent)]
     Frontend(#[from] VoxelFrontendError),
 }
@@ -23,8 +25,12 @@ impl VoxelSceneView {
         let mut published = (*first.published).clone();
         published.revision = revision;
         published.volumes.clear();
+        published.volume_content_versions.clear();
         let mut metadata = Vec::new();
         for view in views {
+            if view.published.streamed.is_some() {
+                return Err(QualificationViewError::StreamedAssembly);
+            }
             if view.scene_id() != first.scene_id()
                 || view.published.palette_values != first.published.palette_values
                 || view.materials() != first.materials()
@@ -48,6 +54,10 @@ impl VoxelSceneView {
                     .into());
                 }
                 metadata.push(volume.clone());
+                published.volume_content_versions.insert(
+                    volume.identity().clone(),
+                    view.volume_content_version(volume.identity())?,
+                );
             }
         }
         published.volume_metadata = metadata.into();
@@ -89,6 +99,9 @@ impl VoxelSceneView {
                     identity: volume.identity().clone(),
                 });
             }
+            published
+                .volume_content_versions
+                .insert(volume.identity().clone(), revision);
         }
         published.volume_metadata = metadata.into();
         Ok(Self {

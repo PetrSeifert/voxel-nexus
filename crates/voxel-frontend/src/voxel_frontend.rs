@@ -20,6 +20,7 @@ mod sparse_publication;
 mod sparse_publication_tests;
 mod storage_counters;
 mod storage_tier;
+mod streamed_publication;
 pub use cell_enumeration::{VoxelCell, VoxelCellCoordinate, VoxelCellEnumeration};
 use page_table::PageTable;
 use sparse_publication::ValidatedBatch;
@@ -30,6 +31,10 @@ pub use storage_counters::{
 };
 use storage_counters::{record_publication_values_written, record_staged_values_allocated};
 use storage_tier::{BrickGrid, SparseStorage, Storage};
+use streamed_publication::{MaterializationCache, ReadStorage, StreamedScene};
+pub use streamed_publication::{
+    StreamedVoxelScene, StreamedVoxelVolume, VoxelSourceError, VoxelVolumeSource,
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum StorageTier {
@@ -521,6 +526,26 @@ impl VoxelEditOutcome {
 
 #[derive(Debug, Error)]
 pub enum VoxelFrontendError {
+    #[error("streamed Voxel Volume {identity:?} requires sparse Storage Tier")]
+    StreamedStorageTier { identity: VoxelVolumeId },
+    #[error("source for Voxel Volume {identity:?} belongs to a different Voxel Scene")]
+    SourceSceneMismatch { identity: VoxelVolumeId },
+    #[error("source for Voxel Volume {identity:?} requires a non-empty material palette")]
+    EmptySourceMaterialPalette { identity: VoxelVolumeId },
+    #[error("source output for Voxel Volume {identity:?} disagrees with its declared metadata")]
+    SourceMetadataMismatch { identity: VoxelVolumeId },
+    #[error("the query-only materialization copy is already held")]
+    QueryOnlyCopyBusy,
+    #[error("the materialization cache could not reserve storage for a copy")]
+    MaterializationCacheExhausted,
+    #[error("generation of Voxel Volume {identity:?} failed: {source}")]
+    VolumeGeneration {
+        identity: VoxelVolumeId,
+        #[source]
+        source: VoxelSourceError,
+    },
+    #[error("edits to streamed Voxel Scenes are not supported yet")]
+    StreamedEditsUnsupported,
     #[error("Voxel Scene identity must not be empty")]
     EmptySceneIdentity,
     #[error("duplicate Voxel Material identity {identity:?}")]
@@ -656,6 +681,7 @@ pub enum VoxelFrontendError {
 #[derive(Default)]
 pub struct VoxelFrontend {
     published: RwLock<Option<Arc<PublishedScene>>>,
+    materialization_cache: Arc<MaterializationCache>,
 }
 
 impl VoxelFrontend {
@@ -718,6 +744,9 @@ impl VoxelFrontend {
         let published = publication
             .as_ref()
             .ok_or(VoxelFrontendError::SceneNotPublished)?;
+        if published.streamed.is_some() {
+            return Err(VoxelFrontendError::StreamedEditsUnsupported);
+        }
         let mut validated = HashMap::new();
         for edit in command.edits {
             let volume = published
@@ -782,6 +811,9 @@ impl VoxelFrontend {
                 }
             })?;
             *volume = volume.successor(&changes);
+            successor
+                .volume_content_versions
+                .insert(identity.clone(), successor_revision);
             changed_regions.extend(
                 changes
                     .into_iter()
@@ -833,6 +865,19 @@ impl VoxelSceneView {
         &self.published.volume_metadata
     }
 
+    pub fn volume_content_version(
+        &self,
+        volume_identity: &VoxelVolumeId,
+    ) -> Result<VoxelSceneRevision, VoxelFrontendError> {
+        self.published
+            .volume_content_versions
+            .get(volume_identity)
+            .copied()
+            .ok_or_else(|| VoxelFrontendError::UnknownVolumeIdentity {
+                identity: volume_identity.clone(),
+            })
+    }
+
     /// Writes values in x-fastest, then y, then z order, relative to the region origin.
     /// The buffer must contain exactly width * height * depth values. Coordinates
     /// outside the volume are empty. Invalid requests leave the buffer unchanged.
@@ -842,7 +887,7 @@ impl VoxelSceneView {
         region: VoxelRegion,
         values: &mut [VoxelValue],
     ) -> Result<(), VoxelFrontendError> {
-        let (volume, bounds, capacity) = self.region_read(volume_identity, region)?;
+        let (extent, bounds, capacity) = self.region_read(volume_identity, region)?;
         if values.len() != capacity {
             return Err(VoxelFrontendError::RegionBufferSize {
                 identity: volume_identity.clone(),
@@ -850,7 +895,12 @@ impl VoxelSceneView {
                 actual: values.len(),
             });
         }
-        volume.read_region_into(&bounds, &self.published.palette_values, values);
+        match self.region_storage(volume_identity, extent, &bounds)? {
+            Some(volume) => {
+                volume.read_region_into(&bounds, &self.published.palette_values, values)
+            }
+            None => values.fill(VoxelValue::Empty),
+        }
         Ok(())
     }
 
@@ -859,20 +909,26 @@ impl VoxelSceneView {
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
     ) -> Result<Vec<VoxelSample>, VoxelFrontendError> {
-        let (volume, bounds, capacity) = self.region_read(volume_identity, region)?;
+        let (extent, bounds, capacity) = self.region_read(volume_identity, region)?;
         let mut samples = Vec::new();
         samples.try_reserve_exact(capacity).map_err(|_| {
             VoxelFrontendError::RegionReadAllocation {
                 identity: volume_identity.clone(),
             }
         })?;
+        let volume = self.region_storage(volume_identity, extent, &bounds)?;
         for coordinate in bounds.coordinates() {
             samples.push(VoxelSample {
                 coordinate,
                 value: self
                     .published
                     .palette_values
-                    .get(volume.value(coordinate).0 as usize)
+                    .get(
+                        volume
+                            .as_ref()
+                            .map_or(MaterialIndex::EMPTY, |volume| volume.value(coordinate))
+                            .0 as usize,
+                    )
                     .cloned()
                     .unwrap_or(VoxelValue::Empty),
             });
@@ -885,7 +941,10 @@ impl VoxelSceneView {
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
     ) -> Result<VoxelRegionContent, VoxelFrontendError> {
-        let (volume, bounds) = self.region_bounds(volume_identity, region)?;
+        let (extent, bounds) = self.region_bounds(volume_identity, region)?;
+        let Some(volume) = self.region_storage(volume_identity, extent, &bounds)? else {
+            return Ok(VoxelRegionContent::Uniform(VoxelValue::Empty));
+        };
         Ok(match volume.uniform_region(&bounds) {
             Some(index) => VoxelRegionContent::Uniform(
                 self.published
@@ -916,10 +975,14 @@ impl VoxelSceneView {
     }
 
     /// Estimated owned storage bytes, excluding allocator overhead and shared scene metadata.
+    /// For streamed volumes, reports only the currently cached payload, without generating it.
     pub fn storage_bytes(
         &self,
         volume_identity: &VoxelVolumeId,
     ) -> Result<usize, VoxelFrontendError> {
+        if self.published.streamed.is_some() {
+            return self.published.streamed_storage_bytes(volume_identity);
+        }
         self.published
             .volumes
             .get(volume_identity)
@@ -933,8 +996,8 @@ impl VoxelSceneView {
         &self,
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
-    ) -> Result<(&dyn Storage, RegionBounds, usize), VoxelFrontendError> {
-        let (volume, bounds) = self.region_bounds(volume_identity, region)?;
+    ) -> Result<(VoxelExtent, RegionBounds, usize), VoxelFrontendError> {
+        let (extent, bounds) = self.region_bounds(volume_identity, region)?;
         let capacity =
             region
                 .extent
@@ -942,19 +1005,15 @@ impl VoxelSceneView {
                 .ok_or_else(|| VoxelFrontendError::InvalidRegionBounds {
                     identity: volume_identity.clone(),
                 })?;
-        Ok((volume, bounds, capacity))
+        Ok((extent, bounds, capacity))
     }
 
     fn region_bounds(
         &self,
         volume_identity: &VoxelVolumeId,
         region: VoxelRegion,
-    ) -> Result<(&dyn Storage, RegionBounds), VoxelFrontendError> {
-        let volume = self.published.volumes.get(volume_identity).ok_or_else(|| {
-            VoxelFrontendError::UnknownVolumeIdentity {
-                identity: volume_identity.clone(),
-            }
-        })?;
+    ) -> Result<(VoxelExtent, RegionBounds), VoxelFrontendError> {
+        let extent = self.published.volume_extent(volume_identity)?;
         let bounds = RegionBounds::new(region).ok_or_else(|| {
             if region.extent.is_empty() {
                 VoxelFrontendError::EmptyRegionRequest {
@@ -966,7 +1025,25 @@ impl VoxelSceneView {
                 }
             }
         })?;
-        Ok((volume.as_ref(), bounds))
+        Ok((extent, bounds))
+    }
+
+    fn region_storage(
+        &self,
+        volume_identity: &VoxelVolumeId,
+        extent: VoxelExtent,
+        bounds: &RegionBounds,
+    ) -> Result<Option<ReadStorage>, VoxelFrontendError> {
+        if bounds.end_x <= 0
+            || bounds.end_y <= 0
+            || bounds.end_z <= 0
+            || bounds.start_x >= i64::from(extent.width)
+            || bounds.start_y >= i64::from(extent.height)
+            || bounds.start_z >= i64::from(extent.depth)
+        {
+            return Ok(None);
+        }
+        self.published.read_storage(volume_identity).map(Some)
     }
 }
 
@@ -979,6 +1056,8 @@ struct PublishedScene {
     palette_values: Arc<[VoxelValue]>,
     volume_metadata: Arc<[VoxelVolumeMetadata]>,
     volumes: HashMap<VoxelVolumeId, Arc<dyn Storage>>,
+    volume_content_versions: HashMap<VoxelVolumeId, VoxelSceneRevision>,
+    streamed: Option<StreamedScene>,
 }
 
 trait VolumeInput {
@@ -1102,6 +1181,11 @@ impl PublishedScene {
             storage_by_volume.insert(identity, storage);
         }
 
+        let volume_content_versions = storage_by_volume
+            .keys()
+            .cloned()
+            .map(|identity| (identity, revision))
+            .collect();
         Ok(Self {
             identity: scene_identity,
             revision,
@@ -1110,6 +1194,8 @@ impl PublishedScene {
             palette_values: palette_values.into(),
             volume_metadata: volume_metadata.into(),
             volumes: storage_by_volume,
+            volume_content_versions,
+            streamed: None,
         })
     }
 }
