@@ -44,12 +44,28 @@ _Avoid_: Live scene, canonical copy
 The monotonically ordered identity, within one Voxel Scene, of the logical contents presented by a Voxel Scene View. Each value-changing Voxel Edit Command receives the checked immediate successor of the current revision.
 _Avoid_: Frame, storage version
 
+**Voxel Volume Content Version**:
+The most recent Voxel Scene Revision that changed one Voxel Volume's logical contents, or its publication revision if it has not changed. A later scene revision that changes only other volumes preserves this version.
+_Avoid_: Cache revision, storage version
+
+**Voxel Residency Selection**:
+An identified, immutable set of Voxel Volume identities selected for materialization and rendering within one Voxel Scene. Its identity is ordered independently of Voxel Scene Revisions; selection changes do not change logical contents.
+_Avoid_: Loaded scene, streaming revision
+
+**Required Voxel Residency Selection**:
+The newest Voxel Residency Selection that the Voxel Frontend and participating Render Paths are obligated to establish. It remains distinct from the selection each owner has installed while convergence is incomplete.
+_Avoid_: Pending scene, GPU residency policy
+
+**Installed Voxel Residency Selection**:
+The one complete Voxel Residency Selection represented by an owner's installed state. For a Render Path, it identifies the volume coverage to which its Visible Voxel Scene Revision applies.
+_Avoid_: Partial scene, visible world
+
 **Required Voxel Scene Revision**:
 The newest Voxel Scene Revision that a Render Path is obligated to make visible. Only a strictly newer changed submission can advance it, and no older not-yet-visible candidate can become visible.
 _Avoid_: Target revision, requested revision
 
 **Visible Voxel Scene Revision**:
-The one Voxel Scene Revision represented by a Render Path's complete installed state used to produce frames. It remains unchanged until a required revision is installed atomically.
+The one Voxel Scene Revision represented completely over a Render Path's Installed Voxel Residency Selection by its installed state used to produce frames; for an unstreamed scene, that selection contains every volume. It remains unchanged until a required revision is acknowledged atomically, including when its selected contents require no resource changes.
 _Avoid_: Current revision, rendered version
 
 **Voxel Change Set**:
@@ -93,7 +109,7 @@ The Render Path whose complete installed state is designated to produce presente
 _Avoid_: Active path, current path
 
 **Replacement Render Path**:
-A Render Path being prepared at a fixed Voxel Scene Revision to take over from the Presenting Render Path. It does not produce presented frames before the handoff.
+A Render Path being prepared to take over from the Presenting Render Path at the Required Voxel Scene Revision and Required Voxel Residency Selection. It does not produce presented frames before the handoff.
 _Avoid_: Candidate path, inactive path
 
 **Retiring Render Path**:
