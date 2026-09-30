@@ -1,7 +1,8 @@
 {
-  "verdict": "FAIL",
-  "failed_phase": "GPU frame progress after Raster-to-Brickmap route handoff; host required restart",
-  "caps_status": "provisional, not ratified",
+  "verdict": "PASS",
+  "source_revision": "f7f6be45d8b67de324ebed7b96dd4528f35ffc39",
+  "gpu_device": "NVIDIA GeForce RTX 4070",
+  "caps_status": "complete evidence within every cap; ratification pending",
   "caps": {
     "cpu_materialization": {
       "formula": "19*S + (P-S)",
@@ -11,10 +12,10 @@
     },
     "raster_cpu": {
       "formula": "54*R + 6*H + R_peak",
-      "R": 1055136,
-      "H": 149952,
+      "R": 1046656,
+      "H": 91072,
       "R_peak": 1176992,
-      "bytes": 59054048
+      "bytes": 58242848
     },
     "brickmap_cpu": {
       "formula": "54*B + 9*B_peak",
@@ -66,17 +67,44 @@
       4020448
     ]
   },
-  "captured_gpu_prefix": {
-    "crossings_completed": 3,
-    "maximum_crossing_seconds": 0.250649201,
-    "maximum_switch_seconds": 0.2453271,
-    "residency_gpu_peak_bytes": [
-      311280,
-      756064
-    ],
-    "complete_route": false,
-    "full_coverage_stall_count": "unmeasured",
-    "rendered_plateau": "unmeasured",
-    "final_retirement_cleanup": "unmeasured"
+  "routes": {
+    "raster": {
+      "laps": 2,
+      "crossings_installed": 16,
+      "switches": 4,
+      "coverage_stalls": 0,
+      "maximum_crossing_seconds": 0.283269707,
+      "maximum_switch_seconds": 0.2797441,
+      "rendered_probes": 64.0,
+      "peak_copies": 19,
+      "peak_owners": 3,
+      "residency_gpu_peak_bytes": [
+        311280,
+        1512128
+      ],
+      "fixed_gpu_peak_bytes": 26543296,
+      "rendered_plateau": true,
+      "validation_messages": 0,
+      "final_cleanup": "zero"
+    },
+    "brickmap": {
+      "laps": 2,
+      "crossings_installed": 16,
+      "switches": 4,
+      "coverage_stalls": 0,
+      "maximum_crossing_seconds": 0.288112307,
+      "maximum_switch_seconds": 0.2859619,
+      "rendered_probes": 64.0,
+      "peak_copies": 19,
+      "peak_owners": 3,
+      "residency_gpu_peak_bytes": [
+        308160,
+        1524416
+      ],
+      "fixed_gpu_peak_bytes": 26543296,
+      "rendered_plateau": true,
+      "validation_messages": 0,
+      "final_cleanup": "zero"
+    }
   }
 }
