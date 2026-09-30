@@ -2,6 +2,8 @@
 
 The fixed streamed qualification passes on the NVIDIA GeForce RTX 4070, driver 0x94d84000. Every CPU and GPU mode was captured from committed source revision `f7f6be45d8b67de324ebed7b96dd4528f35ffc39`; `residency-context.json` records that revision, the toolchain, the device, the executable hash and source hashes. The byte-cap formulas and numeric caps below were ratified on 2026-09-30 in [#118](https://github.com/PetrSeifert/voxel-nexus/issues/118). `residency-summary.json` still says ratification is pending because it describes the evidence at capture time; changing the capture script would invalidate its recorded source hash.
 
+The numbers in this report describe the archived prototype capture. [#131](https://github.com/PetrSeifert/voxel-nexus/issues/131) replaces its runner with `streamed-residency-qualification`, using production streamed publication, edits, residency and Render Paths. The ratified constants, formulas, fixture and route remain fixed. Production capture on the RTX 4070 is tracked separately in [#132](https://github.com/PetrSeifert/voxel-nexus/issues/132).
+
 [#117](https://github.com/PetrSeifert/voxel-nexus/issues/117) first recorded a failure: after the Raster-to-Brickmap handoff, GPU frame progress stopped and the host required a restart. #118 traced that to the Brickmap traversal loop. Near an empty-brick corner, a coarse skip could move an untied axis back into the previous cell, so two cells alternated forever in an unbounded loop. Untied axes can no longer retreat, and a per-volume step cap turns any future violation into a miss; see [the compute DDA regression](compute-dda-regression.md). No budget was enlarged, no proof was reduced and no hysteresis was added. `host-failure.json` preserves the original incident.
 
 ## Frozen fixture
@@ -83,6 +85,10 @@ The earlier isolated-allocation calibration remains as archived `calibration.jso
 
 ## Verify and recapture
 
-Run `./scripts/verify-streamed-residency.ps1` to verify the captured evidence and regenerate `residency-summary.json`. Exit zero means the evidence meets every check and the summary verdict is **PASS**. `-RunCpu` repeats the CPU-only modes, which create no Vulkan instance or window. `-RunGpu` refuses an uncommitted working tree, then recaptures every CPU and GPU mode and records the source/device context. GPU modes require `--allow-gpu` and take about twenty minutes.
+The production verifier defaults to `docs/evidence/streamed-fixture/production`; the prototype evidence above remains archived. Run `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -EvidenceDirectory artifacts/streamed-cpu` to generate and verify CPU residency, fixed caps and the edit lifecycle without creating a window or Vulkan instance. The `cpu-baseline` runner mode remains available as a separate fully resident comparison.
+
+`-RunGpu` requires a clean committed tree and captures both route starts, two laps each, plus matched scenes. Every GPU invocation requires `--allow-gpu`. The verifier checks each live and peak allocation category against the ratified caps, along with fixed GPU memory, object counts, complete covered probe batches, clock origins, switch directions, replacement recovery and repeated allocation plateaus. `-DryRun` verifies local uncommitted GPU runs with a distinct verdict; it cannot be combined with recorded capture.
+
+Run `pwsh -NoProfile -File scripts/test-streamed-residency-verifier.ps1` for the positive and negative verifier fixtures. They create JSON evidence only and dispatch no graphics work. The qualification integration suite also runs them on Windows.
 
 Validation: frontend/oracle/raster/compute/backend release regression suites with all features, the ignored `compute_dda_gpu` test on the RTX 4070, `cargo fmt --all`, and workspace/all-target/all-feature Clippy. Production streaming architecture, durable persistence, networking, gameplay, dense streamed compute and large-terrain raster remain deferred.

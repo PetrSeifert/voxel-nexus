@@ -109,6 +109,10 @@ pub(super) fn derive_selection(
     cancellation: &AtomicBool,
     barrier: Option<&RasterConvergenceCpuBarrierShared>,
 ) -> Result<Option<RasterArtifact>, RasterArtifactBuildError> {
+    #[cfg(feature = "qualification")]
+    let _allocation_scope = voxel_frontend::QualificationAllocationScope::enter(
+        voxel_frontend::QualificationAllocationCategory::Raster,
+    );
     let revision = view.revision();
     let coverage = RenderPathCoverage::new(view, target.selection.clone()).map_err(|source| {
         build_error(

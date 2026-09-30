@@ -171,6 +171,25 @@ impl RasterRenderPathAdapter {
         })
     }
 
+    #[cfg(feature = "qualification")]
+    pub fn qualification_drain_convergence_events(
+        &mut self,
+    ) -> Result<Vec<RasterConvergenceEvent>, RasterConvergenceError> {
+        self.render_path.drain_convergence_events()
+    }
+    #[cfg(feature = "qualification")]
+    pub fn qualification_fail_next_convergence(
+        &mut self,
+        phase: RasterConvergenceFailurePhase,
+    ) -> Result<(), RasterConvergenceError> {
+        self.render_path.qualification_fail_next_convergence(phase)
+    }
+    #[cfg(feature = "qualification")]
+    pub fn qualification_request_retry(
+        &mut self,
+    ) -> Result<RasterConvergenceRetry, RasterConvergenceError> {
+        self.render_path.request_convergence_retry()
+    }
     #[cfg(any(test, feature = "qualification"))]
     pub fn qualification_advance_frame_boundary(&mut self) -> Result<(), RasterConvergenceError> {
         self.render_path.qualification_advance_frame_boundary()

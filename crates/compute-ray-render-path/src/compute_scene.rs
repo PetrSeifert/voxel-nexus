@@ -156,6 +156,10 @@ impl ComputeSceneBundle {
         counter: Arc<AtomicUsize>,
         progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
+        #[cfg(feature = "qualification")]
+        let _allocation_scope = voxel_frontend::QualificationAllocationScope::enter(
+            voxel_frontend::QualificationAllocationCategory::Brickmap,
+        );
         if matches!(representation, crate::ComputeRepresentation::Dense) {
             return Err(ComputeSceneBuildError::StreamedDense);
         }
@@ -210,16 +214,6 @@ impl ComputeSceneBundle {
             .map(|residency| residency.counter.clone())
     }
 
-    #[cfg(feature = "qualification")]
-    pub fn qualification_streamed(
-        view: &VoxelSceneView,
-        representation: crate::ComputeRepresentation,
-    ) -> Result<Self, ComputeSceneBuildError> {
-        if matches!(representation, crate::ComputeRepresentation::Dense) {
-            return Err(ComputeSceneBuildError::StreamedDense);
-        }
-        Self::from_view_with_representation(view, representation)
-    }
     pub fn representation(&self) -> crate::ComputeRepresentation {
         self.representation
     }

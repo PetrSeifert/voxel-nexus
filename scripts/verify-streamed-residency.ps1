@@ -1,244 +1,184 @@
-param(
-    [string]$EvidenceDirectory = "docs/evidence/streamed-fixture/development-machine",
-    [switch]$RunCpu,
-    [switch]$RunGpu
-)
-
-$ErrorActionPreference = "Stop"
-$workspaceDirectory = Split-Path -Parent $PSScriptRoot
+param([string]$EvidenceDirectory='docs/evidence/streamed-fixture/production',[switch]$RunCpu,[switch]$RunGpu,[switch]$CpuOnly,[switch]$DryRun)
+$ErrorActionPreference='Stop'
+Set-StrictMode -Version Latest
+$workspaceDirectory=Split-Path -Parent $PSScriptRoot
 Push-Location $workspaceDirectory
 try {
+    $caps=@{cpu_materialization=10300368L;raster_cpu=58242848L;brickmap_cpu=8914536L;raster_gpu=980640L;brickmap_gpu=4760640L}
+    $coefficients=@{S=413448L;P=2858304L;R=1046656L;H=91072L;R_peak=1176992L;B=100856L;B_peak=385368L;G_raster=18160L;G_brickmap=88160L}
+    $formulas=@{cpu_materialization=19*$coefficients.S+$coefficients.P-$coefficients.S;raster_cpu=54*$coefficients.R+6*$coefficients.H+$coefficients.R_peak;brickmap_cpu=54*$coefficients.B+9*$coefficients.B_peak;raster_gpu=54*$coefficients.G_raster;brickmap_gpu=54*$coefficients.G_brickmap}
+    foreach ($category in $caps.Keys) {if ($formulas[$category] -ne $caps[$category]) {throw 'Ratified formula changed'}}
+    $cpuModes=@('cpu-calibration','cpu-matched-8','cpu-matched-16','cpu-lifecycle')
+    $contract=Get-Content -Raw scripts/streamed-residency-contract.json | ConvertFrom-Json
+    $sourcePaths=@(rg --files apps crates scripts -g '*.rs' -g '*.toml' -g '*.comp' -g '*.vert' -g '*.frag' -g '*.ps1' -g 'streamed-residency-contract.json' | ForEach-Object {$_.Replace('\','/')} | Sort-Object)+@('Cargo.toml','Cargo.lock')
+    function Hash([string]$path) {
+        $content=[IO.File]::ReadAllText((Join-Path $workspaceDirectory $path)).Replace("`r`n","`n")
+        [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($content)))
+    }
+    function Frozen {
+        $recipe=Hash 'apps/desktop-demo/src/streamed_fixture_recipe.rs';$route=Hash 'apps/desktop-demo/src/streamed_residency_route.rs'
+        $probes=[IO.File]::ReadAllText((Join-Path $workspaceDirectory 'apps/desktop-demo/src/streamed_residency_probes.rs')).Replace("`r`n","`n")
+        $start=$probes.IndexOf('        for pixel in');$end=$probes.IndexOf('            let observation',$start)
+        if ($start -lt 0 -or $end -le $start) {throw 'Missing frozen probes'}
+        $probeHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($probes.Substring($start,$end-$start))))
+        @{fixture=$recipe;recipe=$recipe;route=$route;crossing_clock=$route;coverage=$route;probes=$probeHash;edit_script=(Hash 'scripts/streamed-residency-contract.json')}
+    }
+    function Read([string]$name) { @(Get-Content -LiteralPath (Join-Path $EvidenceDirectory "$name.jsonl") | ForEach-Object {$_ | ConvertFrom-Json}) }
+    function Records($rows,[string]$kind) { @($rows | Where-Object kind -eq $kind) }
+    function One($rows,[string]$kind,[string]$phase='') {
+        $items=@(Records $rows $kind)
+        if ($phase) {$items=@($items | Where-Object phase -eq $phase)}
+        if ($items.Count -ne 1) {throw "Expected one $kind/$phase record"};$items[0]
+    }
+    function True($value,[string]$reason) {if ($value -isnot [bool] -or -not $value) {throw $reason}}
+    function Number($value,[double]$maximum,[string]$reason) {
+        if ($null -eq $value -or $value -is [string] -or $value -is [bool] -or -not [double]::IsFinite([double]$value) -or $value -lt 0 -or $value -gt $maximum) {throw $reason}
+    }
+    function Array($values,[int]$length) {if (@($values).Count -ne $length) {throw 'Missing allocation array'};foreach ($value in $values) {Number $value ([double]::MaxValue) 'Invalid allocation count'}}
+    function Zero($values) {foreach ($value in $values) {Number $value 0 'Validation message or cleanup debt'}}
+    function Same($first,$second) {(ConvertTo-Json -InputObject $first -Compress) -ceq (ConvertTo-Json -InputObject $second -Compress)}
+    function Sample($record,[bool]$gpu) {
+        foreach ($field in @('cpu_live','cpu_peak','cpu_allocations')) {Array $record.$field 7}
+        foreach ($values in @($record.cpu_live,$record.cpu_peak)) {
+            Number ([long]$values[1]+[long]$values[2]) $caps.cpu_materialization 'CPU materialization/generation cap; reopen shaping'
+            Number $values[3] $caps.raster_cpu 'Raster CPU cap; reopen shaping';Number $values[4] $caps.brickmap_cpu 'Brickmap CPU cap; reopen shaping'
+            Number $values[0] 16777216 'Control heap bound';Number $values[5] 262144 'Metadata heap bound';Number $values[6] 16384 'Source/edit/history heap bound'
+        }
+        Number $record.copies 19 'Nineteen-copy admission';Number $record.peak_copies 19 'Nineteen-copy peak admission';Number $record.query_copies 1 'Query copy bound'
+        Number $record.metadata_entries 256 'Metadata count bound';Number $record.edited_coordinates 6 'Edit count bound';Number $record.history_entries 24 'History entry bound'
+        if (-not $gpu) {Number $record.generating 1 'Generation worker bound';return}
+        foreach ($field in @('gpu_live','gpu_peak','gpu_allocations','gpu_allocations_peak','gpu_objects','gpu_objects_peak')) {Array $record.$field 3}
+        foreach ($values in @($record.gpu_live,$record.gpu_peak)) {
+            Number $values[0] 26543904 'Fixed GPU cap; reopen shaping';Number $values[1] $caps.raster_gpu 'Raster GPU cap; reopen shaping';Number $values[2] $caps.brickmap_gpu 'Brickmap GPU cap; reopen shaping'
+        }
+        foreach ($values in @($record.gpu_objects,$record.gpu_objects_peak)) {Number $values[0] 6 'Pipeline object bound';Number $values[1] 3 'Image object bound';Number $values[2] 9 'Framebuffer bound'}
+        Number $record.gpu_allocations_peak[0] 9 'Fixed GPU allocation bound';Number $record.gpu_allocations_peak[1] 6480 'Raster buffer bound';Number $record.gpu_allocations_peak[2] 3 'Brickmap scene buffer bound'
+        Number $record.audit_entries 65536 'Audit entry bound';Number $record.owners 3 'Renderer owner bound';Number $record.workers 1 'Derivation worker bound';Number $record.raster_workers 1 'Raster worker bound';Number $record.brickmap_workers 1 'Brickmap worker bound';Number $record.representation_copies 18 'Representation copy bound';Number $record.coverage_stalls 0 'Coverage stall'
+        if ($record.presentation_images -ne 3) {throw 'Swapchain object bound'}
+    }
+    function Write-Context([string]$kind) {
+        $revision=git rev-parse HEAD;if ($LASTEXITCODE -ne 0) {throw 'Missing revision'}
+        $toolchain=@(rustc -Vv);if ($LASTEXITCODE -ne 0) {throw 'Missing toolchain'}
+        $cargoVersion=cargo -V;if ($LASTEXITCODE -ne 0) {throw 'Missing Cargo context'}
+        $device=$null;if ($kind -eq 'gpu') {$device=One (Read 'residency-raster') 'device'}
+        @{source_revision=$revision;source_dirty=(@(git status --porcelain).Count -ne 0);capture_kind=$kind;toolchain=$toolchain;cargo=$cargoVersion;gpu_device=$device;frozen_sha256=(Frozen);executable_sha256=(Get-FileHash target/release/streamed-residency-qualification.exe).Hash;source_sha256=@($sourcePaths | ForEach-Object {@{path=$_;sha256=(Hash $_)}})} | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $EvidenceDirectory residency-context.json)
+    }
     if ($RunGpu) {
-        # The evidence must describe one committed source context, not a working tree.
-        $uncommitted = git status --porcelain
-        if ($LASTEXITCODE -ne 0 -or $uncommitted) { throw "GPU capture requires a clean committed working tree" }
+        if ($DryRun) {throw 'Recorded capture cannot use DryRun'}
+        $dirty=@(git status --porcelain);if ($LASTEXITCODE -ne 0 -or $dirty.Count -ne 0) {throw 'GPU capture requires a clean committed working tree'}
     }
     if ($RunCpu -or $RunGpu) {
-        cargo build --release --locked -p desktop-demo --features qualification --bin streamed-residency-prototype
-        if ($LASTEXITCODE -ne 0) { throw "Qualification build failed" }
-        foreach ($mode in @("cpu-calibration", "cpu-baseline", "cpu-matched-8", "cpu-matched-16", "cpu-lifecycle")) {
-            & ./target/release/streamed-residency-prototype.exe $mode (Join-Path $EvidenceDirectory "$mode.jsonl")
-            if ($LASTEXITCODE -ne 0) { throw "$mode failed" }
+        New-Item -ItemType Directory -Force -Path $EvidenceDirectory | Out-Null
+        cargo build --release --locked -p desktop-demo --features qualification --bin streamed-residency-qualification
+        if ($LASTEXITCODE -ne 0) {throw 'Qualification build failed'}
+        foreach ($mode in $cpuModes) {
+            & ./target/release/streamed-residency-qualification.exe $mode (Join-Path $EvidenceDirectory "$mode.jsonl")
+            if ($LASTEXITCODE -ne 0) {throw "$mode failed"}
         }
-    }
-    if ($RunGpu) {
-        foreach ($mode in @("calibration", "baseline", "matched-8", "matched-16", "raster", "brickmap")) {
-            & ./target/release/streamed-residency-prototype.exe $mode (Join-Path $EvidenceDirectory "residency-$mode.jsonl") --allow-gpu `
-                2> (Join-Path $EvidenceDirectory "residency-$mode.stderr.log")
-            if ($LASTEXITCODE -ne 0) { throw "GPU $mode failed" }
-        }
-        $sourcePaths = @(
-            "apps/desktop-demo/Cargo.toml",
-            "apps/desktop-demo/src/streamed_fixture_allocations.rs",
-            "apps/desktop-demo/src/streamed_fixture_recipe.rs",
-            "apps/desktop-demo/src/streamed_residency_prototype.rs",
-            "apps/desktop-demo/src/streamed_residency_source.rs",
-            "apps/desktop-demo/src/streamed_residency_cpu.rs",
-            "apps/desktop-demo/src/streamed_residency_paths.rs",
-            "apps/desktop-demo/src/streamed_residency_route.rs",
-            "apps/desktop-demo/src/streamed_residency_runner.rs",
-            "crates/voxel-frontend/src/qualification_views.rs",
-            "crates/raster-render-path/src/meshing.rs",
-            "crates/compute-ray-render-path/src/compute_scene.rs",
-            "crates/compute-ray-render-path/shaders/dense_dda.comp",
-            "scripts/verify-streamed-residency.ps1"
-        )
-        $device = @(Get-Content -LiteralPath (Join-Path $EvidenceDirectory "residency-raster.jsonl") |
-            ForEach-Object { $_ | ConvertFrom-Json } | Where-Object kind -eq "device")
-        if ($device.Count -ne 1) { throw "The raster route did not record its device" }
-        $toolchain = @(rustc -Vv)
-        if ($LASTEXITCODE -ne 0) { throw "Could not record compiler context" }
-        $cargoVersion = cargo -V
-        if ($LASTEXITCODE -ne 0) { throw "Could not record Cargo context" }
-        $revision = git rev-parse HEAD
-        if ($LASTEXITCODE -ne 0) { throw "Could not record source revision" }
-        $context = [ordered]@{
-            captured_utc = (Get-Date).ToUniversalTime().ToString("o")
-            source_revision = $revision
-            toolchain = $toolchain
-            cargo = $cargoVersion
-            operating_system = (Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber)
-            processor = (Get-CimInstance Win32_Processor | Select-Object -ExpandProperty Name)
-            gpu_device = $device[0]
-            executable_sha256 = (Get-FileHash -LiteralPath ./target/release/streamed-residency-prototype.exe -Algorithm SHA256).Hash
-            source_sha256 = @($sourcePaths | ForEach-Object {
-                [ordered]@{ path = $_; sha256 = (Get-FileHash -LiteralPath $_ -Algorithm SHA256).Hash }
-            })
-        }
-        $context | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $EvidenceDirectory "residency-context.json")
-    }
-    function Read-Records($name) {
-        return @(Get-Content -LiteralPath (Join-Path $EvidenceDirectory "$name.jsonl") | ForEach-Object { $_ | ConvertFrom-Json })
-    }
-    function One-Record($records, $kind, $phase) {
-        $matching = @($records | Where-Object { $_.kind -eq $kind -and $_.phase -eq $phase })
-        if ($matching.Count -ne 1) { throw "Expected one $kind/$phase record" }
-        return $matching[0]
-    }
-    function Maximum($values) { return [long](($values | Measure-Object -Maximum).Maximum) }
-    function Same-Array($first, $second) { return ($first | ConvertTo-Json -Compress) -eq ($second | ConvertTo-Json -Compress) }
-
-    $calibration = Read-Records "cpu-calibration"
-    $gpuCalibration = Read-Records "residency-calibration"
-    $lifecycle = Read-Records "cpu-lifecycle"
-    $baseline = One-Record (Read-Records "cpu-baseline") "cpu-residency" "cpu-baseline"
-    $small = One-Record (Read-Records "cpu-matched-8") "cpu-residency" "cpu-matched-8"
-    $large = One-Record (Read-Records "cpu-matched-16") "cpu-residency" "cpu-matched-16"
-    $gpuBaseline = Read-Records "residency-baseline"
-    $gpuMatched = Read-Records "residency-matched-16"
-    $routes = [ordered]@{ raster = (Read-Records "residency-raster"); brickmap = (Read-Records "residency-brickmap") }
-    $context = Get-Content -Raw -LiteralPath (Join-Path $EvidenceDirectory "residency-context.json") | ConvertFrom-Json
-    if (-not $context.source_revision -or -not $context.gpu_device.name) { throw "Missing committed source/device context" }
-
-    foreach ($phase in @("generated", "edited", "restored")) {
-        $fingerprint = One-Record $calibration "fingerprint" $phase
-        $expected = if ($phase -eq "edited") { "478ee4a9737e1ad7" } else { "9660d9308d69ede5" }
-        if ($fingerprint.fingerprint -ne $expected) { throw "Frozen fingerprint changed" }
-    }
-    foreach ($category in 1..4) {
-        if ($small.cpu_live[$category] -ne $large.cpu_live[$category]) { throw "Matched CPU category $category differs" }
-    }
-    if ($small.cpu_live[6] -ne $large.cpu_live[6] -or $small.cpu_live[5] -ge $large.cpu_live[5]) {
-        throw "Metadata/history separation failed"
-    }
-    $perVolume = @($calibration | Where-Object kind -eq "cpu-residency")
-    $materialized = Maximum @($perVolume | ForEach-Object { [long]$_.cpu_live[1] + [long]$_.cpu_live[2] })
-    $publicationPeak = Maximum @($perVolume | ForEach-Object { [long]$_.cpu_peak[1] + [long]$_.cpu_peak[2] })
-    $raster = One-Record $gpuCalibration "residency" "edited-raster"
-    $generatedRaster = One-Record $gpuCalibration "residency" "generated-raster"
-    $brickmap = One-Record $gpuCalibration "residency" "edited-brickmap"
-    foreach ($phase in @("generated", "edited", "restored")) {
-        $stateRaster = One-Record $gpuCalibration "residency" "$phase-raster"
-        $stateBrickmap = One-Record $gpuCalibration "residency" "$phase-brickmap"
-        if ($stateRaster.cpu_live[3] -gt $raster.cpu_live[3] -or $stateRaster.cpu_peak[3] -gt $raster.cpu_peak[3] `
-                -or $stateRaster.gpu_live[1] -gt $raster.gpu_live[1] -or $stateBrickmap.cpu_live[4] -gt $brickmap.cpu_live[4] `
-                -or $stateBrickmap.cpu_peak[4] -gt $brickmap.cpu_peak[4] -or $stateBrickmap.gpu_live[2] -gt $brickmap.gpu_live[2]) {
-            throw "Per-volume coefficients do not bound every frozen state"
-        }
-    }
-    $selectedRaster = One-Record $gpuMatched "residency" "matched-edited-raster"
-    $rasterOverhead = [long]$selectedRaster.cpu_live[3] - 8 * [long]$generatedRaster.cpu_live[3] - [long]$raster.cpu_live[3]
-    if ($rasterOverhead -lt 0) { throw "Negative raster selection overhead" }
-    $renderCopies = 3 * 18
-    $caps = [ordered]@{
-        cpu_materialization = [ordered]@{ formula = "19*S + (P-S)"; S = $materialized; P = $publicationPeak; bytes = 19 * $materialized + $publicationPeak - $materialized }
-        raster_cpu = [ordered]@{ formula = "54*R + 6*H + R_peak"; R = $raster.cpu_live[3]; H = $rasterOverhead; R_peak = $raster.cpu_peak[3]; bytes = $renderCopies * [long]$raster.cpu_live[3] + 6 * $rasterOverhead + [long]$raster.cpu_peak[3] }
-        brickmap_cpu = [ordered]@{ formula = "54*B + 9*B_peak"; B = $brickmap.cpu_live[4]; B_peak = $brickmap.cpu_peak[4]; bytes = $renderCopies * [long]$brickmap.cpu_live[4] + 9 * [long]$brickmap.cpu_peak[4] }
-        raster_gpu = [ordered]@{ formula = "54*G_raster"; G_raster = $raster.gpu_live[1]; bytes = $renderCopies * [long]$raster.gpu_live[1] }
-        brickmap_gpu = [ordered]@{ formula = "54*G_brickmap"; G_brickmap = $brickmap.gpu_live[2]; bytes = $renderCopies * [long]$brickmap.gpu_live[2] }
-    }
-    $fullyResidentRaster = One-Record $gpuBaseline "residency" "initial"
-    $fullyResidentBrickmap = One-Record $gpuBaseline "residency" "baseline-brickmap"
-    $baselineBytes = [ordered]@{
-        cpu_materialization = [long]$baseline.cpu_live[1] + [long]$baseline.cpu_live[2]
-        raster_cpu = [long]$baseline.cpu_live[3]
-        brickmap_cpu = [long]$baseline.cpu_live[4]
-        raster_gpu = [long]$fullyResidentRaster.gpu_live[1]
-        brickmap_gpu = [long]$fullyResidentBrickmap.gpu_live[2]
-    }
-    foreach ($category in $caps.Keys) {
-        if ($baselineBytes[$category] -le $caps[$category].bytes) { throw "Baseline does not exceed $category cap" }
-    }
-    $cpuSamples = @($lifecycle | Where-Object kind -eq "cpu-residency")
-    foreach ($record in $cpuSamples) {
-        if ($record.copies -gt 19 -or $record.peak_copies -gt 19 -or $record.query_copies -gt 1 -or $record.generation_workers_peak -gt 1 -or $record.derivation_workers_peak -gt 1) {
-            throw "CPU admission/worker envelope failed"
-        }
-        if ([long]$record.cpu_peak[1] + [long]$record.cpu_peak[2] -gt $caps.cpu_materialization.bytes `
-                -or $record.cpu_peak[3] -gt $caps.raster_cpu.bytes -or $record.cpu_peak[4] -gt $caps.brickmap_cpu.bytes) {
-            throw "CPU category envelope failed"
-        }
-        if ($record.cpu_peak[0] -gt 16MB -or $record.cpu_peak[5] -gt 256KB -or $record.cpu_peak[6] -gt 16KB) { throw "Plain CPU bound failed" }
-    }
-    $firstLap = One-Record $lifecycle "cpu-residency" "lap-0-settled"
-    $secondLap = One-Record $lifecycle "cpu-residency" "lap-1-settled"
-    if ($firstLap.copies -ne 9 -or $secondLap.copies -ne 9 `
-            -or -not (Same-Array $firstLap.cpu_live[1..6] $secondLap.cpu_live[1..6]) `
-            -or -not (Same-Array $firstLap.cpu_allocations[1..6] $secondLap.cpu_allocations[1..6])) { throw "CPU travel plateau failed" }
-    foreach ($name in @("cpu-calibration", "cpu-baseline", "cpu-matched-8", "cpu-matched-16", "cpu-lifecycle")) {
-        foreach ($release in @((Read-Records $name) | Where-Object kind -eq "cpu-released")) {
-            if (@($release.live | Where-Object { $_ -ne 0 }).Count -ne 0) { throw "CPU cleanup debt" }
-        }
-    }
-    $routeSummaries = [ordered]@{}
-    foreach ($mode in $routes.Keys) {
-        $route = $routes[$mode]
-        $device = @($route | Where-Object kind -eq "device")
-        if ($device.Count -ne 1 -or $device[0].name -ne $context.gpu_device.name `
-                -or $device[0].driver_version -ne $context.gpu_device.driver_version -or -not $device[0].validation_enabled) {
-            throw "$mode ran on a different or unvalidated device"
-        }
-        if (-not (One-Record $route "context" $null).typed_dense_rejection) { throw "$mode did not reject streamed Dense" }
-        $gpuSamples = @($route | Where-Object kind -eq "residency")
-        foreach ($record in $gpuSamples) {
-            if ($record.peak_copies -gt 19 -or $record.peak_owners -gt 3 `
-                    -or $record.gpu_peak[1] -gt $caps.raster_gpu.bytes -or $record.gpu_peak[2] -gt $caps.brickmap_gpu.bytes `
-                    -or $record.gpu_peak[0] -gt 3 * [long]$brickmap.gpu_live[0] -or $record.cpu_peak[0] -gt 16MB) {
-                throw "$mode GPU sample exceeds an envelope"
+        if ($RunGpu) {
+            foreach ($mode in @('matched-8','matched-16','raster','brickmap')) {
+                & ./target/release/streamed-residency-qualification.exe $mode (Join-Path $EvidenceDirectory "residency-$mode.jsonl") --allow-gpu 2> (Join-Path $EvidenceDirectory "residency-$mode.stderr.log")
+                if ($LASTEXITCODE -ne 0) {throw "GPU $mode failed"}
             }
+            Write-Context 'gpu'
+        } else {Write-Context 'cpu'}
+    }
+    $context=Get-Content -Raw -LiteralPath (Join-Path $EvidenceDirectory residency-context.json) | ConvertFrom-Json
+    if ($context.source_revision -notmatch '^[a-f0-9]{40}$' -or @($context.toolchain).Count -lt 3 -or -not $context.cargo -or $context.executable_sha256 -notmatch '^[A-F0-9]{64}$') {throw 'Missing source/toolchain/executable provenance'}
+    $hashes=@($context.source_sha256)
+    if (-not (Same @($hashes.path | Sort-Object) @($sourcePaths | Sort-Object))) {throw 'Missing or duplicated source hashes'}
+    foreach ($hash in $hashes) {if ($hash.sha256 -cne (Hash $hash.path)) {throw "Changed source hash $($hash.path)"}}
+    $frozen=Frozen
+    foreach ($name in $frozen.Keys) {
+        if ($context.frozen_sha256.$name -cne $frozen[$name]) {throw "Changed frozen $name hash"}
+        if ($name -ne 'edit_script' -and $frozen[$name] -cne $contract.$name) {throw "Frozen $name definitions changed"}
+    }
+    $cpu=@{}
+    foreach ($mode in $cpuModes) {
+        $rows=Read $mode;$cpu[$mode]=$rows;$modeContext=One $rows 'context'
+        True $modeContext.cpu_only 'CPU mode created graphics work';True $modeContext.production 'CPU mode used prototype APIs'
+        if ($modeContext.gpu_dispatched -isnot [bool] -or $modeContext.gpu_dispatched) {throw 'CPU mode dispatched graphics'}
+        $samples=@(Records $rows 'cpu-residency');if ($samples.Count -lt 1) {throw 'Missing CPU samples'}
+        foreach ($sample in $samples) {Sample $sample $false}
+        $releases=@(Records $rows 'cpu-released');$expected=if ($mode -eq 'cpu-calibration') {3} else {1}
+        if ($releases.Count -ne $expected) {throw 'Missing CPU cleanup'}
+        foreach ($release in $releases) {Array $release.live 6;Zero $release.live}
+    }
+    foreach ($phase in @('generated','edited','restored')) {
+        $entry=One $cpu['cpu-calibration'] 'fingerprint' $phase;$expected=if ($phase -eq 'edited') {'478ee4a9737e1ad7'} else {'9660d9308d69ede5'}
+        if ($entry.fingerprint -cne $expected) {throw 'Frozen fingerprint changed'}
+    }
+    $small=One $cpu['cpu-matched-8'] 'cpu-residency' 'cpu-matched-8';$large=One $cpu['cpu-matched-16'] 'cpu-residency' 'cpu-matched-16'
+    if (-not (Same $small.cpu_live[1..4] $large.cpu_live[1..4]) -or $small.cpu_live[5] -ge $large.cpu_live[5] -or $small.cpu_live[6] -ne $large.cpu_live[6]) {throw 'Matched residency/metadata/history separation failed'}
+    $lifecycle=$cpu['cpu-lifecycle'];$result=One $lifecycle 'cpu-lifecycle-result'
+    foreach ($field in @('evicted_edit','historical_reads','restored','unrelated_edit_reuse','compacted','nineteen_copy_admission')) {True $result.$field "Missing lifecycle $field"}
+    if ($result.repeat_laps -ne 2) {throw 'Missing CPU lap'}
+    $compact=One $lifecycle 'compaction';if (-not (Same $compact.edit_script $contract.edit_script)) {throw 'Changed fixed edit script'};Zero @($compact.live_historical_views,$compact.edited_coordinates,$compact.history_entries);True $compact.unchanged_volume_reused 'Unrelated edit reuse missing'
+    $overlap=One $lifecycle 'cpu-residency' 'disjoint-query-overlap';if ($overlap.copies -ne 19 -or $overlap.query_copies -ne 1) {throw 'Missing nineteen-copy overlap'}
+    $first=One $lifecycle 'cpu-residency' 'lap-0-settled';$second=One $lifecycle 'cpu-residency' 'lap-1-settled'
+    if ($first.copies -ne 9 -or $second.copies -ne 9 -or -not (Same $first.cpu_live[1..6] $second.cpu_live[1..6]) -or -not (Same $first.cpu_allocations[1..6] $second.cpu_allocations[1..6])) {throw 'CPU allocation plateau differs'}
+    if ($CpuOnly -or ($RunCpu -and -not $RunGpu)) {
+        @{verdict='CPU PASS';caps=$caps;source_revision=$context.source_revision} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $EvidenceDirectory cpu-summary.json)
+        Write-Output 'CPU production residency, lifecycle and fixed caps verified.';return
+    }
+    if ($context.capture_kind -ne 'gpu' -and -not $DryRun) {throw 'Missing recorded GPU provenance'}
+    if ($context.source_dirty -and -not $DryRun) {throw 'Dirty GPU capture source'}
+    if (-not $context.gpu_device.name) {throw 'Missing device provenance'}
+    $summaries=@{}
+    foreach ($mode in @('matched-8','matched-16','raster','brickmap')) {
+        $rows=Read "residency-$mode";$device=One $rows 'device';True $device.validation_enabled 'Vulkan validation disabled'
+        if ($device.name -cne $context.gpu_device.name -or $device.driver_version -ne $context.gpu_device.driver_version -or $device.api_version -ne $context.gpu_device.api_version) {throw 'Device provenance differs'}
+        $route=One $rows 'context';True $route.production 'GPU mode used prototype APIs';True $route.typed_dense_rejection 'Missing typed Dense rejection'
+        if ($route.mode -cne $mode) {throw 'Wrong route start/mode'}
+        $samples=@(Records $rows 'residency');if ($samples.Count -lt 1) {throw 'Missing GPU samples'}
+        foreach ($sample in $samples) {Sample $sample $true}
+        $validation=One $rows 'validation';Zero @($validation.errors,$validation.warnings)
+        $release=One $rows 'released';foreach ($field in @('gpu_live','gpu_allocations','gpu_objects')) {Array $release.$field 3;Zero $release.$field};Zero @($release.workers)
+        $cpuRelease=One $rows 'cpu-released';Array $cpuRelease.live 6;Zero $cpuRelease.live
+        $probes=@(Records $rows 'probes');if ($probes.Count -lt 1) {throw 'Missing rendered/oracle probes'}
+        foreach ($probe in $probes) {
+            True $probe.matching 'Rendered/oracle mismatch';True $probe.coverage_contains_view 'Probe view outside installed coverage';True $probe.coverage_contains_ray_domain 'Probe ray domain outside installed coverage'
+            if ($probe.count -ne 4) {throw 'Incomplete frozen probe batch'}
         }
-        foreach ($phase in @("disjoint-query-overlap", "disjoint-renderer-overlap", "revision-replacement", "failed-candidate-cleaned", "stress-settled")) {
-            if (@($gpuSamples | Where-Object phase -eq $phase).Count -lt 1) { throw "$mode is missing the $phase sample" }
-        }
-        $installed = @($route | Where-Object kind -eq "installed")
-        foreach ($record in $installed) {
-            if ($record.crossing_seconds -gt 2.5 -or ($null -ne $record.switch_seconds -and $record.switch_seconds -gt 2.5) `
-                    -or -not $record.fence_safe -or -not $record.selection_matches) { throw "$mode installation deadline failed" }
-        }
-        $switches = @($installed | Where-Object { $null -ne $_.switch_seconds })
-        $laps = @($route | Where-Object kind -eq "route-result")
-        if ($installed.Count -ne 16 -or $switches.Count -ne 4 -or $laps.Count -ne 2) {
-            throw "$mode did not complete both laps with both switch directions"
-        }
-        foreach ($lap in $laps) {
-            if ($lap.crossings -ne 8 -or $lap.installed_crossings -ne 8 -or $lap.coverage_stalls -ne 0 -or $lap.rendered_probes -lt 1) {
-                throw "$mode lap $($lap.lap) failed coverage or crossings"
+        if ($mode -like 'matched-*') {continue}
+        if ($route.route_start -cne $mode) {throw 'Missing route start'}
+        $installed=@(Records $rows 'installed');$crossings=@(Records $rows 'crossing');$laps=@(Records $rows 'route-result')
+        if ($installed.Count -ne 16 -or $crossings.Count -ne 16 -or $laps.Count -ne 2) {throw 'Missing route lap or fence-safe installation'}
+        foreach ($lapIndex in 0..1) {
+            $lap=@($laps | Where-Object lap -eq $lapIndex)
+            if ($lap.Count -ne 1 -or $lap[0].crossings -ne 8 -or $lap[0].installed_crossings -ne 8 -or $lap[0].rendered_probes -ne 32) {throw 'Missing or incomplete lap'}
+            Number $lap[0].coverage_stalls 0 'Route coverage stall';$directions=@()
+            foreach ($index in 0..7) {
+                $crossing=@($crossings | Where-Object {$_.lap -eq $lapIndex -and $_.index -eq $index});$install=@($installed | Where-Object {$_.lap -eq $lapIndex -and $_.index -eq $index})
+                if ($crossing.Count -ne 1 -or $install.Count -ne 1) {throw 'Uninstalled or duplicated crossing'}
+                $crossing=$crossing[0];$install=$install[0];$expected=@($route.crossings)[$index]
+                if ([math]::Abs($crossing.origin_seconds-$expected) -gt 0.000000001 -or $crossing.unresolved_origin_seconds -ne $crossing.origin_seconds) {throw 'Analytic crossing clock restarted or changed'}
+                True $install.fence_safe 'Installation was not fence safe';True $install.selection_matches 'Selection mismatch';Number $install.crossing_seconds 2.5 'Crossing exceeded 2.5 seconds; reopen shaping'
+                if ([math]::Abs($install.boundary_seconds-$crossing.origin_seconds-$install.crossing_seconds) -gt 0.000001) {throw 'Crossing latency did not end at actual boundary'}
+                if ($index -eq 2 -or $index -eq 5) {
+                    True $crossing.switch_requested 'Missing switch request';Number $install.switch_seconds 2.5 'Switch exceeded 2.5 seconds; reopen shaping';Number $crossing.switch_requested_seconds $install.boundary_seconds 'Invalid switch request clock'
+                    $origin=[math]::Max($crossing.origin_seconds,$crossing.switch_requested_seconds)
+                    if ([math]::Abs($install.boundary_seconds-$origin-$install.switch_seconds) -gt 0.000001) {throw 'Handoff latency did not end at actual boundary'}
+                    $directions+="$($install.from)>$($install.to)"
+                } elseif ($null -ne $install.switch_seconds -or $crossing.switch_requested) {throw 'Unexpected switch crossing'}
+                if (@($probes | Where-Object {$_.lap -eq $lapIndex -and $_.index -eq $index}).Count -ne 1) {throw 'Missing crossing probe comparison'}
             }
+            if (-not (Same @($directions | Sort-Object) @('voxel-nexus.compute-ray>voxel-nexus.raster','voxel-nexus.raster>voxel-nexus.compute-ray'))) {throw 'Missing switch direction in lap'}
         }
-        $churn = One-Record $route "boundary-churn" $null
-        if ($churn.coverage_stalls -ne 0 -or $churn.installations -ne $churn.crossings -or $churn.hysteresis) { throw "$mode boundary churn failed" }
-        $recovery = One-Record $route "failure-recovery" "raster-upload"
-        if (-not $recovery.presenting_preserved) { throw "$mode failed upload did not preserve presentation" }
-        $settled = @($gpuSamples | Where-Object phase -eq "lap-settled")
-        if ($settled.Count -ne 2 -or $settled[0].copies -ne 9 -or $settled[1].copies -ne 9 `
-                -or -not (Same-Array $settled[0].cpu_live[1..6] $settled[1].cpu_live[1..6]) `
-                -or -not (Same-Array $settled[0].cpu_allocations[1..6] $settled[1].cpu_allocations[1..6]) `
-                -or -not (Same-Array $settled[0].gpu_live $settled[1].gpu_live) `
-                -or -not (Same-Array $settled[0].gpu_allocations $settled[1].gpu_allocations)) { throw "$mode rendered travel plateau failed" }
-        $validation = One-Record $route "validation" $null
-        if ($validation.errors -ne 0 -or $validation.warnings -ne 0) { throw "$mode reported Vulkan validation messages" }
-        $released = One-Record $route "released" $null
-        if (@($released.cpu_residency | Where-Object { $_ -ne 0 }).Count -ne 0 -or @($released.gpu_live | Where-Object { $_ -ne 0 }).Count -ne 0) {
-            throw "$mode retained cleanup debt"
+        foreach ($phase in @('revision-replacement','disjoint-query-overlap','failed-candidate-cleaned','stress-settled')) {One $rows 'residency' $phase | Out-Null}
+        $admission=One $rows 'admission';if ($admission.copies -ne 19) {throw 'Missing GPU nineteen-copy admission'};True $admission.second_query_rejected 'Admitted second query copy'
+        $recovery=One $rows 'failure-recovery' 'raster-upload';True $recovery.observed_upload_failure 'Missing upload failure';True $recovery.presenting_preserved 'Upload failure changed presentation'
+        $churn=One $rows 'boundary-churn'
+        if ($churn.crossings -ne 12 -or $churn.installations -ne 12 -or $churn.hysteresis -isnot [bool] -or $churn.hysteresis) {throw 'Missing boundary churn or changed policy'};Number $churn.coverage_stalls 0 'Boundary churn coverage stall'
+        $compact=One $rows 'compaction';if (-not (Same $compact.edit_script $contract.edit_script)) {throw 'Changed route edit script'};Zero @($compact.live_historical_views,$compact.edited_coordinates,$compact.history_entries);True $compact.unchanged_volume_reused 'Missing route unrelated-edit reuse'
+        $settled=@(Records $rows 'residency' | Where-Object phase -eq 'lap-settled')
+        if ($settled.Count -ne 2 -or $settled[0].copies -ne 9 -or $settled[1].copies -ne 9) {throw 'Missing settled lap plateaus'}
+        foreach ($field in @('cpu_live','cpu_allocations','gpu_live','gpu_allocations','gpu_objects')) {
+            $first=$settled[0].$field;$second=$settled[1].$field;if ($field -like 'cpu_*') {$first=$first[1..6];$second=$second[1..6]}
+            if (-not (Same $first $second)) {throw "Lap allocation plateau differs: $field"}
         }
-        $routeSummaries[$mode] = [ordered]@{
-            laps = $laps.Count
-            crossings_installed = $installed.Count
-            switches = $switches.Count
-            coverage_stalls = 0
-            maximum_crossing_seconds = ($installed.crossing_seconds | Measure-Object -Maximum).Maximum
-            maximum_switch_seconds = ($switches.switch_seconds | Measure-Object -Maximum).Maximum
-            rendered_probes = ($laps.rendered_probes | Measure-Object -Sum).Sum
-            peak_copies = Maximum $gpuSamples.peak_copies
-            peak_owners = Maximum $gpuSamples.peak_owners
-            residency_gpu_peak_bytes = @((Maximum @($gpuSamples | ForEach-Object { $_.gpu_peak[1] })), (Maximum @($gpuSamples | ForEach-Object { $_.gpu_peak[2] })))
-            fixed_gpu_peak_bytes = Maximum @($gpuSamples | ForEach-Object { $_.gpu_peak[0] })
-            rendered_plateau = $true
-            validation_messages = 0
-            final_cleanup = "zero"
-        }
+        $summaries[$mode]=@{laps=2;installations=16;switches=4;probes=64;maximum_crossing_seconds=($installed.crossing_seconds | Measure-Object -Maximum).Maximum}
     }
-    $summary = [ordered]@{
-        verdict = "PASS"
-        source_revision = $context.source_revision
-        gpu_device = $context.gpu_device.name
-        caps_status = "complete evidence within every cap; ratification pending"
-        caps = $caps
-        baseline_bytes = $baselineBytes
-        fixed_bounds = [ordered]@{ control_heap_bytes = 16MB; metadata_heap_bytes = 256KB; history_heap_bytes = 16KB; fixed_application_gpu_bytes = 3 * [long]$brickmap.gpu_live[0]; metadata_entries = 256; historical_views = 2; edited_coordinates = 6; source_recipes = 1; swapchain_images = 3; renderer_owners = 3; audit_entries = 65536 }
-        cpu_lifecycle = [ordered]@{ peak_copies = Maximum $cpuSamples.peak_copies; settled_copies = 9; repeated_plateau = $true; cleanup = "zero"; metadata_live_bytes = $secondLap.cpu_live[5]; history_peak_bytes = Maximum @($cpuSamples | ForEach-Object { $_.cpu_peak[6] }); residency_peak_bytes = @((Maximum @($cpuSamples | ForEach-Object { [long]$_.cpu_peak[1] + [long]$_.cpu_peak[2] })), (Maximum @($cpuSamples | ForEach-Object { $_.cpu_peak[3] })), (Maximum @($cpuSamples | ForEach-Object { $_.cpu_peak[4] }))) }
-        routes = $routeSummaries
-    }
-    $summary | ConvertTo-Json -Depth 9 | Set-Content -LiteralPath (Join-Path $EvidenceDirectory "residency-summary.json")
-    Write-Output "Evidence verified. Qualification verdict: PASS. Byte caps await ratification."
-} finally { Pop-Location }
+    @{verdict=$(if ($DryRun) {'DRY RUN PASS'} else {'PASS'});caps=$caps;source_revision=$context.source_revision;routes=$summaries} | ConvertTo-Json -Depth 7 | Set-Content (Join-Path $EvidenceDirectory residency-summary.json)
+    Write-Output 'Production streamed qualification verified within the fixed caps.'
+} finally {Pop-Location}

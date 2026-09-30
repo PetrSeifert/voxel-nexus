@@ -1022,6 +1022,24 @@ pub(super) fn create_scene_gpu_resources(
     predict_allocation: impl FnOnce(u64, u64) -> Result<(), crate::ComputeSceneBuildError>,
 ) -> Result<ComputeSceneGpuResources, ComputeRenderPathError> {
     let byte_size = scene_storage_byte_size(device, bundle)?;
+    #[cfg(feature = "qualification")]
+    {
+        render_backend::with_gpu_scene_buffer(byte_size, || {
+            create_scene_gpu_resources_inner(device, bundle, predict_allocation)
+        })
+    }
+    #[cfg(not(feature = "qualification"))]
+    {
+        let _byte_size = byte_size;
+        create_scene_gpu_resources_inner(device, bundle, predict_allocation)
+    }
+}
+fn create_scene_gpu_resources_inner(
+    device: &RenderPathDeviceContext<'_>,
+    bundle: &ComputeSceneBundle,
+    predict_allocation: impl FnOnce(u64, u64) -> Result<(), crate::ComputeSceneBuildError>,
+) -> Result<ComputeSceneGpuResources, ComputeRenderPathError> {
+    let byte_size = scene_storage_byte_size(device, bundle)?;
     let buffer_info = vk::BufferCreateInfo::default()
         .size(byte_size)
         .usage(vk::BufferUsageFlags::STORAGE_BUFFER)

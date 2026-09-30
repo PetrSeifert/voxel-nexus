@@ -16,6 +16,10 @@ impl RenderPathCoverage {
         view: &VoxelSceneView,
         installed: VoxelResidencySelection,
     ) -> Result<Self, VoxelFrontendError> {
+        #[cfg(feature = "qualification")]
+        let _allocation_scope = voxel_frontend::QualificationAllocationScope::enter(
+            voxel_frontend::QualificationAllocationCategory::Metadata,
+        );
         if installed.scene_id() != view.scene_id() {
             return Err(VoxelFrontendError::ResidencySceneMismatch);
         }

@@ -53,6 +53,9 @@ pub(super) struct OverlayVersion {
 
 impl OverlayVersion {
     pub(super) fn new(revision: VoxelSceneRevision) -> Arc<Self> {
+        #[cfg(feature = "qualification")]
+        let _allocation_scope =
+            QualificationAllocationScope::enter(QualificationAllocationCategory::History);
         let mut state = EditState::default();
         state.live_revisions.insert(revision.0);
         Arc::new(Self {
@@ -144,6 +147,9 @@ impl OverlayVersion {
         changes: &HashMap<VoxelVolumeId, Vec<(VoxelCoordinate, MaterialIndex)>>,
         generated: &HashMap<EditCoordinate, MaterialIndex>,
     ) -> Result<Arc<Self>, VoxelFrontendError> {
+        #[cfg(feature = "qualification")]
+        let _allocation_scope =
+            QualificationAllocationScope::enter(QualificationAllocationCategory::History);
         let mut state = self
             .history
             .state

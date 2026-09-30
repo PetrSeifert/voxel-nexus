@@ -217,41 +217,6 @@ impl RasterArtifact {
             .map(|residency| residency.coverage.installed_selection())
     }
 
-    #[cfg(feature = "qualification")]
-    pub fn qualification_assemble(
-        view: &VoxelSceneView,
-        artifacts: &[Self],
-    ) -> Result<Self, RasterArtifactBuildError> {
-        let mut regions = Vec::new();
-        let mut identities = HashSet::new();
-        for artifact in artifacts {
-            if artifact.scene_identity() != view.scene_id() {
-                return Err(build_error(
-                    view.revision(),
-                    RasterArtifactBuildPhase::Metadata,
-                    RasterArtifactBuildCause::QualificationAssembly,
-                ));
-            }
-            for region in artifact.regions() {
-                if !view
-                    .volumes()
-                    .iter()
-                    .any(|volume| volume.identity() == region.identity().volume_identity())
-                    || !identities.insert(region.identity().clone())
-                {
-                    return Err(build_error(
-                        view.revision(),
-                        RasterArtifactBuildPhase::Metadata,
-                        RasterArtifactBuildCause::QualificationAssembly,
-                    ));
-                }
-                let mut region = region.clone();
-                region.source_revision = view.revision();
-                regions.push(region);
-            }
-        }
-        assemble_derived_raster_regions(view, VoxelExtent::new(16, 16, 16), regions)
-    }
     pub fn scene_identity(&self) -> &VoxelSceneId {
         &self.scene_identity
     }
@@ -389,9 +354,6 @@ pub enum RasterArtifactBuildCause {
     ResidencySelectionTooLarge,
     #[error("Raster residency representation limit of eighteen copies is exhausted")]
     ResidencyCopyLimit,
-    #[cfg(feature = "qualification")]
-    #[error("qualification artifacts must be unique regions in the supplied scene selection")]
-    QualificationAssembly,
     #[error("unknown Voxel Volume identity {0:?}")]
     UnknownVolume(VoxelVolumeId),
     #[error("Voxel Volume dimensions cannot be represented as logical coordinates")]

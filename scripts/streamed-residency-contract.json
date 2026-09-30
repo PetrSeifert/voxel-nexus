@@ -1,0 +1,23 @@
+{
+  "version": "streamed-qualification-v1",
+  "fixture": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
+  "recipe": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
+  "route": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
+  "crossing_clock": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
+  "coverage": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
+  "probes": "1D7859D8991737C70EC81358B487C63DC511880898AC5E2E647E2FD5F4EE5F25",
+  "edit_script": [
+    "retain-generated",
+    "edit-3-3",
+    "retain-edited",
+    "evict-2-2",
+    "edit-2-2-nonresident",
+    "reload-2-2",
+    "historical-generated",
+    "historical-edited",
+    "restore-2-2",
+    "restore-3-3",
+    "drop-history",
+    "compact"
+  ]
+}

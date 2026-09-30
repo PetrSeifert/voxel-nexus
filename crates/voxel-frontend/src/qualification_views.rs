@@ -3,69 +3,7 @@ use crate::cell_enumeration::{CellGrid, CellSource, ScanningCellSource};
 
 type Source = dyn Fn(&VoxelVolumeId, VoxelCoordinate) -> VoxelValue + Send + Sync;
 
-#[derive(Debug, Error)]
-pub enum QualificationViewError {
-    #[error("qualification assembly requires at least one materialized view")]
-    Empty,
-    #[error("qualification views must belong to one scene with identical material palettes")]
-    Palette,
-    #[error("qualification assembly requires unstreamed materialized views")]
-    StreamedAssembly,
-    #[error(transparent)]
-    Frontend(#[from] VoxelFrontendError),
-}
-
 impl VoxelSceneView {
-    /// Qualification-only assembly shares each supplied materialized allocation.
-    pub fn qualification_assemble(
-        revision: VoxelSceneRevision,
-        views: &[Self],
-    ) -> Result<Self, QualificationViewError> {
-        let first = views.first().ok_or(QualificationViewError::Empty)?;
-        let mut published = (*first.published).clone();
-        published.revision = revision;
-        published.volumes.clear();
-        published.volume_content_versions.clear();
-        let mut metadata = Vec::new();
-        for view in views {
-            if view.published.streamed.is_some() {
-                return Err(QualificationViewError::StreamedAssembly);
-            }
-            if view.scene_id() != first.scene_id()
-                || view.published.palette_values != first.published.palette_values
-                || view.materials() != first.materials()
-            {
-                return Err(QualificationViewError::Palette);
-            }
-            for volume in view.volumes() {
-                let storage = view
-                    .published
-                    .volumes
-                    .get(volume.identity())
-                    .expect("published metadata identifies its storage");
-                if published
-                    .volumes
-                    .insert(volume.identity().clone(), storage.clone())
-                    .is_some()
-                {
-                    return Err(VoxelFrontendError::DuplicateVolumeIdentity {
-                        identity: volume.identity().clone(),
-                    }
-                    .into());
-                }
-                metadata.push(volume.clone());
-                published.volume_content_versions.insert(
-                    volume.identity().clone(),
-                    view.volume_content_version(volume.identity())?,
-                );
-            }
-        }
-        published.volume_metadata = metadata.into();
-        Ok(Self {
-            published: Arc::new(published),
-        })
-    }
-
     /// The source must be immutable, total inside each volume, and return declared materials.
     /// This view is an independent whole-scene oracle input, never renderer residency storage.
     pub fn qualification_source(
@@ -165,68 +103,6 @@ impl Storage for RecipeStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn volume(identity: &str) -> Result<VoxelSceneView, VoxelFrontendError> {
-        VoxelFrontend::new().publish(DenseVoxelScene::new(
-            VoxelSceneId::new("qualification"),
-            VoxelSceneRevision::new(1),
-            vec![],
-            vec![DenseVoxelVolume::new(
-                VoxelVolumeMetadata::new(
-                    VoxelVolumeId::new(identity),
-                    VoxelExtent::new(2, 1, 1),
-                    [0.0; 3],
-                    1.0,
-                ),
-                vec![DenseVoxelBatch::new(
-                    VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(2, 1, 1)),
-                    vec![VoxelValue::Empty; 2],
-                )],
-            )],
-        ))
-    }
-
-    #[test]
-    fn assembly_shares_storage_and_rejects_duplicate_ownership()
-    -> Result<(), Box<dyn std::error::Error>> {
-        let first = volume("first")?;
-        let second = volume("second")?;
-        let assembled = VoxelSceneView::qualification_assemble(
-            VoxelSceneRevision::new(7),
-            &[first.clone(), second.clone()],
-        )?;
-        assert_eq!(assembled.revision(), VoxelSceneRevision::new(7));
-        assert_eq!(assembled.volumes().len(), 2);
-        for original in [&first, &second] {
-            let identity = original
-                .volumes()
-                .first()
-                .ok_or("missing metadata")?
-                .identity();
-            assert!(Arc::ptr_eq(
-                original
-                    .published
-                    .volumes
-                    .get(identity)
-                    .ok_or("missing original storage")?,
-                assembled
-                    .published
-                    .volumes
-                    .get(identity)
-                    .ok_or("missing assembled storage")?
-            ));
-        }
-        assert!(matches!(
-            VoxelSceneView::qualification_assemble(
-                VoxelSceneRevision::new(7),
-                &[first.clone(), first]
-            ),
-            Err(QualificationViewError::Frontend(
-                VoxelFrontendError::DuplicateVolumeIdentity { .. }
-            ))
-        ));
-        Ok(())
-    }
 
     #[test]
     fn recipe_view_keeps_full_membership_without_materialization()

@@ -7,8 +7,12 @@ use voxel_frontend::{
 };
 
 pub(super) fn scene() -> StreamedVoxelScene {
+    scene_with_side(16)
+}
+
+pub(super) fn scene_with_side(side: u32) -> StreamedVoxelScene {
     let identity = VoxelSceneId::new("streamed-qualification-v1");
-    let volumes = recipe::catalog(16)
+    let volumes = recipe::catalog(side)
         .into_iter()
         .map(|metadata| {
             let [x, _, z] = metadata.scene_origin();

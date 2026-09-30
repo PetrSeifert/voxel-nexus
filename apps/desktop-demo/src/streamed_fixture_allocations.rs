@@ -75,7 +75,10 @@ unsafe impl GlobalAlloc for MeasuringAllocator {
         if base.is_null() {
             return base;
         }
-        let category = CATEGORY.try_with(Cell::get).unwrap_or(Category::Control) as usize;
+        let category = voxel_frontend::qualification_allocation_category().map_or_else(
+            || CATEGORY.try_with(Cell::get).unwrap_or(Category::Control) as usize,
+            |category| category as usize,
+        );
         // SAFETY: base is aligned for Header; offset identifies the caller's region inside this allocation.
         unsafe {
             base.cast::<Header>().write(Header { category });

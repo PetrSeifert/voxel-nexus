@@ -125,18 +125,6 @@ impl ComputeRayRenderPathAdapter {
         })
     }
 
-    #[cfg(feature = "qualification")]
-    pub fn qualification_from_bundle(
-        bundle: ComputeSceneBundle,
-        camera: CameraState,
-        revision: CameraStateRevision,
-    ) -> Self {
-        Self {
-            render_path: ComputeRayRenderPath::new(bundle, camera, None),
-            camera_state_revision: revision,
-            published_camera_state_revision: revision,
-        }
-    }
     pub fn new(
         view: VoxelSceneView,
         camera_state: CameraState,
@@ -246,6 +234,9 @@ impl ComputeRayRenderPathAdapter {
         self.render_path.convergence.request_retry()
     }
 
+    pub fn residency_held_copy_count(&self) -> usize {
+        self.render_path.convergence.residency_held_copy_count()
+    }
     pub fn convergence_status(&self) -> ComputeConvergenceStatus {
         self.render_path.convergence.status()
     }

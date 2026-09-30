@@ -8,7 +8,7 @@ mod residency_coverage;
 #[cfg(feature = "qualification")]
 pub use allocation_qualification::{
     GpuAllocationClass, GpuAllocationQualification, GpuAllocationQualificationError,
-    GpuAllocationSnapshot, with_gpu_allocation_owner,
+    GpuAllocationSnapshot, with_gpu_allocation_owner, with_gpu_scene_buffer,
 };
 pub use residency_coverage::RenderPathCoverage;
 

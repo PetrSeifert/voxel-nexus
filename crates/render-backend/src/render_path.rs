@@ -4,6 +4,8 @@ use super::render_path_switching::{
     CameraStateRevision, RenderPathSwitchDiagnostics, RenderPathSwitchRequestError,
     SwitchableRenderPath,
 };
+#[cfg(feature = "qualification")]
+use ash::vk::Handle;
 use ash::{Entry, Instance, vk};
 use std::ffi::CString;
 use std::fmt;
@@ -295,7 +297,12 @@ impl RenderPathDeviceContext<'_> {
     ) -> Result<vk::Image, vk::Result> {
         #[cfg(feature = "qualification")]
         super::allocation_qualification::image();
-        unsafe { self.device.create_image(create_info, None) }
+        let result = unsafe { self.device.create_image(create_info, None) };
+        #[cfg(feature = "qualification")]
+        if let Ok(handle) = result {
+            super::allocation_qualification::object_created(1, handle.as_raw());
+        }
+        result
     }
 
     /// # Safety
@@ -332,6 +339,8 @@ impl RenderPathDeviceContext<'_> {
     /// # Safety
     /// `image` must belong to this device and no submitted work or live view may use it.
     pub unsafe fn destroy_image(&self, image: vk::Image) {
+        #[cfg(feature = "qualification")]
+        super::allocation_qualification::object_destroyed(1, image.as_raw());
         unsafe { self.device.destroy_image(image, None) };
     }
     /// # Safety
@@ -372,10 +381,18 @@ impl RenderPathDeviceContext<'_> {
         pipeline_cache: vk::PipelineCache,
         create_infos: &[vk::GraphicsPipelineCreateInfo<'_>],
     ) -> Result<Vec<vk::Pipeline>, (Vec<vk::Pipeline>, vk::Result)> {
-        unsafe {
+        let result = unsafe {
             self.device
                 .create_graphics_pipelines(pipeline_cache, create_infos, None)
+        };
+        #[cfg(feature = "qualification")]
+        for pipeline in match &result {
+            Ok(pipelines) => pipelines,
+            Err((pipelines, _)) => pipelines,
+        } {
+            super::allocation_qualification::object_created(0, pipeline.as_raw());
         }
+        result
     }
 
     /// # Safety
@@ -386,10 +403,18 @@ impl RenderPathDeviceContext<'_> {
         pipeline_cache: vk::PipelineCache,
         create_infos: &[vk::ComputePipelineCreateInfo<'_>],
     ) -> Result<Vec<vk::Pipeline>, (Vec<vk::Pipeline>, vk::Result)> {
-        unsafe {
+        let result = unsafe {
             self.device
                 .create_compute_pipelines(pipeline_cache, create_infos, None)
+        };
+        #[cfg(feature = "qualification")]
+        for pipeline in match &result {
+            Ok(pipelines) => pipelines,
+            Err((pipelines, _)) => pipelines,
+        } {
+            super::allocation_qualification::object_created(0, pipeline.as_raw());
         }
+        result
     }
 
     /// # Safety
@@ -477,7 +502,12 @@ impl RenderPathDeviceContext<'_> {
             .width(extent.width)
             .height(extent.height)
             .layers(1);
-        unsafe { self.device.create_framebuffer(&create_info, None) }
+        let result = unsafe { self.device.create_framebuffer(&create_info, None) };
+        #[cfg(feature = "qualification")]
+        if let Ok(handle) = result {
+            super::allocation_qualification::object_created(2, handle.as_raw());
+        }
+        result
     }
 
     /// # Safety
@@ -496,13 +526,20 @@ impl RenderPathDeviceContext<'_> {
             .width(extent.width)
             .height(extent.height)
             .layers(1);
-        unsafe { self.device.create_framebuffer(&create_info, None) }
+        let result = unsafe { self.device.create_framebuffer(&create_info, None) };
+        #[cfg(feature = "qualification")]
+        if let Ok(handle) = result {
+            super::allocation_qualification::object_created(2, handle.as_raw());
+        }
+        result
     }
 
     /// # Safety
     ///
     /// `framebuffer` must belong to this device and no submitted work may still use it.
     pub unsafe fn destroy_framebuffer(&self, framebuffer: vk::Framebuffer) {
+        #[cfg(feature = "qualification")]
+        super::allocation_qualification::object_destroyed(2, framebuffer.as_raw());
         unsafe { self.device.destroy_framebuffer(framebuffer, None) };
     }
 
@@ -510,6 +547,8 @@ impl RenderPathDeviceContext<'_> {
     ///
     /// `pipeline` must belong to this device and no submitted work may still use it.
     pub unsafe fn destroy_pipeline(&self, pipeline: vk::Pipeline) {
+        #[cfg(feature = "qualification")]
+        super::allocation_qualification::object_destroyed(0, pipeline.as_raw());
         unsafe { self.device.destroy_pipeline(pipeline, None) };
     }
 

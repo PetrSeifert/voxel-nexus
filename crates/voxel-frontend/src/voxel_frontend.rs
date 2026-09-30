@@ -12,9 +12,14 @@ mod page_table;
 mod residency;
 pub use residency::{VoxelResidencyCopies, VoxelResidencySelection, VoxelResidencySelectionId};
 #[cfg(feature = "qualification")]
+mod allocation_observation;
+#[cfg(feature = "qualification")]
 mod qualification_views;
 #[cfg(feature = "qualification")]
-pub use qualification_views::QualificationViewError;
+pub use allocation_observation::{
+    QualificationAllocationCategory, QualificationAllocationScope,
+    qualification_allocation_category,
+};
 #[cfg(test)]
 mod sharing_tests;
 mod sparse_publication;

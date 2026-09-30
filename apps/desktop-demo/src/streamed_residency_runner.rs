@@ -1,23 +1,27 @@
 use super::{
     allocation::{self, Category},
-    streamed_residency_paths::{Artifacts, Boundary, Install, Kind, Shared},
-    streamed_residency_route as route,
-    streamed_residency_source::{Cache, Key, Snapshot, keys},
-    windows_adapter,
+    streamed_fixture_recipe as recipe, streamed_qualification as cpu,
+    streamed_qualification_observation::*,
+    streamed_qualification_oracle::Oracle,
+    streamed_residency_probes::Probes,
+    streamed_residency_route as route, windows_adapter,
 };
 use ash::vk;
-use compute_ray_render_path::{ComputeRepresentation, ComputeSceneBuildError, ComputeSceneBundle};
-use render_backend::{
-    CameraState, CameraStateRevision, GpuAllocationQualification, RenderBackend,
-    RenderBackendOptions,
+use compute_ray_render_path::{
+    ComputeRayRenderPathAdapter, ComputeRepresentation, ComputeSceneBuildError,
 };
-use serde_json::{Value, json};
+use raster_render_path::{RASTER_STRATEGY, RasterRenderPathAdapter, derive_raster_residency};
+use render_backend::*;
+use serde_json::json;
 use std::{
     cell::RefCell,
     fs::File,
-    io::Write,
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
+};
+use voxel_frontend::{
+    VoxelExtent, VoxelFrontend, VoxelResidencySelection, VoxelResidencySelectionId,
 };
 use winit::{
     application::ApplicationHandler,
@@ -26,635 +30,665 @@ use winit::{
     window::{Window, WindowId},
 };
 
-fn emit(output: &mut File, value: Value) -> Result<(), String> {
-    serde_json::to_writer(&mut *output, &value).map_err(|error| error.to_string())?;
-    writeln!(output).map_err(|error| error.to_string())
-}
-fn sample(
-    output: &mut File,
-    phase: &str,
-    cache: &Cache,
-    artifacts: &Artifacts,
-    state: &Rc<RefCell<Boundary>>,
-    gpu: &GpuAllocationQualification,
-) -> Result<(), String> {
-    let memory = gpu.snapshot().map_err(|error| error.to_string())?;
-    let state = state.borrow();
-    let categories = [
-        Category::Control,
-        Category::Materialized,
-        Category::Generation,
-        Category::Raster,
-        Category::Brickmap,
-        Category::Metadata,
-        Category::History,
-    ];
-    emit(
-        output,
-        json!({"kind":"residency", "phase":phase,"copies":cache.copies(),"peak_copies":cache.peak_copies,"query_copies":cache.query_count(),"generation_workers_peak":cache.generation_peak,"derivation_workers_peak":1,"generated":cache.generated,"reused":cache.reused,"discarded":cache.discarded,"artifact_cache_entries":artifacts.count(),"owners":state.owners(),"peak_owners":state.peak_owners,"installed_targets":state.installed_targets,"retired_owners":state.retired_owners,"presenting":format!("{:?}",state.presenting.kind),"selection":state.presenting.selection.iter().map(|key|json!([key.coordinate.0,key.coordinate.1,key.version])).collect::<Vec<_>>(),"cpu_live":categories.map(allocation::live),"cpu_peak":categories.map(allocation::peak),"cpu_allocations":categories.map(allocation::count),"gpu_live":memory.live_bytes,"gpu_peak":memory.peak_bytes,"gpu_allocations":memory.live_allocations,"gpu_allocations_peak":memory.peak_allocations,"gpu_total_peak":memory.total_peak_bytes}),
-    )
-}
-fn initialize(window: &Window, state: Rc<RefCell<Boundary>>) -> Result<RenderBackend, String> {
-    RenderBackend::initialize_with_options(
-        c"Streamed residency qualification",
-        &windows_adapter::WindowsPresentationAdapter::new(window),
-        vk::Extent2D {
-            width: 1920,
-            height: 1080,
-        },
-        Shared(state),
-        RenderBackendOptions {
-            validation_enabled: true,
-            presentation_throttling_enabled: false,
-            gpu_timestamps_enabled: true,
-        },
-    )
-    .map_err(|error| error.to_string())
-}
-fn draw(backend: &mut RenderBackend) -> Result<(), String> {
-    backend.draw_frame().map_err(|error| error.to_string())?;
-    Ok(())
-}
-fn verify(
-    backend: &mut RenderBackend,
-    state: &Rc<RefCell<Boundary>>,
-    source: &Snapshot,
-) -> Result<(), String> {
-    let expected = {
-        let state = state.borrow();
-        if !route::covered(state.camera, &state.presenting.selection, source.side) {
-            return Err("rendered probes requested outside conservative installed coverage".into());
-        }
-        state.presenting.request_probes(source, state.camera)?
-    };
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let mut observed = 0;
-    while observed < expected.len() {
-        draw(backend)?;
-        observed += state.borrow().presenting.verify_probes(&expected)?;
-        if Instant::now() > deadline {
-            return Err("rendered oracle probes timed out".into());
-        }
-    }
-    Ok(())
-}
-fn prepare(
-    cache: &mut Cache,
-    artifacts: &mut Artifacts,
-    source: &Snapshot,
-    state: &Rc<RefCell<Boundary>>,
-    selection: &[Key],
-    crossing: Instant,
-    switch_requested: Option<Instant>,
-) -> Result<(), String> {
-    let (kind, camera, revision) = {
-        let state = state.borrow();
-        (state.presenting.kind, state.camera, state.camera_revision)
-    };
-    let candidate = artifacts.build(kind, cache, source, selection, camera, revision)?;
-    let replacement = if switch_requested.is_some() {
-        Some(artifacts.build(kind.other(), cache, source, selection, camera, revision)?)
-    } else {
-        None
-    };
-    state.borrow_mut().pending = Some(Install {
-        candidate,
-        replacement,
-        crossing,
-        switch_requested,
-    });
-    Ok(())
-}
-fn transition(
-    backend: &mut RenderBackend,
-    cache: &mut Cache,
-    artifacts: &mut Artifacts,
-    source: &Snapshot,
-    state: &Rc<RefCell<Boundary>>,
-    center: (u32, u32),
-    switch: bool,
-) -> Result<(), String> {
-    let crossing = Instant::now();
-    let selection = keys(source, center);
-    let installed = state.borrow().presenting.selection.clone();
-    cache.retain(&installed, &selection);
-    artifacts.retain(&installed, &selection);
-    for key in &selection {
-        cache.ensure(source, key)?;
-        draw(backend)?;
-    }
-    prepare(
-        cache,
-        artifacts,
-        source,
-        state,
-        &selection,
-        crossing,
-        switch.then_some(crossing),
-    )?;
-    draw(backend)?;
-    draw(backend)?;
-    cache.retain(&selection, &selection);
-    artifacts.retain(&selection, &selection);
-    Ok(())
-}
-fn run(window: &Window, output: &mut File, mode: &str) -> Result<(), String> {
-    if mode == "calibration" {
-        return calibrate(window, output);
-    }
-    let gpu = GpuAllocationQualification::start().map_err(|error| error.to_string())?;
-    let side = if mode == "matched-8" { 8 } else { 16 };
-    let mut source = Snapshot::new(side);
-    let baseline = mode == "baseline";
-    let mut cache = if baseline {
-        Cache::with_limit(256)
-    } else {
-        Cache::new()
-    };
-    let camera = route::camera(0.0)?;
-    let mut artifacts = Artifacts::new();
-    let selection = if baseline {
-        (0..16)
-            .flat_map(|z| {
-                (0..16).map(move |x| Key {
-                    coordinate: (x, z),
-                    version: 1,
-                })
-            })
-            .collect::<Vec<_>>()
-    } else {
-        keys(&source, (3, 3))
-    };
-    for key in &selection {
-        cache.ensure(&source, key)?;
-    }
-    let view = cache.assemble(&source, &selection)?;
-    if !matches!(
-        ComputeSceneBundle::qualification_streamed(&view, ComputeRepresentation::Dense),
-        Err(ComputeSceneBuildError::StreamedDense)
-    ) {
-        return Err("streamed dense compute was not rejected with its typed error".into());
-    }
-    drop(view);
-    let initial = if mode == "brickmap" {
-        Kind::Brickmap
-    } else {
-        Kind::Raster
-    };
-    let path = artifacts.build(
-        initial,
-        &cache,
-        &source,
-        &selection,
-        camera,
-        CameraStateRevision::new(1),
-    )?;
-    let state = Rc::new(RefCell::new(Boundary::new(path, camera)));
-    let mut backend = initialize(window, state.clone())?;
-    if backend.presentation_extent()
-        != Some(vk::Extent2D {
-            width: 1920,
-            height: 1080,
-        })
-    {
-        return Err("drawable extent differs from frozen contract".into());
-    }
-    let runtime = backend.runtime_context();
-    emit(
-        output,
-        json!({"kind":"device","name":runtime.device_name,"driver_version":runtime.driver_version,"api_version":runtime.api_version,"validation_enabled":runtime.validation_enabled}),
-    )?;
-    emit(
-        output,
-        json!({"kind":"context","mode":mode,"side":side,"projection":[1920,1080,60.0,0.1,34.0],"speed":4,"route_duration":route::DURATION,"crossings":route::CROSSINGS,"metadata_entries":side*side,"historical_view_limit":2,"edited_coordinate_limit":6,"presentation_images":backend.qualification_presentation_image_count(),"typed_dense_rejection":true}),
-    )?;
-    draw(&mut backend)?;
-    draw(&mut backend)?;
-    sample(output, "initial", &cache, &artifacts, &state, &gpu)?;
-    if baseline {
-        let replacement = artifacts.build(
-            Kind::Brickmap,
-            &cache,
-            &source,
-            &selection,
-            camera,
-            CameraStateRevision::new(1),
-        )?;
-        let candidate = artifacts.build(
-            Kind::Raster,
-            &cache,
-            &source,
-            &selection,
-            camera,
-            CameraStateRevision::new(1),
-        )?;
-        state.borrow_mut().pending = Some(Install {
-            candidate,
-            replacement: Some(replacement),
-            crossing: Instant::now(),
-            switch_requested: Some(Instant::now()),
-        });
-        draw(&mut backend)?;
-        sample(output, "baseline-overlap", &cache, &artifacts, &state, &gpu)?;
-        draw(&mut backend)?;
-        sample(
-            output,
-            "baseline-brickmap",
-            &cache,
-            &artifacts,
-            &state,
-            &gpu,
-        )?;
-    } else if mode.starts_with("matched") {
-        source = source.edit((3, 3), false)?;
-        transition(
-            &mut backend,
-            &mut cache,
-            &mut artifacts,
-            &source,
-            &state,
-            (3, 3),
-            true,
-        )?;
-        sample(
-            output,
-            "matched-edited-brickmap",
-            &cache,
-            &artifacts,
-            &state,
-            &gpu,
-        )?;
-        transition(
-            &mut backend,
-            &mut cache,
-            &mut artifacts,
-            &source,
-            &state,
-            (3, 3),
-            true,
-        )?;
-        sample(
-            output,
-            "matched-edited-raster",
-            &cache,
-            &artifacts,
-            &state,
-            &gpu,
-        )?;
-    } else {
-        verify(&mut backend, &state, &source)?;
-        history_and_stress(
-            output,
-            &mut backend,
-            &mut cache,
-            &mut artifacts,
-            &mut source,
-            &state,
-            &gpu,
-        )?;
-        for lap in 0..2 {
-            travel(
-                output,
-                &mut backend,
-                &mut cache,
-                &mut artifacts,
-                &source,
-                &state,
-                &gpu,
-                lap,
-            )?;
-        }
-    }
-    emit(
-        output,
-        json!({"kind":"validation","warnings":backend.validation_warning_count(),"errors":backend.validation_error_count()}),
-    )?;
-    backend.shutdown().map_err(|error| error.to_string())?;
-    drop(backend);
-    drop(state);
-    drop(cache);
-    drop(artifacts);
-    drop(source);
-    let final_gpu = gpu.snapshot().map_err(|error| error.to_string())?;
-    emit(
-        output,
-        json!({"kind":"released","cpu_residency":[allocation::live(Category::Materialized),allocation::live(Category::Generation),allocation::live(Category::Raster),allocation::live(Category::Brickmap)],"gpu_live":final_gpu.live_bytes}),
-    )?;
-    if final_gpu.live_bytes != [0; 3] {
-        return Err("GPU allocation cleanup debt remains after shutdown".into());
-    }
-    Ok(())
+const EXTENT: vk::Extent2D = vk::Extent2D {
+    width: 1920,
+    height: 1080,
+};
+
+struct Runner {
+    backend: RenderBackend,
+    frontend: Arc<VoxelFrontend>,
+    oracle: Oracle,
+    gpu: GpuAllocationQualification,
+    boundary: Rc<RefCell<BoundaryObservation>>,
+    probes: Probes,
+    replacement: Option<Probes>,
+    path_observation: Rc<RefCell<PathObservation>>,
+    observations: Vec<Rc<RefCell<PathObservation>>>,
+    next_owner: u64,
+    next_selection: u64,
+    camera: CameraState,
+    camera_revision: CameraStateRevision,
+    installed: VoxelResidencySelection,
+    side: u32,
 }
 
-fn history_and_stress(
-    output: &mut File,
-    backend: &mut RenderBackend,
-    cache: &mut Cache,
-    artifacts: &mut Artifacts,
-    source: &mut Snapshot,
-    state: &Rc<RefCell<Boundary>>,
-    gpu: &GpuAllocationQualification,
-) -> Result<(), String> {
-    let generated = source.clone();
-    *source = source.edit((3, 3), false)?;
-    let edited = source.clone();
-    transition(backend, cache, artifacts, source, state, (3, 3), false)?;
-    sample(output, "revision-replacement", cache, artifacts, state, gpu)?;
-    verify(backend, state, source)?;
-    transition(backend, cache, artifacts, source, state, (4, 3), false)?;
-    *source = source.edit((2, 2), false)?;
-    let unchanged = source.version((3, 3)) == edited.version((3, 3));
-    transition(backend, cache, artifacts, source, state, (4, 3), false)?;
-    transition(backend, cache, artifacts, source, state, (3, 3), false)?;
-    for historical in [&generated, &edited] {
-        cache.begin_query(historical, (3, 3))?;
-        let fingerprint = cache.verify_query(historical)?;
-        sample(output, "historical-query", cache, artifacts, state, gpu)?;
-        emit(
-            output,
-            json!({"kind":"query","revision":historical.revision(),"fingerprint":format!("{fingerprint:016x}"),"global_second_request_rejected":cache.begin_query(historical,(10,10)).is_err()}),
+fn build(
+    frontend: &Arc<VoxelFrontend>,
+    selection: VoxelResidencySelection,
+    raster: bool,
+    camera: CameraState,
+    revision: CameraStateRevision,
+    identity: u64,
+) -> Result<(MeasuredPath, Probes), String> {
+    let view = frontend.scene_view().map_err(|error| error.to_string())?;
+    let mut path = if raster {
+        let artifact = allocation::within(Category::Raster, || {
+            derive_raster_residency(
+                frontend.clone(),
+                &view,
+                selection,
+                VoxelExtent::new(16, 16, 16),
+            )
+        })
+        .map_err(|error| error.to_string())?;
+        Path::Raster(Box::new(
+            allocation::within(Category::Raster, || {
+                RasterRenderPathAdapter::from_residency_artifact(artifact, camera, revision)
+            })
+            .map_err(|error| error.to_string())?,
+        ))
+    } else {
+        Path::Brickmap(Box::new(
+            allocation::within(Category::Brickmap, || {
+                ComputeRayRenderPathAdapter::new_streamed(
+                    frontend.clone(),
+                    selection,
+                    camera,
+                    revision,
+                    ComputeRepresentation::Brickmap {
+                        budget_bytes: 1 << 30,
+                    },
+                )
+            })
+            .map_err(|error| error.to_string())?,
+        ))
+    };
+    let raster_control = match &mut path {
+        Path::Raster(path) => Some(path.enable_lifecycle_control()),
+        _ => None,
+    };
+    let mut path = MeasuredPath {
+        path,
+        identity,
+        observation: Rc::new(RefCell::new(PathObservation {
+            owned: true,
+            raster,
+            ..PathObservation::default()
+        })),
+        raster_control,
+    };
+    let probes = path.probes();
+    Ok((path, probes))
+}
+impl Runner {
+    fn new(window: &Window, mode: &str) -> Result<Self, String> {
+        let gpu = GpuAllocationQualification::start().map_err(|error| error.to_string())?;
+        let side = if mode == "matched-8" { 8 } else { 16 };
+        let frontend = cpu::publish(side)?;
+        let view = frontend.scene_view().map_err(|error| error.to_string())?;
+        let camera = route::camera(0.0)?;
+        let selection = cpu::selection(&view, 1, (3, 3), side)?;
+        cpu::establish(&frontend, selection.clone())?;
+        if !matches!(
+            ComputeRayRenderPathAdapter::new_streamed(
+                frontend.clone(),
+                selection.clone(),
+                camera,
+                CameraStateRevision::new(1),
+                ComputeRepresentation::Dense
+            ),
+            Err(ComputeSceneBuildError::StreamedDense)
+        ) {
+            return Err("production streamed Dense rejection failed".into());
+        }
+        let (path, probes) = build(
+            &frontend,
+            selection.clone(),
+            mode != "brickmap",
+            camera,
+            CameraStateRevision::new(1),
+            1,
         )?;
-        cache.end_query();
-    }
-    *source = source.edit((2, 2), true)?;
-    *source = source.edit((3, 3), true)?;
-    transition(backend, cache, artifacts, source, state, (3, 3), false)?;
-    cache.begin_query(source, (2, 2))?;
-    cache.verify_query(source)?;
-    cache.end_query();
-    drop(generated);
-    drop(edited);
-    emit(
-        output,
-        json!({"kind":"compaction","live_historical_views":0,"edited_coordinates":source.overlay_coordinates(),"unchanged_volume_reused":unchanged,"revision":source.revision()}),
-    )?;
-    // A skipped target admits one volume, then drains it before the newest disjoint target's next admission.
-    let installed = state.borrow().presenting.selection.clone();
-    let skipped = keys(source, (8, 8));
-    cache.retain(&installed, &skipped);
-    cache.ensure(source, skipped.first().ok_or("empty skipped selection")?)?;
-    let newest = keys(source, (12, 12));
-    cache.retain(&installed, &newest);
-    artifacts.retain(&installed, &newest);
-    for key in &newest {
-        cache.ensure(source, key)?;
-    }
-    cache.begin_query(source, (15, 15))?;
-    cache.verify_query(source)?;
-    sample(
-        output,
-        "disjoint-query-overlap",
-        cache,
-        artifacts,
-        state,
-        gpu,
-    )?;
-    if cache.copies() != 19 || cache.begin_query(source, (14, 15)).is_ok() {
-        return Err("disjoint overlap/query admission contract failed".into());
-    }
-    state.borrow_mut().camera = CameraState::new(
-        [800.0, 48.0, 800.0],
-        [816.0, 24.0, 800.0],
-        [0.0, 1.0, 0.0],
-        60.0,
-        0.1,
-        34.0,
-    )
-    .map_err(|error| error.to_string())?;
-    prepare(
-        cache,
-        artifacts,
-        source,
-        state,
-        &newest,
-        Instant::now(),
-        Some(Instant::now()),
-    )?;
-    draw(backend)?;
-    sample(
-        output,
-        "disjoint-renderer-overlap",
-        cache,
-        artifacts,
-        state,
-        gpu,
-    )?;
-    draw(backend)?;
-    cache.end_query();
-    cache.retain(&newest, &newest);
-    artifacts.retain(&newest, &newest);
-    verify(backend, state, source)?;
-    // A query copy becoming selected transfers ownership, rather than materializing the same key again.
-    cache.begin_query(source, (10, 10))?;
-    let before = cache.generated;
-    cache.ensure(
-        source,
-        &Key {
-            coordinate: (10, 10),
-            version: source.version((10, 10)),
-        },
-    )?;
-    if cache.generated != before {
-        return Err("query/selection failed to share a content-version copy".into());
-    }
-    cache.end_query();
-    cache.retain(&newest, &newest);
-    state.borrow_mut().camera = route::camera(0.0)?;
-    transition(backend, cache, artifacts, source, state, (3, 3), true)?;
-    if state.borrow().presenting.kind != Kind::Raster {
-        transition(backend, cache, artifacts, source, state, (3, 3), true)?;
-    }
-    artifacts.fail_next_upload = true;
-    state.borrow_mut().expected_failure = true;
-    let selection = keys(source, (3, 3));
-    prepare(
-        cache,
-        artifacts,
-        source,
-        state,
-        &selection,
-        Instant::now(),
-        None,
-    )?;
-    draw(backend)?;
-    if state.borrow().failure.is_none() {
-        return Err("injected upload failure was not observed".into());
-    }
-    emit(
-        output,
-        json!({"kind":"failure-recovery","phase":"raster-upload","error":state.borrow().failure,"presenting_preserved":state.borrow().presenting.selection==selection}),
-    )?;
-    sample(
-        output,
-        "failed-candidate-cleaned",
-        cache,
-        artifacts,
-        state,
-        gpu,
-    )?;
-    transition(backend, cache, artifacts, source, state, (3, 3), false)?;
-    for index in 0..12 {
-        let x = if index % 2 == 0 { 256.5 } else { 255.5 };
-        let camera = CameraState::new(
-            [x, 48.0, 224.0],
-            [x + 16.0, 24.0, 224.0],
-            [0.0, 1.0, 0.0],
-            60.0,
-            0.1,
-            34.0,
+        let path_observation = path.observation.clone();
+        let boundary = Rc::new(RefCell::new(BoundaryObservation::default()));
+        let owner = ObservedOwner {
+            owner: RenderPathSwitchOwner::new(Box::new(path)),
+            observation: boundary.clone(),
+        };
+        let backend = RenderBackend::initialize_with_options(
+            c"Production streamed qualification",
+            &windows_adapter::WindowsPresentationAdapter::new(window),
+            EXTENT,
+            owner,
+            RenderBackendOptions {
+                validation_enabled: true,
+                presentation_throttling_enabled: false,
+                gpu_timestamps_enabled: true,
+            },
         )
         .map_err(|error| error.to_string())?;
-        if !route::covered(camera, &state.borrow().presenting.selection, source.side) {
-            return Err("boundary churn escaped installed coverage".into());
+        if backend.presentation_extent() != Some(EXTENT) {
+            return Err("drawable differs from frozen projection".into());
         }
-        state.borrow_mut().camera = camera;
-        transition(
+        Ok(Self {
             backend,
-            cache,
-            artifacts,
-            source,
-            state,
-            route::center(camera, source.side),
-            false,
-        )?;
+            frontend,
+            oracle: Oracle::new(side),
+            gpu,
+            boundary,
+            probes,
+            replacement: None,
+            observations: vec![path_observation.clone()],
+            path_observation,
+            next_owner: 2,
+            next_selection: 2,
+            camera,
+            camera_revision: CameraStateRevision::new(1),
+            installed: selection,
+            side,
+        })
     }
-    state.borrow_mut().camera = route::camera(0.0)?;
-    emit(
-        output,
-        json!({"kind":"boundary-churn","crossings":12,"installations":12,"hysteresis":false,"coverage_stalls":0}),
-    )?;
-    sample(output, "stress-settled", cache, artifacts, state, gpu)?;
-    Ok(())
-}
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Qualification phases expose independently accounted owners"
-)]
-fn travel(
-    output: &mut File,
-    backend: &mut RenderBackend,
-    cache: &mut Cache,
-    artifacts: &mut Artifacts,
-    source: &Snapshot,
-    state: &Rc<RefCell<Boundary>>,
-    gpu: &GpuAllocationQualification,
-    lap: u32,
-) -> Result<(), String> {
-    let start = Instant::now();
-    let mut next_crossing = 0;
-    let mut installed_crossings = 0;
-    let mut unresolved: Option<Instant> = None;
-    let mut switch_requested = None;
-    let mut pending: Option<Vec<Key>> = None;
-    let mut stalls = 0_u64;
-    let mut frames = 0_u64;
-    let mut logged_second = 0_u64;
-    let mut probes = 0_u64;
-    while start.elapsed().as_secs_f64() < route::DURATION {
-        let seconds = start.elapsed().as_secs_f64();
-        let camera = route::camera(seconds)?;
-        let installed = state.borrow().presenting.selection.clone();
-        if !route::covered(camera, &installed, source.side) {
-            stalls += 1;
-        } else {
-            let mut state = state.borrow_mut();
-            state.camera = camera;
-            state.camera_revision = state
-                .camera_revision
-                .checked_successor()
-                .ok_or("camera revision overflow")?;
-        }
-        if route::crossing_due(
-            seconds,
-            next_crossing,
-            pending.as_ref().map(|_| next_crossing - 1),
-        )? {
-            let crossing_time = *route::CROSSINGS
-                .get(next_crossing)
-                .ok_or("missing due crossing")?;
-            let origin = start + Duration::from_secs_f64(crossing_time);
-            unresolved.get_or_insert(origin);
-            let selection = keys(source, route::center(camera, source.side));
-            cache.retain(&installed, &selection);
-            artifacts.retain(&installed, &selection);
-            pending = Some(selection);
-            if next_crossing == 2 || next_crossing == 5 {
-                switch_requested = Some(Instant::now());
-            }
-            emit(
-                output,
-                json!({"kind":"crossing","lap":lap,"index":next_crossing,"origin_seconds":crossing_time,"observed_seconds":seconds,"center":route::center(camera,source.side),"unresolved_origin_seconds":unresolved.ok_or("missing crossing origin")?.duration_since(start).as_secs_f64(),"switch_requested":switch_requested.is_some()}),
+    fn draw(&mut self) -> Result<(), String> {
+        self.backend
+            .draw_frame()
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
+    fn diagnostics(&self) -> Result<RenderPathSwitchDiagnostics, String> {
+        self.backend
+            .render_path_switch_diagnostics()
+            .ok_or("missing production switch diagnostics".into())
+    }
+    fn sample(&self, output: &mut File, phase: &str) -> Result<(), String> {
+        let cache = self
+            .frontend
+            .materialization_cache_stats()
+            .map_err(|error| error.to_string())?;
+        let edits = self
+            .frontend
+            .streamed_edit_statistics()
+            .map_err(|error| error.to_string())?
+            .ok_or("missing edit stats")?;
+        let memory = self.gpu.snapshot().map_err(|error| error.to_string())?;
+        let diagnostics = self.diagnostics()?;
+        let owners: usize = self
+            .observations
+            .iter()
+            .map(|owner| {
+                let owner = owner.borrow();
+                usize::from(owner.owned) * (1 + usize::from(owner.representation_copies > 9))
+            })
+            .sum();
+        let raster_workers: usize = self
+            .observations
+            .iter()
+            .map(|owner| {
+                let owner = owner.borrow();
+                if owner.owned && owner.raster {
+                    owner.workers
+                } else {
+                    0
+                }
+            })
+            .sum();
+        let brickmap_workers: usize = self
+            .observations
+            .iter()
+            .map(|owner| {
+                let owner = owner.borrow();
+                if owner.owned && !owner.raster {
+                    owner.workers
+                } else {
+                    0
+                }
+            })
+            .sum();
+        let observation = self.path_observation.borrow();
+        cpu::emit(
+            output,
+            json!({"kind":"residency","phase":phase,"copies":cache.copies,"peak_copies":cache.peak_copies,"query_copies":cache.query_only_copies,
+            "owners":owners,"raster_workers":raster_workers,"brickmap_workers":brickmap_workers,"workers":observation.workers,"representation_copies":observation.representation_copies,
+            "cpu_live":cpu::CATEGORIES.map(allocation::live),"cpu_peak":cpu::CATEGORIES.map(allocation::peak),"cpu_allocations":cpu::CATEGORIES.map(allocation::count),
+            "gpu_objects":memory.object_counts,"gpu_objects_peak":memory.object_peaks,"audit_entries":memory.audit_entries,"gpu_live":memory.live_bytes,"gpu_peak":memory.peak_bytes,"gpu_allocations":memory.live_allocations,"gpu_allocations_peak":memory.peak_allocations,
+            "metadata_entries":self.side*self.side,"edited_coordinates":edits.current_coordinates,"history_entries":edits.retained_entries,
+            "coverage_stalls":diagnostics.coverage_stalls(),"presentation_images":self.backend.qualification_presentation_image_count()}),
+        )
+    }
+    fn request(
+        &mut self,
+        center: (u32, u32),
+        switch: bool,
+    ) -> Result<VoxelResidencySelection, String> {
+        let view = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        let selection = cpu::selection(&view, self.next_selection, center, self.side)?;
+        self.next_selection += 1;
+        self.frontend
+            .require_residency(selection.clone())
+            .map_err(|error| error.to_string())?;
+        self.frontend
+            .establish_residency()
+            .map_err(|error| error.to_string())?;
+        self.backend
+            .submit_residency_selection(selection.clone())
+            .map_err(|error| error.to_string())?;
+        if switch {
+            let raster = self.diagnostics()?.presenting().strategy() != RASTER_STRATEGY;
+            let (path, probes) = build(
+                &self.frontend,
+                selection.clone(),
+                raster,
+                self.camera,
+                self.camera_revision,
+                self.next_owner,
             )?;
-            next_crossing += 1;
+            self.next_owner += 1;
+            self.path_observation = path.observation.clone();
+            self.observations.push(path.observation.clone());
+            self.backend
+                .request_render_path_switch(Box::new(path))
+                .map_err(|error| error.to_string())?;
+            self.replacement = Some(probes);
         }
-        if let Some(selection) = &pending {
-            let mut generated = false;
-            for key in selection {
-                if cache.ensure(source, key)? {
-                    generated = true;
-                    break;
-                }
+        Ok(selection)
+    }
+    fn converged(&mut self, selection: &VoxelResidencySelection) -> Result<bool, String> {
+        let diagnostics = self.diagnostics()?;
+        let stamp = diagnostics.presenting();
+        let converged = stamp.is_fully_converged()
+            && stamp.installed_selection() == Some(selection.identity())
+            && stamp.visible_revision().to_string() == self.oracle.revision.to_string()
+            && diagnostics.roles().replacement().is_none();
+        if converged {
+            if let Some(probes) = self.replacement.take() {
+                self.probes = probes;
             }
-            if !generated {
-                prepare(
-                    cache,
-                    artifacts,
-                    source,
-                    state,
-                    selection,
-                    unresolved.ok_or("target has no crossing origin")?,
-                    switch_requested,
-                )?;
-                draw(backend)?;
-                let boundary = state.borrow();
-                route::crossing_due(
-                    start.elapsed().as_secs_f64(),
-                    next_crossing,
-                    Some(next_crossing - 1),
-                )?;
-                if boundary.presenting.selection != *selection || boundary.crossing_seconds > 2.5 {
-                    return Err("crossing target was not installed within its deadline".into());
+            self.installed = selection.clone();
+        }
+        Ok(converged)
+    }
+    fn wait(
+        &mut self,
+        output: &mut File,
+        selection: &VoxelResidencySelection,
+        origin: Instant,
+    ) -> Result<Instant, String> {
+        loop {
+            self.draw()?;
+            self.sample(output, "pre-retirement")?;
+            if self.converged(selection)? {
+                let at = self
+                    .boundary
+                    .borrow()
+                    .at
+                    .ok_or("missing fence-safe callback")?;
+                if at.duration_since(origin).as_secs_f64() > 10.0 {
+                    return Err("production edit-replay preparation timed out".into());
                 }
-                installed_crossings += 1;
-                emit(
+                self.draw()?;
+                return Ok(at);
+            }
+            if origin.elapsed().as_secs_f64() > 10.0 {
+                return Err("production edit-replay preparation timed out".into());
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    fn transition(
+        &mut self,
+        output: &mut File,
+        center: (u32, u32),
+        switch: bool,
+    ) -> Result<(), String> {
+        let origin = Instant::now();
+        let selection = self.request(center, switch)?;
+        self.wait(output, &selection, origin)?;
+        Ok(())
+    }
+    fn camera(&mut self, camera: CameraState) -> Result<(), String> {
+        self.camera_revision = self
+            .camera_revision
+            .checked_successor()
+            .ok_or("camera revision overflow")?;
+        self.backend
+            .publish_camera_state(camera, self.camera_revision)
+            .map_err(|error| error.to_string())?;
+        self.camera = camera;
+        Ok(())
+    }
+    fn covered(&self) -> Result<bool, String> {
+        let view = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        RenderPathCoverage::new(&view, self.installed.clone())
+            .map_err(|error| error.to_string())?
+            .contains_camera(self.camera, [1920, 1080])
+            .map_err(|error| error.to_string())
+    }
+    fn verify(
+        &mut self,
+        output: &mut File,
+        lap: Option<u32>,
+        index: Option<usize>,
+    ) -> Result<(), String> {
+        if !self.covered()? {
+            return Err("oracle probes requested outside installed coverage".into());
+        }
+        let keys = self
+            .installed
+            .volumes()
+            .iter()
+            .map(|identity| {
+                let metadata = self
+                    .frontend
+                    .scene_view()
+                    .map_err(|error| error.to_string())?;
+                let volume = metadata
+                    .volumes()
+                    .iter()
+                    .find(|volume| volume.identity() == identity)
+                    .ok_or("unknown installed volume")?;
+                let [x, _, z] = volume.scene_origin();
+                Ok(cpu::Key {
+                    coordinate: (x as u32 / 64, z as u32 / 64),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        if !route::covered(self.camera, &keys, self.side) {
+            return Err("frozen coverage rule failed".into());
+        }
+        let expected = self.probes.request_probes(&self.oracle, self.camera)?;
+        let mut observed = 0;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while observed < expected.len() {
+            self.draw()?;
+            observed += self.probes.verify_probes(&expected)?;
+            if Instant::now() > deadline {
+                return Err("rendered probes timed out".into());
+            }
+        }
+        cpu::emit(
+            output,
+            json!({"kind":"probes","lap":lap,"index":index,"count":observed,"coverage_contains_view":true,"coverage_contains_ray_domain":true,"matching":true,"revision":self.oracle.revision}),
+        )
+    }
+    fn edit(&mut self, coordinate: (u32, u32), restore: bool) -> Result<(), String> {
+        let outcome = cpu::edit(&self.frontend, coordinate, restore)?;
+        self.oracle.edit(coordinate, restore);
+        let view = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        let selection = view
+            .residency_selection(
+                VoxelResidencySelectionId::new(self.next_selection),
+                self.installed.volumes().to_vec(),
+            )
+            .map_err(|error| error.to_string())?;
+        self.next_selection += 1;
+        cpu::establish(&self.frontend, selection.clone())?;
+        self.backend
+            .submit_edit_outcome(outcome)
+            .map_err(|error| error.to_string())?;
+        self.backend
+            .submit_residency_selection(selection)
+            .map_err(|error| error.to_string())?;
+        self.draw()
+    }
+    fn stress(&mut self, output: &mut File, initial_raster: bool) -> Result<(), String> {
+        let original = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        self.edit((3, 3), false)?;
+        let edited = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        self.transition(output, (3, 3), false)?;
+        self.sample(output, "revision-replacement")?;
+        self.verify(output, None, None)?;
+        self.transition(output, (4, 3), false)?;
+        let version = edited
+            .volume_content_version(&recipe::volume_identity(3, 3))
+            .map_err(|error| error.to_string())?;
+        self.edit((2, 2), false)?;
+        let current = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        let reuse = current
+            .volume_content_version(&recipe::volume_identity(3, 3))
+            .map_err(|error| error.to_string())?
+            == version;
+        self.transition(output, (4, 3), false)?;
+        self.transition(output, (3, 3), false)?;
+        cpu::record_fingerprint(output, &original, (3, 3), "generated")?;
+        cpu::record_fingerprint(output, &edited, (3, 3), "edited")?;
+        cpu::record_fingerprint(output, &current, (2, 2), "edited")?;
+        drop(current);
+        self.edit((2, 2), true)?;
+        self.edit((3, 3), true)?;
+        drop(original);
+        drop(edited);
+        self.transition(output, (3, 3), false)?;
+        let restored = self
+            .frontend
+            .scene_view()
+            .map_err(|error| error.to_string())?;
+        cpu::record_fingerprint(output, &restored, (2, 2), "restored")?;
+        let edits = self
+            .frontend
+            .streamed_edit_statistics()
+            .map_err(|error| error.to_string())?
+            .ok_or("missing edits")?;
+        cpu::emit(
+            output,
+            json!({"kind":"compaction","edit_script":["retain-generated","edit-3-3","retain-edited","evict-2-2","edit-2-2-nonresident","reload-2-2","historical-generated","historical-edited","restore-2-2","restore-3-3","drop-history","compact"],"live_historical_views":0,"edited_coordinates":edits.current_coordinates,"history_entries":edits.retained_entries,"unchanged_volume_reused":reuse}),
+        )?;
+        let newest = cpu::selection(&restored, self.next_selection, (12, 12), self.side)?;
+        let copies = self
+            .frontend
+            .materialize_residency(&newest, &restored)
+            .map_err(|error| error.to_string())?;
+        let query = restored
+            .enumerate_cells(&recipe::volume_identity(15, 15), 16, 64)
+            .map_err(|error| error.to_string())?;
+        let stats = self
+            .frontend
+            .materialization_cache_stats()
+            .map_err(|error| error.to_string())?;
+        let rejected = restored
+            .enumerate_cells(&recipe::volume_identity(14, 15), 16, 64)
+            .is_err();
+        self.sample(output, "disjoint-query-overlap")?;
+        cpu::emit(
+            output,
+            json!({"kind":"admission","copies":stats.copies,"second_query_rejected":rejected}),
+        )?;
+        drop(query);
+        drop(copies);
+        if self.diagnostics()?.presenting().strategy() != RASTER_STRATEGY {
+            self.transition(output, (3, 3), true)?;
+        }
+        let before = self.diagnostics()?.presenting().clone();
+        self.path_observation.borrow_mut().fail_upload = true;
+        let selection = self.request((4, 3), false)?;
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !self.path_observation.borrow().upload_failed {
+            self.draw()?;
+            if Instant::now() > deadline {
+                return Err("upload failure was not observed".into());
+            }
+        }
+        let after = self.diagnostics()?.presenting().clone();
+        let preserved = before.visible_revision() == after.visible_revision()
+            && before.installed_selection() == after.installed_selection();
+        cpu::emit(
+            output,
+            json!({"kind":"failure-recovery","phase":"raster-upload","presenting_preserved":preserved,"observed_upload_failure":true}),
+        )?;
+        self.sample(output, "failed-candidate-cleaned")?;
+        self.path_observation.borrow_mut().retry = true;
+        self.wait(output, &selection, Instant::now())?;
+        for index in 0..12 {
+            let x = if index % 2 == 0 { 256.5 } else { 255.5 };
+            self.camera(
+                CameraState::new(
+                    [x, 48.0, 224.0],
+                    [x + 16.0, 24.0, 224.0],
+                    [0.0, 1.0, 0.0],
+                    60.0,
+                    0.1,
+                    34.0,
+                )
+                .map_err(|error| error.to_string())?,
+            )?;
+            self.transition(output, route::center(self.camera, self.side), false)?;
+        }
+        self.camera(route::camera(0.0)?)?;
+        self.transition(output, (3, 3), !initial_raster)?;
+        cpu::emit(
+            output,
+            json!({"kind":"boundary-churn","crossings":12,"installations":12,"hysteresis":false,"coverage_stalls":self.diagnostics()?.coverage_stalls()}),
+        )?;
+        self.sample(output, "stress-settled")
+    }
+    fn travel(&mut self, output: &mut File, lap: u32) -> Result<(), String> {
+        let start = Instant::now();
+        let mut next = 0;
+        let mut installed = 0;
+        let mut pending: Option<(VoxelResidencySelection, Instant, Option<Instant>, String)> = None;
+        let mut probes = 0;
+        let mut logged = 0;
+        let mut frames = 0;
+        while start.elapsed().as_secs_f64() < route::DURATION {
+            let seconds = start.elapsed().as_secs_f64();
+            self.camera(route::camera(seconds)?)?;
+            if route::crossing_due(seconds, next, pending.as_ref().map(|_| next - 1))? {
+                let crossing = *route::CROSSINGS.get(next).ok_or("invalid crossing index")?;
+                let origin = start + Duration::from_secs_f64(crossing);
+                let switch = next == 2 || next == 5;
+                let switch_at = switch.then(Instant::now);
+                let from = self
+                    .diagnostics()?
+                    .presenting()
+                    .strategy()
+                    .identifier()
+                    .to_string();
+                let target = self.request(route::center(self.camera, self.side), switch)?;
+                cpu::emit(
                     output,
-                    json!({"kind":"installed","lap":lap,"index":next_crossing-1,"crossing_seconds":boundary.crossing_seconds,"switch_seconds":switch_requested.map(|_|boundary.switch_seconds),"fence_safe":true,"selection_matches":boundary.presenting.selection==*selection}),
+                    json!({"kind":"crossing","lap":lap,"index":next,"origin_seconds":crossing,"unresolved_origin_seconds":crossing,"switch_requested_seconds":switch_at.map(|at|at.duration_since(start).as_secs_f64()),"switch_requested":switch}),
                 )?;
-                drop(boundary);
-                draw(backend)?;
-                cache.retain(selection, selection);
-                artifacts.retain(selection, selection);
-                sample(output, "crossing-settled", cache, artifacts, state, gpu)?;
-                verify(backend, state, source)?;
-                probes += 4;
-                pending = None;
-                unresolved = None;
-                switch_requested = None;
+                pending = Some((target, origin, switch_at, from));
+                next += 1;
             }
+            self.draw()?;
+            frames += 1;
+            if let Some((target, origin, switch, from)) = &pending
+                && self.converged(target)?
+            {
+                let at = self
+                    .boundary
+                    .borrow()
+                    .at
+                    .ok_or("missing actual fence-safe callback")?;
+                let crossing_seconds = at.duration_since(*origin).as_secs_f64();
+                let switch_seconds =
+                    switch.map(|switch| at.duration_since(switch.max(*origin)).as_secs_f64());
+                if crossing_seconds > 2.5 {
+                    return Err("production crossing exceeded 2.5 seconds; reopen shaping".into());
+                }
+                let to = self
+                    .diagnostics()?
+                    .presenting()
+                    .strategy()
+                    .identifier()
+                    .to_string();
+                cpu::emit(
+                    output,
+                    json!({"kind":"installed","lap":lap,"index":next-1,"crossing_seconds":crossing_seconds,"switch_seconds":switch_seconds,"boundary_seconds":at.duration_since(start).as_secs_f64(),"fence_safe":true,"selection_matches":true,"from":from,"to":to}),
+                )?;
+                self.draw()?;
+                self.sample(output, "crossing-settled")?;
+                self.verify(output, Some(lap), Some(next - 1))?;
+                probes += 4;
+                installed += 1;
+                pending = None;
+            }
+            let whole = seconds as u64;
+            if whole > logged {
+                self.sample(output, "travel")?;
+                logged = whole;
+            }
+            std::thread::sleep(Duration::from_millis(8));
         }
-        draw(backend)?;
-        frames += 1;
-        let whole_second = seconds as u64;
-        if whole_second > logged_second {
-            logged_second = whole_second;
-            sample(output, "travel", cache, artifacts, state, gpu)?;
+        if pending.is_some() || next != 8 || installed != 8 {
+            return Err("route ended with outstanding demand".into());
         }
-        std::thread::sleep(Duration::from_millis(8));
+        self.sample(output, "lap-settled")?;
+        cpu::emit(
+            output,
+            json!({"kind":"route-result","lap":lap,"frames":frames,"crossings":next,"installed_crossings":installed,"coverage_stalls":self.diagnostics()?.coverage_stalls(),"rendered_probes":probes}),
+        )
     }
-    if pending.is_some()
-        || next_crossing != route::CROSSINGS.len()
-        || installed_crossings != route::CROSSINGS.len()
-    {
-        return Err("route ended with incomplete coverage demand".into());
-    }
-    sample(output, "lap-settled", cache, artifacts, state, gpu)?;
-    emit(
+}
+fn run(window: &Window, output: &mut File, mode: &str) -> Result<(), String> {
+    let mut runner = Runner::new(window, mode)?;
+    let context = runner.backend.runtime_context();
+    cpu::emit(
         output,
-        json!({"kind":"route-result","lap":lap,"frames":frames,"duration_seconds":start.elapsed().as_secs_f64(),"coverage_stalls":stalls,"crossings":next_crossing,"installed_crossings":installed_crossings,"rendered_probes":probes,"boundary_churn_installed_targets":state.borrow().installed_targets}),
+        json!({"kind":"device","name":context.device_name,"driver_version":context.driver_version,"api_version":context.api_version,"validation_enabled":context.validation_enabled}),
     )?;
+    cpu::emit(
+        output,
+        json!({"kind":"context","mode":mode,"projection":[1920,1080,60.0,0.1,34.0],"crossings":route::CROSSINGS,"production":true,"typed_dense_rejection":true,"route_start":mode}),
+    )?;
+    runner.draw()?;
+    runner.draw()?;
+    runner.sample(output, "initial")?;
+    if mode == "raster" || mode == "brickmap" {
+        runner.stress(output, mode == "raster")?;
+        for lap in 0..2 {
+            runner.travel(output, lap)?;
+        }
+    } else {
+        runner.edit((3, 3), false)?;
+        runner.transition(output, (3, 3), true)?;
+        runner.sample(output, "matched-edited")?;
+        runner.verify(output, None, None)?;
+    }
+    runner
+        .backend
+        .shutdown()
+        .map_err(|error| error.to_string())?;
+    let warnings = runner.backend.validation_warning_count();
+    let errors = runner.backend.validation_error_count();
+    cpu::emit(
+        output,
+        json!({"kind":"validation","warnings":warnings,"errors":errors}),
+    )?;
+    let memory = runner.gpu.snapshot().map_err(|error| error.to_string())?;
+    let workers = runner.path_observation.borrow().workers;
+    let Runner {
+        gpu,
+        backend,
+        frontend,
+        probes,
+        replacement,
+        installed,
+        oracle,
+        ..
+    } = runner;
+    drop(backend);
+    drop(frontend);
+    drop(probes);
+    drop(replacement);
+    drop(installed);
+    drop(oracle);
+    cpu::released(output)?;
+    cpu::emit(
+        output,
+        json!({"kind":"released","gpu_live":memory.live_bytes,"gpu_allocations":memory.live_allocations,"gpu_objects":memory.object_counts,"workers":workers}),
+    )?;
+    drop(gpu);
     Ok(())
 }
-
 struct Application {
     output: File,
     mode: String,
@@ -671,14 +705,8 @@ impl ApplicationHandler for Application {
                         .with_inner_size(winit::dpi::PhysicalSize::new(1920, 1080)),
                 )
                 .map_err(|error| error.to_string())?;
-            windows_adapter::set_measurement_extent(
-                &window,
-                vk::Extent2D {
-                    width: 1920,
-                    height: 1080,
-                },
-            )
-            .map_err(|error| error.to_string())?;
+            windows_adapter::set_measurement_extent(&window, EXTENT)
+                .map_err(|error| error.to_string())?;
             run(&window, &mut self.output, &self.mode)
         })());
         event_loop.exit();
@@ -686,130 +714,23 @@ impl ApplicationHandler for Application {
     fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
 }
 pub fn main() -> Result<(), String> {
-    let mut arguments = std::env::args().skip(1);
-    let mode = arguments
-        .next()
-        .ok_or("missing mode raster|brickmap|baseline|matched-8|matched-16")?;
-    if ![
-        "raster",
-        "brickmap",
-        "baseline",
-        "matched-8",
-        "matched-16",
-        "calibration",
-    ]
-    .contains(&mode.as_str())
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    let [mode, path, allow] = arguments.as_slice() else {
+        return Err("usage: streamed-residency-qualification raster|brickmap|matched-8|matched-16 OUTPUT.jsonl --allow-gpu".into());
+    };
+    if allow != "--allow-gpu"
+        || !["raster", "brickmap", "matched-8", "matched-16"].contains(&mode.as_str())
     {
-        return Err("unknown qualification mode".into());
-    }
-    let output = arguments.next().ok_or("missing output.jsonl")?;
-    if arguments.next().as_deref() != Some("--allow-gpu") || arguments.next().is_some() {
-        return Err("unexpected argument".into());
+        return Err("invalid GPU mode or opt-in".into());
     }
     let mut application = Application {
-        output: File::create(output).map_err(|error| error.to_string())?,
-        mode,
+        output: File::create(path).map_err(|error| error.to_string())?,
+        mode: mode.clone(),
         result: None,
     };
     EventLoop::new()
         .map_err(|error| error.to_string())?
         .run_app(&mut application)
         .map_err(|error| error.to_string())?;
-    application.result.ok_or("qualification did not run")?
-}
-
-fn calibrate(window: &Window, output: &mut File) -> Result<(), String> {
-    for phase in ["generated", "edited", "restored"] {
-        let gpu = GpuAllocationQualification::start().map_err(|error| error.to_string())?;
-        let mut source = Snapshot::new(16);
-        if phase != "generated" {
-            source = source.edit((3, 3), false)?;
-        }
-        if phase == "restored" {
-            source = source.edit((3, 3), true)?;
-        }
-        let mut cache = Cache::new();
-        let mut artifacts = Artifacts::new();
-        allocation::reset_peaks();
-        let selection = vec![Key {
-            coordinate: (3, 3),
-            version: source.version((3, 3)),
-        }];
-        cache.ensure(
-            &source,
-            selection.first().ok_or("empty calibration selection")?,
-        )?;
-        cache.begin_query(&source, (3, 3))?;
-        let fingerprint = cache.verify_query(&source)?;
-        cache.end_query();
-        let camera = route::camera(0.0)?;
-        let path = artifacts.build(
-            Kind::Raster,
-            &cache,
-            &source,
-            &selection,
-            camera,
-            CameraStateRevision::new(1),
-        )?;
-        let state = Rc::new(RefCell::new(Boundary::new(path, camera)));
-        let mut backend = initialize(window, state.clone())?;
-        draw(&mut backend)?;
-        draw(&mut backend)?;
-        sample(
-            output,
-            &format!("{phase}-raster"),
-            &cache,
-            &artifacts,
-            &state,
-            &gpu,
-        )?;
-        let candidate = artifacts.build(
-            Kind::Brickmap,
-            &cache,
-            &source,
-            &selection,
-            camera,
-            CameraStateRevision::new(1),
-        )?;
-        state.borrow_mut().pending = Some(Install {
-            candidate,
-            replacement: None,
-            crossing: Instant::now(),
-            switch_requested: None,
-        });
-        draw(&mut backend)?;
-        sample(
-            output,
-            &format!("{phase}-overlap"),
-            &cache,
-            &artifacts,
-            &state,
-            &gpu,
-        )?;
-        draw(&mut backend)?;
-        sample(
-            output,
-            &format!("{phase}-brickmap"),
-            &cache,
-            &artifacts,
-            &state,
-            &gpu,
-        )?;
-        emit(
-            output,
-            json!({"kind":"fingerprint","phase":phase,"fingerprint":format!("{fingerprint:016x}")}),
-        )?;
-        backend.shutdown().map_err(|error| error.to_string())?;
-        drop(backend);
-        drop(state);
-        drop(cache);
-        drop(artifacts);
-        drop(source);
-        let memory = gpu.snapshot().map_err(|error| error.to_string())?;
-        emit(
-            output,
-            json!({"kind":"released","phase":phase,"cpu_residency":[allocation::live(Category::Materialized),allocation::live(Category::Generation),allocation::live(Category::Raster),allocation::live(Category::Brickmap)],"gpu_live":memory.live_bytes}),
-        )?;
-    }
-    Ok(())
+    application.result.ok_or("GPU qualification did not run")?
 }

@@ -273,8 +273,17 @@ impl MaterializationAdmission {
                 overlay,
             } => (reservation, volume, materials, overlay),
         };
+        #[cfg(feature = "qualification")]
+        let _allocation_scope =
+            QualificationAllocationScope::enter(QualificationAllocationCategory::Materialized);
         let identity = &reservation.key.volume;
-        let generated = volume.source.materialize().map_err(|error| match error {
+        let generated = {
+            #[cfg(feature = "qualification")]
+            let _generation_scope =
+                QualificationAllocationScope::enter(QualificationAllocationCategory::Generation);
+            volume.source.materialize()
+        }
+        .map_err(|error| match error {
             VoxelSourceError::Allocation => VoxelFrontendError::MaterializationCacheExhausted,
             source => VoxelFrontendError::VolumeGeneration {
                 identity: identity.clone(),

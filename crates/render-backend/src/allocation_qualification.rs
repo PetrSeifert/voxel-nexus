@@ -37,16 +37,21 @@ pub struct GpuAllocationSnapshot {
     pub peak_allocations: [usize; 3],
     pub total_peak_bytes: u64,
     pub allocations: Vec<(u64, u64, GpuAllocationClass, u64)>,
+    pub object_counts: [usize; 3],
+    pub object_peaks: [usize; 3],
+    pub audit_entries: usize,
 }
 struct Ledger {
     allocations: HashMap<u64, (u64, GpuAllocationClass, u64)>,
     snapshot: GpuAllocationSnapshot,
+    objects: HashMap<(usize, u64), u64>,
 }
 impl Default for Ledger {
     fn default() -> Self {
         // Reserve qualification bookkeeping before any renderer allocation scope is entered.
         Self {
             allocations: HashMap::with_capacity(65_536),
+            objects: HashMap::with_capacity(128),
             snapshot: GpuAllocationSnapshot::default(),
         }
     }
@@ -89,6 +94,7 @@ impl GpuAllocationQualification {
             .iter()
             .map(|(&memory, &(owner, class, bytes))| (memory, owner, class, bytes))
             .collect();
+        snapshot.audit_entries = ledger.allocations.len() + ledger.objects.len();
         snapshot.allocations.sort_by_key(|allocation| allocation.0);
         Ok(snapshot)
     }
@@ -99,6 +105,8 @@ impl Drop for GpuAllocationQualification {
         if let Some(ledger) = LEDGER.get() {
             match ledger.lock() {
                 Ok(mut ledger) => {
+                    ledger.objects.clear();
+                    ledger.objects.shrink_to_fit();
                     ledger.allocations.clear();
                     ledger.allocations.shrink_to_fit();
                     ledger.snapshot = GpuAllocationSnapshot::default();
@@ -131,6 +139,15 @@ pub fn with_gpu_allocation_owner<T>(
     let result = operation();
     drop(restore);
     result
+}
+pub fn with_gpu_scene_buffer<T>(bytes: u64, operation: impl FnOnce() -> T) -> T {
+    let owner = OWNER.with(Cell::get);
+    with_gpu_allocation_owner(
+        owner.identity,
+        GpuAllocationClass::Brickmap,
+        bytes,
+        operation,
+    )
 }
 pub(super) fn buffer(bytes: u64) {
     if ENABLED.load(Ordering::Relaxed) {
@@ -205,6 +222,58 @@ pub(super) fn freed(memory: vk::DeviceMemory) {
             }
             None => INVALID.store(true, Ordering::SeqCst),
         },
+        Err(_) => INVALID.store(true, Ordering::SeqCst),
+    }
+}
+
+pub(super) fn object_created(kind: usize, handle: u64) {
+    if !ENABLED.load(Ordering::Relaxed) || handle == 0 {
+        return;
+    }
+    match LEDGER.get_or_init(|| Mutex::new(Ledger::default())).lock() {
+        Ok(mut ledger) => {
+            if ledger.allocations.len() + ledger.objects.len() >= 65_536
+                || ledger
+                    .objects
+                    .insert((kind, handle), OWNER.with(Cell::get).identity)
+                    .is_some()
+            {
+                INVALID.store(true, Ordering::SeqCst);
+                return;
+            }
+            let count = ledger
+                .snapshot
+                .object_counts
+                .get_mut(kind)
+                .expect("device instrumentation emits one of three object categories");
+            *count += 1;
+            let count = *count;
+            let peak = ledger
+                .snapshot
+                .object_peaks
+                .get_mut(kind)
+                .expect("object count and peak arrays have the same three categories");
+            *peak = (*peak).max(count);
+        }
+        Err(_) => INVALID.store(true, Ordering::SeqCst),
+    }
+}
+pub(super) fn object_destroyed(kind: usize, handle: u64) {
+    if !ENABLED.load(Ordering::Relaxed) || handle == 0 {
+        return;
+    }
+    match LEDGER.get_or_init(|| Mutex::new(Ledger::default())).lock() {
+        Ok(mut ledger) => {
+            if ledger.objects.remove(&(kind, handle)).is_none() {
+                INVALID.store(true, Ordering::SeqCst);
+                return;
+            }
+            *ledger
+                .snapshot
+                .object_counts
+                .get_mut(kind)
+                .expect("a tracked object has one of three device categories") -= 1;
+        }
         Err(_) => INVALID.store(true, Ordering::SeqCst),
     }
 }

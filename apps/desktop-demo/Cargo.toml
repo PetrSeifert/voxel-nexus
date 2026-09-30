@@ -41,8 +41,8 @@ path = "src/large_sparse_measurement.rs"
 required-features = ["qualification"]
 
 [[bin]]
-name = "streamed-residency-prototype"
-path = "src/streamed_residency_prototype.rs"
+name = "streamed-residency-qualification"
+path = "src/streamed_residency_qualification.rs"
 required-features = ["qualification"]
 
 [[bin]]
