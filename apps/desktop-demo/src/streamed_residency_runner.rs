@@ -219,6 +219,11 @@ fn run(window: &Window, output: &mut File, mode: &str) -> Result<(), String> {
     {
         return Err("drawable extent differs from frozen contract".into());
     }
+    let runtime = backend.runtime_context();
+    emit(
+        output,
+        json!({"kind":"device","name":runtime.device_name,"driver_version":runtime.driver_version,"api_version":runtime.api_version,"validation_enabled":runtime.validation_enabled}),
+    )?;
     emit(
         output,
         json!({"kind":"context","mode":mode,"side":side,"projection":[1920,1080,60.0,0.1,34.0],"speed":4,"route_duration":route::DURATION,"crossings":route::CROSSINGS,"metadata_entries":side*side,"historical_view_limit":2,"edited_coordinate_limit":6,"presentation_images":backend.qualification_presentation_image_count(),"typed_dense_rejection":true}),
