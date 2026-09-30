@@ -578,7 +578,114 @@ fn check_brickmap_lifecycle(window: &Window, scenario: BrickmapLifecycleScenario
     result
 }
 
+// Camera rays from the streamed qualification route in #118, exactly as uploaded. On the RTX 4070,
+// each coarse skip near the empty-brick corner at local (8, y, 8) alternated between two cells
+// forever; with the step cap alone, these rays missed the floor instead of hanging the device.
+fn check_coarse_skip_progress(window: &Window) -> TestResult {
+    use voxel_frontend::{
+        SparseVoxelBackground, SparseVoxelBatch, SparseVoxelScene, SparseVoxelVolume, StorageTier,
+        VoxelRegionFill,
+    };
+    let material = VoxelMaterialId::new("stone");
+    let view = VoxelFrontend::new().publish_sparse(
+        SparseVoxelScene::new(
+            VoxelSceneId::new("coarse-skip-progress"),
+            VoxelSceneRevision::new(1),
+            vec![VoxelMaterial::new(material.clone(), [1.0; 4])],
+            vec![SparseVoxelVolume::new(
+                VoxelVolumeMetadata::new(
+                    VoxelVolumeId::new("volume"),
+                    VoxelExtent::new(64, 64, 64),
+                    [384.0, 0.0, 256.0],
+                    1.0,
+                ),
+                SparseVoxelBackground::Empty,
+                vec![SparseVoxelBatch::Fill(VoxelRegionFill::new(
+                    VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(64, 31, 64)),
+                    VoxelValue::Occupied(material),
+                ))],
+            )],
+        )
+        .with_storage_tier(StorageTier::SparsePages),
+    )?;
+    let origin = [
+        0x4078_805b_2000_0000,
+        0x4048_0000_0000_0000,
+        0x4070_805b_2000_0000,
+    ]
+    .map(f64::from_bits);
+    let probes = [
+        [
+            0xbf4c_99fd_8a5b_8177,
+            0xbfd5_d068_27e6_46b4,
+            0x3fee_1574_8ae4_ebc6,
+        ],
+        [
+            0x3fed_b079_a037_3bd4,
+            0xbfd7_e0cb_e02c_6c2b,
+            0xbf51_01f8_201f_a411,
+        ],
+        [
+            0xbf51_024e_4345_d8a8,
+            0xbfd7_e0cb_c498_3616,
+            0x3fed_b079_a5b6_77a7,
+        ],
+        [
+            0x3fec_04d6_b6f6_bb68,
+            0xbfde_ea54_1607_994a,
+            0xbf53_fb47_398e_4d9d,
+        ],
+        [
+            0xbf53_fb47_398e_4d9d,
+            0xbfde_ea54_1607_9948,
+            0x3fec_04d6_b6f6_bb66,
+        ],
+        [
+            0x3fe8_9bad_0cdb_7ffd,
+            0xbfe4_74a9_b016_6a34,
+            0xbf61_92f3_d254_4716,
+        ],
+        [
+            0xbf61_92f3_d254_4715,
+            0xbfe4_74a9_b016_6a33,
+            0x3fe8_9bad_0cdb_7ffc,
+        ],
+        [
+            0x3fe4_4de0_208a_e0ed,
+            0xbfe8_bbb7_a0a9_2c48,
+            0xbf61_9e5d_4078_826b,
+        ],
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, direction)| {
+        let probe = SemanticRayProbe::new(
+            format!("coarse-skip-progress-{index}"),
+            SemanticRay::new(origin, direction.map(f64::from_bits), 0.125, 128.0)?,
+        )?;
+        if !matches!(
+            observe(&view, probe.ray())?.result(),
+            SemanticRayResult::Contact(_)
+        ) {
+            return Err(format!("{} must reach the floor", probe.identity()).into());
+        }
+        Ok(probe)
+    })
+    .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+    check_gpu_representation(
+        window,
+        view,
+        probes,
+        128.0,
+        ComputeRepresentation::Brickmap {
+            budget_bytes: 128 * 1024 * 1024,
+        },
+        vec![],
+    )
+}
+
 fn run_fixtures(window: &Window) -> TestResult {
+    check_coarse_skip_progress(window)?;
     check_sparse_envelope(window)?;
     #[cfg(feature = "qualification")]
     for scenario in [
