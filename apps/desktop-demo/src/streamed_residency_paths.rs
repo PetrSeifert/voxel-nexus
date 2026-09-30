@@ -254,12 +254,17 @@ pub struct Install {
     pub crossing: Instant,
     pub switch_requested: Option<Instant>,
 }
+#[derive(Debug)]
+enum PreparationFailure {
+    Rejected(Box<dyn std::error::Error + Send + Sync>),
+    Cleanup(Box<dyn std::error::Error + Send + Sync>),
+}
 impl Install {
     fn prepare(
         &mut self,
         mut configure: impl FnMut(&mut Path) -> RenderPathResult<()>,
         mut shutdown: impl FnMut(&mut Path) -> RenderPathResult<()>,
-    ) -> RenderPathResult<()> {
+    ) -> Result<(), PreparationFailure> {
         let prepared = (|| {
             configure(&mut self.candidate)?;
             if let Some(replacement) = &mut self.replacement {
@@ -286,10 +291,10 @@ impl Install {
             // Both prepared owners need cleanup even if one shutdown reports an error.
             let candidate_cleanup = shutdown(&mut self.candidate);
             let replacement_cleanup = self.replacement.as_mut().map(shutdown).transpose();
-            candidate_cleanup?;
-            replacement_cleanup?;
+            candidate_cleanup.map_err(PreparationFailure::Cleanup)?;
+            replacement_cleanup.map_err(PreparationFailure::Cleanup)?;
         }
-        prepared
+        prepared.map_err(PreparationFailure::Rejected)
     }
 }
 pub struct Boundary {
@@ -384,7 +389,11 @@ impl RenderPath for Shared {
                 },
                 |prepared| prepared.operation(|path| path.shutdown(device)),
             );
-            if let Err(error) = configured {
+            if let Err(failure) = configured {
+                let error = match failure {
+                    PreparationFailure::Rejected(error) => error,
+                    PreparationFailure::Cleanup(error) => return Err(error),
+                };
                 state.failure = Some(error.to_string());
                 if !std::mem::take(&mut state.expected_failure) {
                     return Err(error);
@@ -438,7 +447,7 @@ impl RenderPath for Shared {
 
 #[cfg(test)]
 mod tests {
-    use super::{Artifacts, Cache, Install, Kind, Snapshot};
+    use super::{Artifacts, Cache, Install, Kind, PreparationFailure, Snapshot};
     use crate::streamed_residency_route;
     use render_backend::CameraStateRevision;
     use std::{cell::Cell, time::Instant};
@@ -490,7 +499,9 @@ mod tests {
                 },
             )
             .unwrap_err();
-        assert!(error.to_string().contains("mismatch"));
+        assert!(
+            matches!(error, PreparationFailure::Rejected(error) if error.to_string().contains("mismatch"))
+        );
         assert_eq!(live.get(), 0);
     }
 
@@ -511,7 +522,9 @@ mod tests {
                 },
             )
             .unwrap_err();
-        assert_eq!(error.to_string(), "candidate cleanup failed");
+        assert!(
+            matches!(error, PreparationFailure::Cleanup(error) if error.to_string() == "candidate cleanup failed")
+        );
         assert_eq!(cleaned.get(), 2);
     }
 
