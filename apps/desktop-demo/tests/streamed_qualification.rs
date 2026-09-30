@@ -76,6 +76,41 @@ fn gpu_qualification_requires_explicit_opt_in() -> Result<(), Box<dyn std::error
 
 #[cfg(windows)]
 #[test]
+#[ignore = "requires local GPU qualification with explicit --allow-gpu opt-in"]
+fn matched_gpu_runs_release_all_residency_allocations() -> Result<(), Box<dyn std::error::Error>> {
+    let directory =
+        std::env::temp_dir().join(format!("streamed-gpu-cleanup-{}", std::process::id()));
+    std::fs::create_dir_all(&directory)?;
+    for attempt in 0..3 {
+        let path = directory.join(format!("matched-16-{attempt}.jsonl"));
+        let output =
+            std::process::Command::new(env!("CARGO_BIN_EXE_streamed-residency-qualification"))
+                .arg("matched-16")
+                .arg(&path)
+                .arg("--allow-gpu")
+                .output()?;
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let records = std::fs::read_to_string(&path)?
+            .lines()
+            .map(serde_json::from_str::<serde_json::Value>)
+            .collect::<Result<Vec<_>, _>>()?;
+        let released = records
+            .iter()
+            .find(|record| record["kind"] == "cpu-released")
+            .ok_or("missing CPU cleanup record")?;
+        assert_eq!(released["live"], serde_json::json!([0, 0, 0, 0, 0, 0]));
+        std::fs::remove_file(path)?;
+    }
+    std::fs::remove_dir(directory)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+#[test]
 fn verifier_rejects_incomplete_and_out_of_cap_evidence_without_graphics()
 -> Result<(), Box<dyn std::error::Error>> {
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

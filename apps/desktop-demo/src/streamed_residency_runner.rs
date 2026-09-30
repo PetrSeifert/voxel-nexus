@@ -762,6 +762,14 @@ impl ApplicationHandler for Application {
     fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
 }
 pub fn main() -> Result<(), String> {
+    // The standard library caches blocking-channel state until this thread exits.
+    // Initialize it as Control so a first Raster wait cannot look like leaked geometry.
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<()>(0);
+    match receiver.recv_timeout(Duration::from_millis(1)) {
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        result => return Err(format!("channel context initialization failed: {result:?}")),
+    }
+    drop((sender, receiver));
     let arguments = std::env::args().skip(1).collect::<Vec<_>>();
     let [mode, path, allow] = arguments.as_slice() else {
         return Err("usage: streamed-residency-qualification raster|brickmap|matched-8|matched-16 OUTPUT.jsonl --allow-gpu".into());
