@@ -11,6 +11,37 @@ pub const CROSSINGS: [f64; 8] = [
     32.0 + 64.0 * std::f64::consts::SQRT_2 + 8.0,
     32.0 + 64.0 * std::f64::consts::SQRT_2 + 24.0,
 ];
+pub fn crossing_due(
+    seconds: f64,
+    next_crossing: usize,
+    pending_crossing: Option<usize>,
+) -> Result<bool, String> {
+    if let Some(index) = pending_crossing {
+        let origin = CROSSINGS
+            .get(index)
+            .ok_or("invalid pending crossing index")?;
+        if seconds - origin > 2.5 {
+            return Err(format!(
+                "crossing {index} exceeded its 2.5 second installation deadline"
+            ));
+        }
+    }
+    let Some(&origin) = CROSSINGS.get(next_crossing) else {
+        return Ok(false);
+    };
+    if seconds < origin {
+        return Ok(false);
+    }
+    if pending_crossing.is_some() {
+        return Err("later crossing reached before the previous target was installed".into());
+    }
+    if seconds - origin > 2.5 {
+        return Err(format!(
+            "crossing {next_crossing} was observed after its installation deadline"
+        ));
+    }
+    Ok(true)
+}
 pub fn camera(seconds: f64) -> Result<CameraState, String> {
     let points = [
         [224.0, 224.0],
@@ -120,4 +151,28 @@ pub fn covered(
         && high[0].min(end) <= (maximum_x + 1) as f32 * 64.0
         && low[2].max(0.0) >= minimum_z as f32 * 64.0
         && high[2].min(end) <= (maximum_z + 1) as f32 * 64.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CROSSINGS, crossing_due};
+
+    #[test]
+    fn delayed_crossings_cannot_skip_an_uninstalled_target() {
+        assert!(!crossing_due(7.0, 0, None).unwrap());
+        assert!(crossing_due(8.0, 0, None).unwrap());
+        assert!(!crossing_due(10.5, 1, Some(0)).unwrap());
+        assert!(crossing_due(10.501, 1, Some(0)).is_err());
+        assert!(crossing_due(24.0, 1, Some(0)).is_err());
+        assert!(crossing_due(24.0, 0, None).is_err());
+    }
+
+    #[test]
+    fn all_crossings_allow_timely_installation() {
+        for (index, &origin) in CROSSINGS.iter().enumerate() {
+            assert!(crossing_due(origin, index, None).unwrap());
+            assert!(!crossing_due(origin + 0.25, index + 1, Some(index)).unwrap());
+        }
+        assert!(!crossing_due(155.0, CROSSINGS.len(), None).unwrap());
+    }
 }

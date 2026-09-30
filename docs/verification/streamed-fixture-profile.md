@@ -80,6 +80,8 @@ The earlier isolated-allocation calibration remains as archived `calibration.jso
 
 ## Verify without graphics work
 
+PR review fixes reject overdue route crossings before an unfinished target can be replaced, count actual installations separately from crossing requests, and validate handoff stamps before changing presentation. Any preparation or stamp failure shuts down both prepared paths. CPU regression tests cover these checks. These changes postdate the archived source hashes in `residency-context.json`; the captured GPU evidence remains unchanged and was not rerun.
+
 Run `./scripts/verify-streamed-residency.ps1` to verify the captured evidence and regenerate `residency-summary.json`. Exit zero means the recorded evidence is internally consistent; the summary verdict remains **FAIL**. Run with `-RunCpu` to rebuild and repeat CPU-only calibration, matched scenes, separately processed baseline and lifecycle replay. These modes create no Vulkan instance or window and submit no GPU work.
 
 Graphics modes require a separate deliberate invocation with `--allow-gpu`. Do not use the failed route as routine verification on the user's desktop. #118 owns a bounded reproducer on a dedicated device, diagnosis at the actual failing seam and complete recapture from one committed source/device context before accepting the shaping choice.

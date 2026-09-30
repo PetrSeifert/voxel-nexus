@@ -254,6 +254,44 @@ pub struct Install {
     pub crossing: Instant,
     pub switch_requested: Option<Instant>,
 }
+impl Install {
+    fn prepare(
+        &mut self,
+        mut configure: impl FnMut(&mut Path) -> RenderPathResult<()>,
+        mut shutdown: impl FnMut(&mut Path) -> RenderPathResult<()>,
+    ) -> RenderPathResult<()> {
+        let prepared = (|| {
+            configure(&mut self.candidate)?;
+            if let Some(replacement) = &mut self.replacement {
+                configure(replacement)?;
+                let active = self.candidate.adapter.stamp();
+                let ready = replacement.adapter.stamp();
+                if self.candidate.selection != replacement.selection
+                    || active.scene_identity() != ready.scene_identity()
+                    || active.visible_revision() != ready.visible_revision()
+                    || ready.required_revision() != ready.visible_revision()
+                    || active.camera_state_revision() != ready.camera_state_revision()
+                    || active.presentation_configuration() != ready.presentation_configuration()
+                    || ready.readiness() != RenderPathReadiness::Recordable
+                {
+                    return Err(
+                        "replacement selection/revision/camera/configuration/readiness mismatch"
+                            .into(),
+                    );
+                }
+            }
+            Ok(())
+        })();
+        if prepared.is_err() {
+            // Both prepared owners need cleanup even if one shutdown reports an error.
+            let candidate_cleanup = shutdown(&mut self.candidate);
+            let replacement_cleanup = self.replacement.as_mut().map(shutdown).transpose();
+            candidate_cleanup?;
+            replacement_cleanup?;
+        }
+        prepared
+    }
+}
 pub struct Boundary {
     pub presenting: Path,
     retiring: Vec<Path>,
@@ -336,26 +374,17 @@ impl RenderPath for Shared {
             state.peak_owners = state
                 .peak_owners
                 .max(2 + usize::from(install.replacement.is_some()));
-            let configured: RenderPathResult<()> = (|| {
-                install.candidate.operation(|path| {
-                    path.configure(device, target)?;
-                    path.publish_camera_state(camera, revision)?;
-                    path.advance_frame_boundary(device, target)
-                })?;
-                if let Some(replacement) = &mut install.replacement {
-                    replacement.operation(|path| {
+            let configured = install.prepare(
+                |prepared| {
+                    prepared.operation(|path| {
                         path.configure(device, target)?;
                         path.publish_camera_state(camera, revision)?;
                         path.advance_frame_boundary(device, target)
-                    })?;
-                }
-                Ok(())
-            })();
+                    })
+                },
+                |prepared| prepared.operation(|path| path.shutdown(device)),
+            );
             if let Err(error) = configured {
-                install.candidate.operation(|path| path.shutdown(device))?;
-                if let Some(replacement) = &mut install.replacement {
-                    replacement.operation(|path| path.shutdown(device))?;
-                }
                 state.failure = Some(error.to_string());
                 if !std::mem::take(&mut state.expected_failure) {
                     return Err(error);
@@ -369,21 +398,6 @@ impl RenderPath for Shared {
             state.installed_at = Some(installed_at);
             state.installed_targets += 1;
             if let Some(replacement) = install.replacement {
-                let active = state.presenting.adapter.stamp();
-                let ready = replacement.adapter.stamp();
-                if state.presenting.selection != replacement.selection
-                    || active.scene_identity() != ready.scene_identity()
-                    || active.visible_revision() != ready.visible_revision()
-                    || ready.required_revision() != ready.visible_revision()
-                    || active.camera_state_revision() != ready.camera_state_revision()
-                    || active.presentation_configuration() != ready.presentation_configuration()
-                    || ready.readiness() != RenderPathReadiness::Recordable
-                {
-                    return Err(
-                        "replacement selection/revision/camera/configuration/readiness mismatch"
-                            .into(),
-                    );
-                }
                 let old = std::mem::replace(&mut state.presenting, replacement);
                 state.retiring.push(old);
                 let handoff_at = Instant::now();
@@ -419,5 +433,105 @@ impl RenderPath for Shared {
             .borrow_mut()
             .presenting
             .operation(|path| path.record(frame))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Artifacts, Cache, Install, Kind, Snapshot};
+    use crate::streamed_residency_route;
+    use render_backend::CameraStateRevision;
+    use std::{cell::Cell, time::Instant};
+
+    fn installation() -> Install {
+        let source = Snapshot::new(16);
+        let mut cache = Cache::new();
+        let selection = vec![super::Key {
+            coordinate: (3, 3),
+            version: source.version((3, 3)),
+        }];
+        cache.ensure(&source, selection.first().unwrap()).unwrap();
+        let camera = streamed_residency_route::camera(0.0).unwrap();
+        let mut artifacts = Artifacts::new();
+        let mut build = |kind| {
+            artifacts
+                .build(
+                    kind,
+                    &cache,
+                    &source,
+                    &selection,
+                    camera,
+                    CameraStateRevision::new(1),
+                )
+                .unwrap()
+        };
+        Install {
+            candidate: build(Kind::Raster),
+            replacement: Some(build(Kind::Brickmap)),
+            crossing: Instant::now(),
+            switch_requested: None,
+        }
+    }
+
+    #[test]
+    fn handoff_mismatch_cleans_both_prepared_owners() {
+        let mut install = installation();
+        install.replacement.as_mut().unwrap().selection.clear();
+        let live = Cell::new(0);
+        let error = install
+            .prepare(
+                |_| {
+                    live.set(live.get() + 1);
+                    Ok(())
+                },
+                |_| {
+                    live.set(live.get() - 1);
+                    Ok(())
+                },
+            )
+            .unwrap_err();
+        assert!(error.to_string().contains("mismatch"));
+        assert_eq!(live.get(), 0);
+    }
+
+    #[test]
+    fn failed_cleanup_does_not_skip_the_other_owner() {
+        let mut install = installation();
+        let cleaned = Cell::new(0);
+        let error = install
+            .prepare(
+                |_| Ok(()),
+                |_| {
+                    cleaned.set(cleaned.get() + 1);
+                    if cleaned.get() == 1 {
+                        Err("candidate cleanup failed".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+            )
+            .unwrap_err();
+        assert_eq!(error.to_string(), "candidate cleanup failed");
+        assert_eq!(cleaned.get(), 2);
+    }
+
+    #[test]
+    fn successful_preparation_keeps_candidate_resources() {
+        let mut install = installation();
+        install.replacement = None;
+        let live = Cell::new(0);
+        install
+            .prepare(
+                |_| {
+                    live.set(live.get() + 1);
+                    Ok(())
+                },
+                |_| {
+                    live.set(live.get() - 1);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(live.get(), 1);
     }
 }
