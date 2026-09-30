@@ -1,11 +1,12 @@
 use crate::{ComputeSceneBuildError, ComputeSceneBundle};
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use thiserror::Error;
 use voxel_frontend::{
-    VoxelChangeSet, VoxelEditOutcome, VoxelSceneId, VoxelSceneRevision, VoxelSceneView,
+    VoxelChangeSet, VoxelEditOutcome, VoxelFrontend, VoxelFrontendError, VoxelResidencySelection,
+    VoxelResidencySelectionId, VoxelSceneId, VoxelSceneRevision, VoxelSceneView,
 };
 
 const RETAINED_EVENT_CAPACITY: usize = 64;
@@ -107,6 +108,7 @@ impl ComputePreparationBarrierShared {
 
 struct ComputeConvergenceControlState {
     pending_outcome: Option<VoxelEditOutcome>,
+    pending_selection: Option<VoxelResidencySelection>,
     retry_requested: bool,
     pending_failure: Option<ComputeConvergenceFailurePhase>,
     partial_write_failure: bool,
@@ -124,6 +126,8 @@ pub struct ComputeConvergenceController {
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum ComputeConvergenceControlError {
+    #[error("a compute residency selection is already pending at the frame boundary")]
+    PendingSelection,
     #[error("the compute convergence control state is unavailable")]
     Unavailable,
     #[error("a compute edit outcome is already pending at the frame boundary")]
@@ -165,6 +169,7 @@ impl ComputeConvergenceController {
         Self {
             state: Arc::new(Mutex::new(ComputeConvergenceControlState {
                 pending_outcome: None,
+                pending_selection: None,
                 retry_requested: false,
                 pending_failure: None,
                 partial_write_failure: false,
@@ -199,6 +204,38 @@ impl ComputeConvergenceController {
             .map_err(|_| ComputeConvergenceControlError::Unavailable)
     }
 
+    pub fn submit_residency_selection(
+        &self,
+        selection: VoxelResidencySelection,
+    ) -> Result<(), ComputeConvergenceControlError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
+        if state.retry_requested {
+            return Err(ComputeConvergenceControlError::PendingRetry);
+        }
+        if let Some(pending) = &state.pending_selection {
+            if pending.identity() == selection.identity() && *pending != selection {
+                return Err(ComputeConvergenceControlError::PendingSelection);
+            }
+            if selection.identity() <= pending.identity() {
+                return Ok(());
+            }
+        }
+        state.pending_selection = Some(selection);
+        Ok(())
+    }
+
+    fn take_pending_selection(
+        &self,
+    ) -> Result<Option<VoxelResidencySelection>, ComputeConvergenceControlError> {
+        self.state
+            .lock()
+            .map(|mut state| state.pending_selection.take())
+            .map_err(|_| ComputeConvergenceControlError::Unavailable)
+    }
+
     pub fn drain_events(
         &self,
     ) -> Result<Vec<ComputeConvergenceEvent>, ComputeConvergenceControlError> {
@@ -216,6 +253,9 @@ impl ComputeConvergenceController {
             .map_err(|_| ComputeConvergenceControlError::Unavailable)?;
         if state.pending_outcome.is_some() {
             return Err(ComputeConvergenceControlError::PendingOutcome);
+        }
+        if state.pending_selection.is_some() {
+            return Err(ComputeConvergenceControlError::PendingSelection);
         }
         if state.retry_requested {
             return Err(ComputeConvergenceControlError::PendingRetry);
@@ -423,6 +463,7 @@ impl ComputeConvergenceGeneration {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComputeConvergenceWorkStamp {
     revision: VoxelSceneRevision,
+    selection: Option<VoxelResidencySelectionId>,
     generation: ComputeConvergenceGeneration,
 }
 
@@ -430,6 +471,7 @@ impl ComputeConvergenceWorkStamp {
     fn new(revision: VoxelSceneRevision, generation: ComputeConvergenceGeneration) -> Self {
         Self {
             revision,
+            selection: None,
             generation,
         }
     }
@@ -440,6 +482,15 @@ impl ComputeConvergenceWorkStamp {
 
     pub fn generation(self) -> ComputeConvergenceGeneration {
         self.generation
+    }
+
+    pub fn residency_selection(self) -> Option<VoxelResidencySelectionId> {
+        self.selection
+    }
+
+    fn with_selection(mut self, selection: Option<&VoxelResidencySelection>) -> Self {
+        self.selection = selection.map(VoxelResidencySelection::identity);
+        self
     }
 }
 
@@ -529,6 +580,7 @@ pub enum ComputeConvergenceEvent {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComputeConvergenceStatus {
     required_revision: VoxelSceneRevision,
+    required_selection: Option<VoxelResidencySelectionId>,
     visible_revision: VoxelSceneRevision,
     required_generation: ComputeConvergenceGeneration,
     installed: ComputeConvergenceWorkStamp,
@@ -547,6 +599,14 @@ pub struct ComputeConvergenceStatus {
 }
 
 impl ComputeConvergenceStatus {
+    pub fn required_residency_selection(self) -> Option<VoxelResidencySelectionId> {
+        self.required_selection
+    }
+
+    pub fn installed_residency_selection(self) -> Option<VoxelResidencySelectionId> {
+        self.installed.selection
+    }
+
     pub fn required_revision(self) -> VoxelSceneRevision {
         self.required_revision
     }
@@ -606,6 +666,12 @@ pub(crate) enum ComputeConvergenceShutdownError {
 
 #[derive(Debug, Error)]
 pub enum ComputeConvergenceError {
+    #[error("this compute path has no streamed residency owner")]
+    ResidencyUnavailable,
+    #[error("streamed Brickmap construction supports at most nine selected volumes")]
+    ResidencyVolumeLimit,
+    #[error(transparent)]
+    Residency(#[from] VoxelFrontendError),
     #[error("brickmap patch base revision or pool allocation changed before installation")]
     PatchBaseMismatch,
     #[error(
@@ -645,6 +711,7 @@ pub enum ComputeConvergenceError {
 #[derive(Clone)]
 struct ComputePreparationTarget {
     view: VoxelSceneView,
+    residency: Option<(Arc<VoxelFrontend>, VoxelResidencySelection)>,
     base: ComputeSceneBundle,
     changes: Vec<VoxelChangeSet>,
 }
@@ -652,6 +719,64 @@ struct ComputePreparationTarget {
 impl ComputePreparationTarget {
     fn stamp(&self, generation: ComputeConvergenceGeneration) -> ComputeConvergenceWorkStamp {
         ComputeConvergenceWorkStamp::new(self.view.revision(), generation)
+            .with_selection(self.residency.as_ref().map(|(_, selection)| selection))
+    }
+
+    fn prepare(
+        &self,
+        cancellation: &AtomicBool,
+        preparation_barrier: Option<&ComputePreparationBarrierShared>,
+    ) -> Result<ComputeSceneBundle, ComputeSceneBuildError> {
+        let block_completed = || {
+            #[cfg(any(test, feature = "qualification"))]
+            if let Some(barrier) = preparation_barrier {
+                barrier
+                    .complete_block_and_wait(self.view.revision())
+                    .map_err(|_| ComputeSceneBuildError::PreparationBarrier)?;
+            }
+            #[cfg(not(any(test, feature = "qualification")))]
+            let _ = preparation_barrier;
+            Ok(())
+        };
+        if let Some((frontend, selection)) = &self.residency {
+            let copies = frontend
+                .materialize_residency_until_cancelled(selection, &self.view, || {
+                    cancellation.load(Ordering::Acquire)
+                })
+                .map_err(|error| match error {
+                    VoxelFrontendError::ResidencySuperseded
+                        if cancellation.load(Ordering::Acquire) =>
+                    {
+                        ComputeSceneBuildError::Cancelled
+                    }
+                    error => ComputeSceneBuildError::VoxelFrontend(error),
+                })?;
+            let counter = self
+                .base
+                .residency_copy_counter()
+                .ok_or(ComputeSceneBuildError::PatchBaseMismatch)?;
+            return ComputeSceneBundle::from_residency_with_progress(
+                copies,
+                self.base.representation(),
+                counter,
+                || {
+                    if cancellation.load(Ordering::Acquire) {
+                        return Err(ComputeSceneBuildError::Cancelled);
+                    }
+                    block_completed()?;
+                    if cancellation.load(Ordering::Acquire) {
+                        return Err(ComputeSceneBuildError::Cancelled);
+                    }
+                    Ok(())
+                },
+            );
+        }
+        self.base.successor_with_block_completion(
+            &self.view,
+            &self.changes,
+            || cancellation.load(Ordering::Acquire),
+            block_completed,
+        )
     }
 }
 
@@ -725,6 +850,10 @@ pub(crate) struct ComputeConvergence {
     installed_generation: ComputeConvergenceGeneration,
     changes: Vec<VoxelChangeSet>,
     required_revision: VoxelSceneRevision,
+    frontend: Option<Arc<VoxelFrontend>>,
+    required_view: Option<VoxelSceneView>,
+    required_selection: Option<VoxelResidencySelection>,
+    residency_copy_counter: Arc<AtomicUsize>,
     required_generation: ComputeConvergenceGeneration,
     active: Option<ComputeActivePreparation>,
     pending: Option<(ComputeConvergenceGeneration, ComputePreparationTarget)>,
@@ -738,12 +867,21 @@ impl ComputeConvergence {
     pub(crate) fn new(installed_bundle: ComputeSceneBundle) -> Self {
         let scene_identity = installed_bundle.scene_identity().clone();
         let required_revision = installed_bundle.revision();
+        let required_selection = installed_bundle.residency_selection().cloned();
+        let required_view = installed_bundle.residency_view().cloned();
+        let residency_copy_counter = installed_bundle
+            .residency_copy_counter()
+            .unwrap_or_default();
         Self {
             scene_identity,
             installed_bundle,
             installed_generation: ComputeConvergenceGeneration::initial(),
             changes: Vec::new(),
             required_revision,
+            frontend: None,
+            required_view,
+            required_selection,
+            residency_copy_counter,
             required_generation: ComputeConvergenceGeneration::initial(),
             active: None,
             pending: None,
@@ -752,6 +890,64 @@ impl ComputeConvergence {
             events: ComputeConvergenceEvents::new(),
             control: None,
         }
+    }
+
+    pub(crate) fn with_frontend(mut self, frontend: Arc<VoxelFrontend>) -> Self {
+        self.frontend = Some(frontend);
+        self
+    }
+
+    pub(crate) fn required_selection(&self) -> Option<&VoxelResidencySelection> {
+        self.required_selection.as_ref()
+    }
+
+    pub(crate) fn residency_held_copy_count(&self) -> usize {
+        self.residency_copy_counter.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn accept_residency_selection(
+        &mut self,
+        selection: VoxelResidencySelection,
+    ) -> Result<(), ComputeConvergenceError> {
+        let frontend = self
+            .frontend
+            .as_ref()
+            .ok_or(ComputeConvergenceError::ResidencyUnavailable)?;
+        let view = self
+            .required_view
+            .as_ref()
+            .ok_or(ComputeConvergenceError::ResidencyUnavailable)?;
+        if selection.scene_id() != &self.scene_identity {
+            return Err(VoxelFrontendError::ResidencySceneMismatch.into());
+        }
+        if selection.volumes().len() > crate::MAXIMUM_RESIDENCY_VOLUME_COUNT {
+            return Err(ComputeConvergenceError::ResidencyVolumeLimit);
+        }
+        for identity in selection.volumes() {
+            view.volume_content_version(identity)?;
+        }
+        if let Some(required) = &self.required_selection {
+            if selection.identity() == required.identity() && selection != *required {
+                return Err(VoxelFrontendError::ResidencyIdentityConflict.into());
+            }
+            if selection.identity() <= required.identity() {
+                return Ok(());
+            }
+        }
+        let generation = self
+            .required_generation
+            .checked_successor()
+            .ok_or(ComputeConvergenceError::GenerationOverflow)?;
+        let target = ComputePreparationTarget {
+            view: view.clone(),
+            residency: Some((frontend.clone(), selection.clone())),
+            base: self.installed_bundle.clone(),
+            changes: Vec::new(),
+        };
+        self.schedule_target(generation, target)?;
+        self.required_selection = Some(selection);
+        self.required_generation = generation;
+        Ok(())
     }
 
     pub(crate) fn enable_control(
@@ -770,12 +966,17 @@ impl ComputeConvergence {
     pub(crate) fn status(&self) -> ComputeConvergenceStatus {
         ComputeConvergenceStatus {
             required_revision: self.required_revision,
+            required_selection: self
+                .required_selection
+                .as_ref()
+                .map(VoxelResidencySelection::identity),
             visible_revision: self.installed_bundle.revision(),
             required_generation: self.required_generation,
             installed: ComputeConvergenceWorkStamp::new(
                 self.installed_bundle.revision(),
                 self.installed_generation,
-            ),
+            )
+            .with_selection(self.installed_bundle.residency_selection()),
             preparing: self.active.as_ref().map(ComputeActivePreparation::stamp),
             pending: self
                 .pending
@@ -806,7 +1007,8 @@ impl ComputeConvergence {
     }
 
     pub(crate) fn owned_view_count(&self) -> usize {
-        usize::from(self.active.is_some())
+        usize::from(self.required_view.is_some())
+            + usize::from(self.active.is_some())
             + usize::from(
                 self.active
                     .as_ref()
@@ -863,7 +1065,12 @@ impl ComputeConvergence {
         };
         changes.push(change_set.clone());
         let target = ComputePreparationTarget {
-            view,
+            view: view.clone(),
+            residency: self
+                .frontend
+                .as_ref()
+                .zip(self.required_selection.as_ref())
+                .map(|(frontend, selection)| (frontend.clone(), selection.clone())),
             base: self.installed_bundle.clone(),
             changes: changes.clone(),
         };
@@ -871,15 +1078,21 @@ impl ComputeConvergence {
         self.changes = changes;
         self.required_generation = generation;
         self.required_revision = change_set.successor_revision();
+        if self.frontend.is_some() {
+            self.required_view = Some(view);
+        }
         Ok(ComputeConvergenceAcceptance::Accepted {
-            stamp: ComputeConvergenceWorkStamp::new(self.required_revision, generation),
+            stamp: ComputeConvergenceWorkStamp::new(self.required_revision, generation)
+                .with_selection(self.required_selection.as_ref()),
         })
     }
 
     pub(crate) fn request_retry(
         &mut self,
     ) -> Result<ComputeConvergenceRetry, ComputeConvergenceError> {
-        if self.required_revision == self.installed_bundle.revision() {
+        if self.required_revision == self.installed_bundle.revision()
+            && self.required_selection.as_ref() == self.installed_bundle.residency_selection()
+        {
             return Ok(ComputeConvergenceRetry::NoRequiredWork);
         }
         let Some(target) = self.newest_target().cloned() else {
@@ -892,7 +1105,8 @@ impl ComputeConvergence {
         self.schedule_target(generation, target)?;
         self.required_generation = generation;
         Ok(ComputeConvergenceRetry::Requested {
-            stamp: ComputeConvergenceWorkStamp::new(self.required_revision, generation),
+            stamp: ComputeConvergenceWorkStamp::new(self.required_revision, generation)
+                .with_selection(self.required_selection.as_ref()),
         })
     }
 
@@ -908,11 +1122,15 @@ impl ComputeConvergence {
             return Ok(());
         };
         let outcome = control.take_pending_outcome()?;
+        let selection = control.take_pending_selection()?;
         let retry_requested = control.take_retry_request()?;
         if let Some(outcome) = outcome {
             self.accept(outcome)?;
         } else if retry_requested {
             self.request_retry()?;
+        }
+        if let Some(selection) = selection {
+            self.accept_residency_selection(selection)?;
         }
         Ok(())
     }
@@ -1082,6 +1300,7 @@ impl ComputeConvergence {
         self.pending = None;
         self.paused = None;
         self.hidden = None;
+        self.required_view = None;
         let worker_error = if let Some(mut active) = active
             && let Some(worker) = active.worker.take()
             && worker.join().is_err()
@@ -1092,6 +1311,8 @@ impl ComputeConvergence {
         } else {
             None
         };
+        self.installed_bundle.release_residency();
+        self.frontend = None;
         barrier_error.or(worker_error).map_or(Ok(()), Err)
     }
 
@@ -1182,10 +1403,8 @@ impl ComputeConvergence {
             .name(format!("compute-convergence-{}", stamp.revision))
             .spawn({
                 let view = target.view.clone();
-                let base = target.base.clone();
-                let changes = target.changes.clone();
+                let target = target.clone();
                 let cancellation = Arc::clone(&cancellation);
-    #[cfg(any(test, feature = "qualification"))]
                 let preparation_barrier = preparation_barrier.clone();
                 move || {
                     let injected_failure = control
@@ -1199,24 +1418,7 @@ impl ComputeConvergence {
                     let result = match injected_failure {
                         #[cfg(any(test, feature = "qualification"))]
                         Ok(Some(true)) => Err(ComputeSceneBuildError::InjectedPreparationFailure),
-                        Ok(_) => base.successor_with_block_completion(
-                            &view,
-                            &changes,
-                            || cancellation.load(Ordering::Acquire),
-                            || {
-                                #[cfg(any(test, feature = "qualification"))]
-                                return preparation_barrier
-                                    .as_ref()
-                                    .map(|barrier| {
-                                        barrier.complete_block_and_wait(view.revision()).map_err(
-                                            |_| ComputeSceneBuildError::PreparationBarrier,
-                                        )
-                                    })
-                                    .unwrap_or(Ok(()));
-                                #[cfg(not(any(test, feature = "qualification")))]
-                                Ok(())
-                            },
-                        ),
+                        Ok(_) => target.prepare(&cancellation, preparation_barrier.as_deref()),
                         Err(_) => Err(ComputeSceneBuildError::PreparationControl),
                     };
                     #[cfg(any(test, feature = "qualification"))]

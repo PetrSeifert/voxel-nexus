@@ -41,7 +41,7 @@ use render_backend::{
 };
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use voxel_frontend::{VoxelEditOutcome, VoxelSceneView};
+use voxel_frontend::{VoxelEditOutcome, VoxelFrontend, VoxelResidencySelection, VoxelSceneView};
 
 mod brickmap_validation;
 pub use brickmap_validation::BrickmapValidationError;
@@ -58,6 +58,8 @@ pub enum ComputeRepresentation {
 mod brickmap_scene;
 mod compute_convergence;
 mod compute_scene;
+#[cfg(test)]
+mod streamed_tests;
 pub use brickmap_scene::{BrickmapBuildError, BrickmapObservations, BrickmapSceneBundle};
 mod scene_words;
 
@@ -76,6 +78,7 @@ pub const COMPUTE_RAY_STRATEGY: RenderPathStrategy =
     RenderPathStrategy::new("voxel-nexus.compute-ray");
 
 const OUTPUT_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
+const MAXIMUM_RESIDENCY_VOLUME_COUNT: usize = 9;
 const WORKGROUP_SIZE: [u32; 3] = [8, 8, 1];
 const CAMERA_WORD_COUNT: usize = 20;
 const CAMERA_BUFFER_SIZE: u32 = (CAMERA_WORD_COUNT * std::mem::size_of::<f32>()) as u32;
@@ -97,6 +100,31 @@ pub struct ComputeRayRenderPathAdapter {
 }
 
 impl ComputeRayRenderPathAdapter {
+    pub fn new_streamed(
+        frontend: Arc<VoxelFrontend>,
+        selection: VoxelResidencySelection,
+        camera_state: CameraState,
+        camera_state_revision: CameraStateRevision,
+        representation: ComputeRepresentation,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        if matches!(representation, ComputeRepresentation::Dense) {
+            return Err(ComputeSceneBuildError::StreamedDense);
+        }
+        if selection.volumes().len() > MAXIMUM_RESIDENCY_VOLUME_COUNT {
+            return Err(ComputeSceneBuildError::ResidencyVolumeLimit);
+        }
+        let view = frontend.scene_view()?;
+        let copies = frontend.materialize_residency(&selection, &view)?;
+        let scene_bundle = ComputeSceneBundle::from_residency(copies, representation)?;
+        let mut render_path = ComputeRayRenderPath::new(scene_bundle, camera_state, None);
+        render_path.convergence = render_path.convergence.with_frontend(frontend);
+        Ok(Self {
+            render_path,
+            camera_state_revision,
+            published_camera_state_revision: camera_state_revision,
+        })
+    }
+
     #[cfg(feature = "qualification")]
     pub fn qualification_from_bundle(
         bundle: ComputeSceneBundle,
@@ -266,6 +294,20 @@ impl ComputeRayRenderPathAdapter {
 }
 
 impl RenderPath for ComputeRayRenderPathAdapter {
+    fn installed_residency_coverage(&self) -> Option<&render_backend::RenderPathCoverage> {
+        self.scene_bundle().residency_coverage()
+    }
+
+    fn submit_residency_selection(
+        &mut self,
+        selection: VoxelResidencySelection,
+    ) -> RenderPathResult<()> {
+        self.render_path
+            .convergence
+            .accept_residency_selection(selection)?;
+        Ok(())
+    }
+
     fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
         self.render_path.submit_edit_outcome(outcome)
     }
@@ -323,7 +365,7 @@ impl RenderPath for ComputeRayRenderPathAdapter {
 impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
     fn stamp(&self) -> RenderPathStamp {
         let convergence = self.render_path.convergence.status();
-        RenderPathStamp::new(
+        let stamp = RenderPathStamp::new(
             COMPUTE_RAY_STRATEGY,
             self.render_path
                 .convergence
@@ -339,7 +381,16 @@ impl SwitchableRenderPath for ComputeRayRenderPathAdapter {
             } else {
                 RenderPathReadiness::Preparing
             },
-        )
+        );
+        match (
+            self.render_path.convergence.required_selection(),
+            self.scene_bundle().residency_selection(),
+        ) {
+            (Some(required), Some(installed)) => {
+                stamp.with_residency(required.clone(), installed.clone())
+            }
+            _ => stamp,
+        }
     }
 
     fn retire_at_frame_boundary(

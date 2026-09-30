@@ -4,8 +4,9 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use voxel_frontend::{
-    VoxelCoordinate, VoxelFrontendError, VoxelMaterialId, VoxelRegionContent, VoxelSceneId,
-    VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId,
+    VoxelCoordinate, VoxelFrontendError, VoxelMaterialId, VoxelRegionContent,
+    VoxelResidencySelection, VoxelSceneId, VoxelSceneRevision, VoxelSceneView, VoxelValue,
+    VoxelVolumeId,
 };
 
 const EDGE: u32 = 8;
@@ -69,6 +70,17 @@ impl BrickmapSceneBundle {
 
     pub(crate) fn from_view_with_progress<E>(
         view: &VoxelSceneView,
+        progress: impl FnMut() -> Result<(), E>,
+    ) -> Result<Self, E>
+    where
+        E: From<BrickmapBuildError> + From<VoxelFrontendError>,
+    {
+        Self::from_selection_with_progress(view, None, progress)
+    }
+
+    pub(crate) fn from_selection_with_progress<E>(
+        view: &VoxelSceneView,
+        selection: Option<&VoxelResidencySelection>,
         mut progress: impl FnMut() -> Result<(), E>,
     ) -> Result<Self, E>
     where
@@ -90,7 +102,13 @@ impl BrickmapSceneBundle {
             },
         };
         let mut indices = HashMap::new();
-        let mut volumes = view.volumes().iter().collect::<Vec<_>>();
+        let mut volumes = view
+            .volumes()
+            .iter()
+            .filter(|volume| {
+                selection.is_none_or(|selection| selection.volumes().contains(volume.identity()))
+            })
+            .collect::<Vec<_>>();
         volumes.sort_by(|left, right| left.identity().cmp(right.identity()));
         for volume in volumes {
             progress()?;

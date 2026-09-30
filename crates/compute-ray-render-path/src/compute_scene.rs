@@ -9,11 +9,12 @@ mod brickmap_patch;
 pub use brickmap_patch::BrickmapPatchObservations;
 use std::num::TryFromIntError;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 use voxel_frontend::{
     VoxelChangeSet, VoxelCoordinate, VoxelExtent, VoxelFrontendError, VoxelMaterialId, VoxelRegion,
-    VoxelSceneId, VoxelSceneRevision, VoxelSceneView, VoxelValue, VoxelVolumeId,
-    VoxelVolumeMetadata,
+    VoxelResidencyCopies, VoxelResidencySelection, VoxelSceneId, VoxelSceneRevision,
+    VoxelSceneView, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
 };
 
 pub(crate) const SCENE_PREFIX_WORD_COUNT: usize = 4;
@@ -93,6 +94,7 @@ pub struct BrickmapGrowthObservations {
 
 #[derive(Clone, Debug)]
 pub struct ComputeSceneBundle {
+    residency: Option<Arc<ComputeResidencyBundle>>,
     representation: crate::ComputeRepresentation,
     pool_offset: Option<usize>,
     pool_allocation: Arc<()>,
@@ -113,7 +115,101 @@ pub struct ComputeSceneBundle {
     patches: Arc<BTreeMap<usize, u32>>,
 }
 
+struct ComputeResidencyBundle {
+    copies: VoxelResidencyCopies,
+    coverage: render_backend::RenderPathCoverage,
+    counter: Arc<AtomicUsize>,
+}
+
+impl Drop for ComputeResidencyBundle {
+    fn drop(&mut self) {
+        self.counter
+            .fetch_sub(self.copies.selection().volumes().len(), Ordering::AcqRel);
+    }
+}
+
+impl std::fmt::Debug for ComputeResidencyBundle {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ComputeResidencyBundle")
+            .field("selection", self.copies.selection())
+            .finish_non_exhaustive()
+    }
+}
+
 impl ComputeSceneBundle {
+    pub fn from_residency(
+        copies: VoxelResidencyCopies,
+        representation: crate::ComputeRepresentation,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        Self::from_residency_with_progress(
+            copies,
+            representation,
+            Arc::new(AtomicUsize::new(0)),
+            || Ok(()),
+        )
+    }
+
+    pub(crate) fn from_residency_with_progress(
+        copies: VoxelResidencyCopies,
+        representation: crate::ComputeRepresentation,
+        counter: Arc<AtomicUsize>,
+        progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
+    ) -> Result<Self, ComputeSceneBuildError> {
+        if matches!(representation, crate::ComputeRepresentation::Dense) {
+            return Err(ComputeSceneBuildError::StreamedDense);
+        }
+        if copies.selection().volumes().len() > crate::MAXIMUM_RESIDENCY_VOLUME_COUNT {
+            return Err(ComputeSceneBuildError::ResidencyVolumeLimit);
+        }
+        let coverage = render_backend::RenderPathCoverage::new(
+            copies.scene_view(),
+            copies.selection().clone(),
+        )?;
+        counter.fetch_add(copies.selection().volumes().len(), Ordering::AcqRel);
+        let residency = Arc::new(ComputeResidencyBundle {
+            copies,
+            coverage,
+            counter,
+        });
+        let mut bundle = Self::build_brickmap_measured(
+            residency.copies.scene_view(),
+            representation,
+            None,
+            Some(residency.copies.selection()),
+            progress,
+            |_, _| {},
+        )?;
+        bundle.residency = Some(residency);
+        Ok(bundle)
+    }
+
+    pub fn residency_selection(&self) -> Option<&VoxelResidencySelection> {
+        self.residency
+            .as_ref()
+            .map(|residency| residency.copies.selection())
+    }
+
+    pub(crate) fn residency_coverage(&self) -> Option<&render_backend::RenderPathCoverage> {
+        self.residency.as_ref().map(|residency| &residency.coverage)
+    }
+
+    pub(crate) fn residency_view(&self) -> Option<&VoxelSceneView> {
+        self.residency
+            .as_ref()
+            .map(|residency| residency.copies.scene_view())
+    }
+
+    pub(crate) fn release_residency(&mut self) {
+        self.residency = None;
+    }
+
+    pub(crate) fn residency_copy_counter(&self) -> Option<Arc<AtomicUsize>> {
+        self.residency
+            .as_ref()
+            .map(|residency| residency.counter.clone())
+    }
+
     #[cfg(feature = "qualification")]
     pub fn qualification_streamed(
         view: &VoxelSceneView,
@@ -168,7 +264,7 @@ impl ComputeSceneBundle {
         capacity: Option<usize>,
         progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
-        Self::build_brickmap_measured(view, representation, capacity, progress, |_, _| {})
+        Self::build_brickmap_measured(view, representation, capacity, None, progress, |_, _| {})
     }
 
     pub(crate) fn from_view_with_preparation_timings(
@@ -186,6 +282,7 @@ impl ComputeSceneBundle {
         let bundle = Self::build_brickmap_measured(
             view,
             representation,
+            None,
             None,
             || Ok(()),
             |observations, serialization| {
@@ -209,14 +306,23 @@ impl ComputeSceneBundle {
         view: &VoxelSceneView,
         representation: crate::ComputeRepresentation,
         capacity: Option<usize>,
+        selection: Option<&VoxelResidencySelection>,
         progress: impl FnMut() -> Result<(), ComputeSceneBuildError>,
         mut measured: impl FnMut(&crate::BrickmapObservations, std::time::Duration),
     ) -> Result<Self, ComputeSceneBuildError> {
         let crate::ComputeRepresentation::Brickmap { budget_bytes } = representation else {
             return Err(ComputeSceneBuildError::PatchBaseMismatch);
         };
-        crate::brickmap_validation::validate_view(view, budget_bytes)?;
-        let brickmap = crate::BrickmapSceneBundle::from_view_with_progress(view, progress)?;
+        if view.is_streamed() && selection.is_none() {
+            return Err(ComputeSceneBuildError::ResidencySelectionRequired);
+        }
+        if selection.is_some() {
+            crate::brickmap_validation::validate_selection(view, selection, budget_bytes)?;
+        } else {
+            crate::brickmap_validation::validate_view(view, budget_bytes)?;
+        }
+        let brickmap =
+            crate::BrickmapSceneBundle::from_selection_with_progress(view, selection, progress)?;
         let serialization_started = std::time::Instant::now();
         let (volume_headers, voxel_words) = brickmap.gpu_words()?;
         let mut material_identities = brickmap.material_identities().to_vec();
@@ -277,6 +383,7 @@ impl ComputeSceneBundle {
             .map(u32::try_from)
             .collect::<Result<BTreeSet<_>, _>>()?;
         let bundle = Self {
+            residency: None,
             representation,
             pool_offset: Some(pool_offset),
             pool_allocation: Arc::new(()),
@@ -316,6 +423,9 @@ impl ComputeSceneBundle {
         mut cancellation_requested: impl FnMut() -> bool,
         mut block_completed: impl FnMut() -> Result<(), ComputeSceneBuildError>,
     ) -> Result<Self, ComputeSceneBuildError> {
+        if view.is_streamed() {
+            return Err(ComputeSceneBuildError::StreamedDense);
+        }
         let material_count = u32::try_from(view.materials().len())?;
         if material_count == u32::MAX {
             return Err(ComputeSceneBuildError::TooManyMaterials);
@@ -396,6 +506,7 @@ impl ComputeSceneBundle {
 
         let storage_words = pack_storage_words(&volume_headers, &material_words, &voxel_words)?;
         Ok(Self {
+            residency: None,
             representation: crate::ComputeRepresentation::Dense,
             pool_offset: None,
             pool_allocation: Arc::new(()),
@@ -685,8 +796,11 @@ impl ComputeSceneBundle {
 
 #[derive(Debug, Error)]
 pub enum ComputeSceneBuildError {
-    #[cfg(feature = "qualification")]
-    #[error("streamed qualification requires explicit Brickmap compute")]
+    #[error("streamed Brickmap construction requires a Voxel Residency Selection")]
+    ResidencySelectionRequired,
+    #[error("streamed Brickmap construction supports at most nine selected volumes")]
+    ResidencyVolumeLimit,
+    #[error("streamed scenes require explicit Brickmap compute")]
     StreamedDense,
     #[error("the brickmap scene palette exceeds the 65,535 occupied material identity limit")]
     BrickmapMaterialCapacity,

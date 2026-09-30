@@ -358,6 +358,7 @@ impl ComputeRayRenderPath {
             allocations,
             workers: self.convergence.status().worker_count(),
             views: self.convergence.owned_view_count(),
+            residency_copies: self.convergence.residency_held_copy_count(),
         })
     }
 

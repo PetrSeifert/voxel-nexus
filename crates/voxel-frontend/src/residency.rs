@@ -172,7 +172,21 @@ impl VoxelFrontend {
         selection: &VoxelResidencySelection,
         view: &VoxelSceneView,
     ) -> Result<VoxelResidencyCopies, VoxelFrontendError> {
+        self.materialize_residency_until_cancelled(selection, view, || false)
+    }
+
+    /// Cancellation releases partially acquired copies before returning. Generation
+    /// already in progress finishes, but no later volume is admitted.
+    pub fn materialize_residency_until_cancelled(
+        &self,
+        selection: &VoxelResidencySelection,
+        view: &VoxelSceneView,
+        mut cancelled: impl FnMut() -> bool,
+    ) -> Result<VoxelResidencyCopies, VoxelFrontendError> {
         selection.validate(view)?;
+        if cancelled() {
+            return Err(VoxelFrontendError::ResidencySuperseded);
+        }
         let current = self.scene_view()?;
         // Revisions share the fixed palette map, while separate publications never do.
         if !Arc::ptr_eq(
@@ -200,7 +214,9 @@ impl VoxelFrontend {
                     .residency
                     .lock()
                     .map_err(|_| VoxelFrontendError::StateUnavailable)?;
-                if state.required.as_ref().map(|(selection, _)| selection) != required.as_ref() {
+                if cancelled()
+                    || state.required.as_ref().map(|(selection, _)| selection) != required.as_ref()
+                {
                     return Err(VoxelFrontendError::ResidencySuperseded);
                 }
                 view.published.prepare_storage(identity, true)?
@@ -210,7 +226,9 @@ impl VoxelFrontend {
                 .residency
                 .lock()
                 .map_err(|_| VoxelFrontendError::StateUnavailable)?;
-            if state.required.as_ref().map(|(selection, _)| selection) != required.as_ref() {
+            if cancelled()
+                || state.required.as_ref().map(|(selection, _)| selection) != required.as_ref()
+            {
                 return Err(VoxelFrontendError::ResidencySuperseded);
             }
             copies.push(generated);

@@ -18,6 +18,9 @@ impl ComputeSceneBundle {
     }
 
     pub(crate) fn patch_base_matches(&self, installed: &Self) -> bool {
+        if self.residency.is_some() {
+            return self.predecessor.is_none() && self.rebuild_base.is_none();
+        }
         if let Some((revision, allocation)) = &self.rebuild_base {
             return *revision == installed.revision
                 && self.scene_identity == installed.scene_identity

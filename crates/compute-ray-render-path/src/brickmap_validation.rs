@@ -1,5 +1,5 @@
 use thiserror::Error;
-use voxel_frontend::{VoxelSceneView, VoxelVolumeId};
+use voxel_frontend::{VoxelResidencySelection, VoxelSceneView, VoxelVolumeId};
 
 #[derive(Debug, Error)]
 pub enum BrickmapValidationError {
@@ -44,8 +44,19 @@ pub(crate) fn validate_view(
     view: &VoxelSceneView,
     budget_bytes: u64,
 ) -> Result<(), BrickmapValidationError> {
+    validate_selection(view, None, budget_bytes)
+}
+
+pub(crate) fn validate_selection(
+    view: &VoxelSceneView,
+    selection: Option<&VoxelResidencySelection>,
+    budget_bytes: u64,
+) -> Result<(), BrickmapValidationError> {
     let mut minimum_bytes = 20u64;
     for volume in view.volumes() {
+        if selection.is_some_and(|selection| !selection.volumes().contains(volume.identity())) {
+            continue;
+        }
         let reject = |reason| BrickmapValidationError::Envelope {
             volume: volume.identity().clone(),
             reason,

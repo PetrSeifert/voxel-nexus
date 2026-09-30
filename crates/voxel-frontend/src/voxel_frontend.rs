@@ -897,6 +897,10 @@ impl VoxelSceneView {
         &self.published.volume_metadata
     }
 
+    pub fn is_streamed(&self) -> bool {
+        self.published.streamed.is_some()
+    }
+
     pub fn volume_content_version(
         &self,
         volume_identity: &VoxelVolumeId,

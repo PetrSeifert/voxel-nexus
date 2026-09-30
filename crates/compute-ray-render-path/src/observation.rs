@@ -101,9 +101,14 @@ pub struct ComputeOwnedResourceCounts {
     pub(super) allocations: usize,
     pub(super) workers: usize,
     pub(super) views: usize,
+    pub(super) residency_copies: usize,
 }
 
 impl ComputeOwnedResourceCounts {
+    pub fn residency_copies(self) -> usize {
+        self.residency_copies
+    }
+
     pub fn bytes(self) -> u64 {
         self.bytes
     }
