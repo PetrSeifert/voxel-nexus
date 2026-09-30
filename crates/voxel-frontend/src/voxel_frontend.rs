@@ -9,6 +9,8 @@ mod cell_enumeration;
 #[cfg(test)]
 mod cell_enumeration_tests;
 mod page_table;
+mod residency;
+pub use residency::{VoxelResidencyCopies, VoxelResidencySelection, VoxelResidencySelectionId};
 #[cfg(feature = "qualification")]
 mod qualification_views;
 #[cfg(feature = "qualification")]
@@ -33,7 +35,8 @@ use storage_counters::{record_publication_values_written, record_staged_values_a
 use storage_tier::{BrickGrid, SparseStorage, Storage};
 use streamed_publication::{MaterializationCache, ReadStorage, StreamedScene};
 pub use streamed_publication::{
-    StreamedVoxelScene, StreamedVoxelVolume, VoxelSourceError, VoxelVolumeSource,
+    MaterializationCacheStats, StreamedVoxelScene, StreamedVoxelVolume, VoxelSourceError,
+    VoxelVolumeSource,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -76,7 +79,7 @@ impl VoxelMaterialId {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct VoxelSceneRevision(u64);
 
 impl VoxelSceneRevision {
@@ -526,6 +529,14 @@ impl VoxelEditOutcome {
 
 #[derive(Debug, Error)]
 pub enum VoxelFrontendError {
+    #[error("Voxel Residency Selection must contain at least one Voxel Volume")]
+    EmptyResidencySelection,
+    #[error("Voxel Residency Selection belongs to a different Voxel Scene")]
+    ResidencySceneMismatch,
+    #[error("Voxel Residency Selection identity already names a different selection")]
+    ResidencyIdentityConflict,
+    #[error("a newer Required Voxel Residency Selection superseded materialization")]
+    ResidencySuperseded,
     #[error("streamed Voxel Volume {identity:?} requires sparse Storage Tier")]
     StreamedStorageTier { identity: VoxelVolumeId },
     #[error("source for Voxel Volume {identity:?} belongs to a different Voxel Scene")]
@@ -538,6 +549,8 @@ pub enum VoxelFrontendError {
     QueryOnlyCopyBusy,
     #[error("the materialization cache could not reserve storage for a copy")]
     MaterializationCacheExhausted,
+    #[error("the requested materialization is already being generated")]
+    MaterializationInProgress,
     #[error("generation of Voxel Volume {identity:?} failed: {source}")]
     VolumeGeneration {
         identity: VoxelVolumeId,
@@ -682,6 +695,8 @@ pub enum VoxelFrontendError {
 pub struct VoxelFrontend {
     published: RwLock<Option<Arc<PublishedScene>>>,
     materialization_cache: Arc<MaterializationCache>,
+    residency: std::sync::Mutex<residency::ResidencyState>,
+    residency_worker: std::sync::Mutex<()>,
 }
 
 impl VoxelFrontend {

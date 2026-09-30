@@ -1,6 +1,7 @@
 use super::*;
 use std::ops::Deref;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, Weak};
 
 #[derive(Debug, Error)]
 pub enum VoxelSourceError {
@@ -74,8 +75,8 @@ impl StreamedVoxelScene {
 
 impl VoxelFrontend {
     /// Publishes the complete fixed volume catalog without generating any payload.
-    /// Reads share one query-only copy, which is evicted when unheld and another volume
-    /// is requested. Concurrent requests needing a second copy return a typed error.
+    /// Reads share the bounded residency cache. Concurrent requests needing a second
+    /// query-only copy return a typed error.
     pub fn publish_streamed(
         &self,
         scene: StreamedVoxelScene,
@@ -128,33 +129,57 @@ pub(super) struct StreamedScene {
     cache: Arc<MaterializationCache>,
 }
 
-#[derive(Clone, Eq, PartialEq)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 struct MaterializationKey {
     scene: VoxelSceneId,
     volume: VoxelVolumeId,
     content_version: VoxelSceneRevision,
 }
 
-struct QueryCopy {
-    key: MaterializationKey,
-    storage: Arc<dyn Storage>,
+pub const MATERIALIZATION_COPY_CAP: usize = 19;
+
+/// Copies includes reservations inside generation, before any payload allocation.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MaterializationCacheStats {
+    pub copies: usize,
+    pub peak_copies: usize,
+    pub generating: usize,
+    pub query_only_copies: usize,
+    pub storage_bytes: usize,
 }
 
-#[derive(Default)]
-struct QuerySlot {
-    copy: Option<Arc<QueryCopy>>,
-    generating: bool,
+struct MaterializedCopy {
+    storage: Arc<dyn Storage>,
+    // Field order releases the payload before releasing its reservation.
+    _reservation: CopyReservation,
+}
+
+struct CacheEntry {
+    copy: Option<Weak<MaterializedCopy>>,
 }
 
 #[derive(Default)]
 pub(super) struct MaterializationCache {
-    query: Mutex<QuerySlot>,
+    entries: Mutex<HashMap<MaterializationKey, CacheEntry>>,
+    copies: AtomicUsize,
+    query_only_copies: AtomicUsize,
+    peak_copies: AtomicUsize,
 }
 
+#[derive(Clone)]
 pub(super) struct ReadStorage {
     pub(super) storage: Arc<dyn Storage>,
-    // A cell enumeration can outlive its initiating read and must keep the query slot held.
-    _query_copy: Option<Arc<QueryCopy>>,
+    // Cell enumeration retains this token until its separate storage reference releases.
+    _copy: Option<Arc<MaterializedCopy>>,
+}
+
+impl ReadStorage {
+    fn shared(copy: Arc<MaterializedCopy>) -> Self {
+        Self {
+            storage: copy.storage.clone(),
+            _copy: Some(copy),
+        }
+    }
 }
 
 impl Deref for ReadStorage {
@@ -165,94 +190,246 @@ impl Deref for ReadStorage {
     }
 }
 
-struct QueryReservation {
+pub(super) struct CopyReservation {
     cache: Arc<MaterializationCache>,
+    key: MaterializationKey,
+    generating: bool,
+    query_only: AtomicBool,
 }
 
-impl Drop for QueryReservation {
+impl Drop for CopyReservation {
     fn drop(&mut self) {
-        // Failure or unwinding must release admission without publishing partial content.
-        let mut query = match self.cache.query.lock() {
-            Ok(query) => query,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-        query.generating = false;
+        if self.query_only.load(Ordering::SeqCst) {
+            self.cache.query_only_copies.fetch_sub(1, Ordering::SeqCst);
+        }
+        if self.generating {
+            // Failure or unwinding must release admission without publishing partial content.
+            let mut entries = match self.cache.entries.lock() {
+                Ok(entries) => entries,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            entries.remove(&self.key);
+            self.cache.copies.fetch_sub(1, Ordering::SeqCst);
+        } else {
+            self.cache.copies.fetch_sub(1, Ordering::SeqCst);
+        }
     }
 }
 
-impl MaterializationCache {
-    fn materialize(
-        self: &Arc<Self>,
-        key: MaterializationKey,
-        volume: &StreamedVoxelVolume,
-        materials: &HashMap<VoxelMaterialId, MaterialIndex>,
-    ) -> Result<ReadStorage, VoxelFrontendError> {
-        {
-            let mut query = self
-                .query
-                .lock()
-                .map_err(|_| VoxelFrontendError::StateUnavailable)?;
-            if query.generating {
-                return Err(VoxelFrontendError::QueryOnlyCopyBusy);
-            }
-            if let Some(copy) = &query.copy {
-                if copy.key == key {
-                    return Ok(ReadStorage {
-                        storage: copy.storage.clone(),
-                        _query_copy: Some(copy.clone()),
-                    });
-                }
-                if Arc::strong_count(copy) > 1 {
-                    return Err(VoxelFrontendError::QueryOnlyCopyBusy);
-                }
-            }
-            // Evict before generation so even construction uses only the one query copy.
-            query.copy = None;
-            query.generating = true;
-        }
-        let reservation = QueryReservation {
-            cache: self.clone(),
+pub(super) enum MaterializationAdmission {
+    Ready(ReadStorage),
+    Generate {
+        reservation: CopyReservation,
+        volume: StreamedVoxelVolume,
+        materials: Arc<HashMap<VoxelMaterialId, MaterialIndex>>,
+    },
+}
+
+impl MaterializationAdmission {
+    pub(super) fn finish(self) -> Result<ReadStorage, VoxelFrontendError> {
+        let (mut reservation, volume, materials) = match self {
+            Self::Ready(storage) => return Ok(storage),
+            Self::Generate {
+                reservation,
+                volume,
+                materials,
+            } => (reservation, volume, materials),
         };
+        let identity = &reservation.key.volume;
         let generated = volume.source.materialize().map_err(|error| match error {
             VoxelSourceError::Allocation => VoxelFrontendError::MaterializationCacheExhausted,
             source => VoxelFrontendError::VolumeGeneration {
-                identity: key.volume.clone(),
+                identity: identity.clone(),
                 source,
             },
         })?;
         if generated.metadata != volume.metadata {
             return Err(VoxelFrontendError::SourceMetadataMismatch {
-                identity: key.volume,
+                identity: identity.clone(),
             });
         }
         if generated.storage_tier != StorageTier::SparsePages {
             return Err(VoxelFrontendError::StreamedStorageTier {
-                identity: key.volume,
+                identity: identity.clone(),
             });
         }
-        let storage = generated.storage(materials).map_err(|error| match error {
+        let storage = generated.storage(&materials).map_err(|error| match error {
             VoxelFrontendError::VolumeAllocation { .. } => {
                 VoxelFrontendError::MaterializationCacheExhausted
             }
             other => other,
         })?;
-        let copy = Arc::new(QueryCopy { key, storage });
-        {
-            let mut query = self
-                .query
-                .lock()
-                .map_err(|_| VoxelFrontendError::StateUnavailable)?;
-            query.copy = Some(copy.clone());
+        let cache = reservation.cache.clone();
+        let key = reservation.key.clone();
+        let mut entries = cache
+            .entries
+            .lock()
+            .map_err(|_| VoxelFrontendError::StateUnavailable)?;
+        reservation.generating = false;
+        let copy = Arc::new(MaterializedCopy {
+            storage,
+            _reservation: reservation,
+        });
+        let entry = entries
+            .get_mut(&key)
+            .expect("a live reservation retains its cache entry");
+        entry.copy = Some(Arc::downgrade(&copy));
+        Ok(ReadStorage::shared(copy))
+    }
+}
+
+impl MaterializationCache {
+    fn cached(&self, key: &MaterializationKey) -> Result<Option<ReadStorage>, VoxelFrontendError> {
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| VoxelFrontendError::StateUnavailable)?;
+        let Some(entry) = entries.get(key) else {
+            return Ok(None);
+        };
+        let Some(copy) = entry.copy.as_ref().and_then(Weak::upgrade) else {
+            return Ok(None);
+        };
+        Ok(Some(ReadStorage::shared(copy)))
+    }
+
+    fn prepare(
+        self: &Arc<Self>,
+        key: MaterializationKey,
+        volume: &StreamedVoxelVolume,
+        materials: &Arc<HashMap<VoxelMaterialId, MaterialIndex>>,
+        for_selection: bool,
+    ) -> Result<MaterializationAdmission, VoxelFrontendError> {
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|_| VoxelFrontendError::StateUnavailable)?;
+        entries.retain(|_, entry| {
+            entry
+                .copy
+                .as_ref()
+                .is_none_or(|copy| copy.strong_count() > 0)
+        });
+        if let Some(entry) = entries.get_mut(&key) {
+            if let Some(copy) = entry.copy.as_ref().and_then(Weak::upgrade) {
+                return Ok(MaterializationAdmission::Ready(ReadStorage::shared(copy)));
+            }
+            if entry.copy.is_none() {
+                return Err(if for_selection {
+                    VoxelFrontendError::MaterializationInProgress
+                } else {
+                    VoxelFrontendError::QueryOnlyCopyBusy
+                });
+            }
         }
-        drop(reservation);
-        Ok(ReadStorage {
-            storage: copy.storage.clone(),
-            _query_copy: Some(copy),
+        if !for_selection && self.query_only_copies.load(Ordering::SeqCst) > 0 {
+            return Err(VoxelFrontendError::QueryOnlyCopyBusy);
+        }
+        if self.copies.load(Ordering::SeqCst) >= MATERIALIZATION_COPY_CAP {
+            return Err(VoxelFrontendError::MaterializationCacheExhausted);
+        }
+        let copies = self.copies.fetch_add(1, Ordering::SeqCst) + 1;
+        if !for_selection {
+            self.query_only_copies.fetch_add(1, Ordering::SeqCst);
+        }
+        self.peak_copies.fetch_max(copies, Ordering::SeqCst);
+        entries.insert(key.clone(), CacheEntry { copy: None });
+        Ok(MaterializationAdmission::Generate {
+            reservation: CopyReservation {
+                cache: self.clone(),
+                key,
+                generating: true,
+                query_only: AtomicBool::new(!for_selection),
+            },
+            volume: volume.clone(),
+            materials: materials.clone(),
         })
+    }
+
+    pub(super) fn stats(&self) -> Result<MaterializationCacheStats, VoxelFrontendError> {
+        let entries = self
+            .entries
+            .lock()
+            .map_err(|_| VoxelFrontendError::StateUnavailable)?;
+        let mut stats = MaterializationCacheStats {
+            copies: self.copies.load(Ordering::SeqCst),
+            peak_copies: self.peak_copies.load(Ordering::SeqCst),
+            query_only_copies: self.query_only_copies.load(Ordering::SeqCst),
+            ..MaterializationCacheStats::default()
+        };
+        for entry in entries.values() {
+            match &entry.copy {
+                None => {
+                    stats.generating += 1;
+                }
+                Some(copy) => {
+                    if let Some(copy) = copy.upgrade() {
+                        stats.storage_bytes += copy.storage.storage_bytes();
+                    }
+                }
+            }
+        }
+        Ok(stats)
+    }
+}
+
+impl VoxelFrontend {
+    pub fn materialization_cache_stats(
+        &self,
+    ) -> Result<MaterializationCacheStats, VoxelFrontendError> {
+        self.materialization_cache.stats()
     }
 }
 
 impl PublishedScene {
+    pub(super) fn promote_selection(
+        &self,
+        identities: &[VoxelVolumeId],
+    ) -> Result<(), VoxelFrontendError> {
+        let Some(streamed) = &self.streamed else {
+            return Ok(());
+        };
+        let entries = streamed
+            .cache
+            .entries
+            .lock()
+            .map_err(|_| VoxelFrontendError::StateUnavailable)?;
+        // A failed or superseded partial handout must leave the query slot occupied.
+        // Only complete selections holding every copy can transfer that ownership.
+        for identity in identities {
+            let copy = entries
+                .get(&self.materialization_key(identity)?)
+                .and_then(|entry| entry.copy.as_ref())
+                .and_then(Weak::upgrade)
+                .expect("a completed selection retains every materialization copy");
+            if copy._reservation.query_only.swap(false, Ordering::SeqCst) {
+                streamed
+                    .cache
+                    .query_only_copies
+                    .fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn cached_selection_storage(
+        &self,
+        identity: &VoxelVolumeId,
+    ) -> Result<Option<ReadStorage>, VoxelFrontendError> {
+        if let Some(storage) = self.volumes.get(identity) {
+            return Ok(Some(ReadStorage {
+                storage: storage.clone(),
+                _copy: None,
+            }));
+        }
+        let key = self.materialization_key(identity)?;
+        self.streamed
+            .as_ref()
+            .expect("uncached volumes in a valid scene are streamed")
+            .cache
+            .cached(&key)
+    }
+
     pub(super) fn volume_extent(
         &self,
         identity: &VoxelVolumeId,
@@ -276,11 +453,19 @@ impl PublishedScene {
         &self,
         identity: &VoxelVolumeId,
     ) -> Result<ReadStorage, VoxelFrontendError> {
+        self.prepare_storage(identity, false)?.finish()
+    }
+
+    pub(super) fn prepare_storage(
+        &self,
+        identity: &VoxelVolumeId,
+        for_selection: bool,
+    ) -> Result<MaterializationAdmission, VoxelFrontendError> {
         if let Some(storage) = self.volumes.get(identity) {
-            return Ok(ReadStorage {
+            return Ok(MaterializationAdmission::Ready(ReadStorage {
                 storage: storage.clone(),
-                _query_copy: None,
-            });
+                _copy: None,
+            }));
         }
         let streamed =
             self.streamed
@@ -296,7 +481,7 @@ impl PublishedScene {
         let key = self.materialization_key(identity)?;
         streamed
             .cache
-            .materialize(key, volume, &self.material_indices)
+            .prepare(key, volume, &self.material_indices, for_selection)
     }
 
     fn materialization_key(
@@ -324,15 +509,15 @@ impl PublishedScene {
             .streamed
             .as_ref()
             .expect("streamed storage accounting is only called for streamed volumes");
-        let query = streamed
+        let entries = streamed
             .cache
-            .query
+            .entries
             .lock()
             .map_err(|_| VoxelFrontendError::StateUnavailable)?;
-        Ok(query
-            .copy
-            .as_ref()
-            .filter(|copy| copy.key == key)
+        Ok(entries
+            .get(&key)
+            .and_then(|entry| entry.copy.as_ref())
+            .and_then(Weak::upgrade)
             .map_or(0, |copy| copy.storage.storage_bytes()))
     }
 }
