@@ -130,6 +130,21 @@ impl RasterResourceError {
 }
 
 impl RenderPath for RasterRenderPath {
+    fn installed_residency_coverage(&self) -> Option<&render_backend::RenderPathCoverage> {
+        self.artifact
+            .as_ref()
+            .and_then(|artifact| artifact.residency.as_ref())
+            .map(|residency| &residency.coverage)
+    }
+
+    fn submit_residency_selection(
+        &mut self,
+        selection: voxel_frontend::VoxelResidencySelection,
+    ) -> RenderPathResult<()> {
+        self.accept_residency_selection(selection)?;
+        Ok(())
+    }
+
     fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
         let controller = match self.lifecycle_control.clone() {
             Some(controller) => controller,
@@ -213,6 +228,7 @@ impl RenderPath for RasterRenderPath {
             worker_error = shutdown.worker_error;
         }
         self.release_resources(&device);
+        self.release_residency_artifact();
         let owned_resource_count = self.region_resources.len()
             + self
                 .convergence
@@ -220,11 +236,13 @@ impl RenderPath for RasterRenderPath {
                 .and_then(|convergence| convergence.hidden_candidate.as_ref())
                 .map(|candidate| candidate.successor_gpu_resources.len())
                 .unwrap_or(0);
+        let residency_status = self.residency_status()?;
         let control_error = self
             .lifecycle_control
             .as_ref()
             .and_then(|controller| match controller.state.lock() {
                 Ok(mut state) => {
+                    state.residency_status = Some(residency_status);
                     state.pending_outcomes.clear();
                     state.post_upload_revision = None;
                     state.shutdown_owned_resource_count = Some(owned_resource_count);

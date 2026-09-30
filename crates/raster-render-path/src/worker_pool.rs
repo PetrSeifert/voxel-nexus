@@ -55,6 +55,10 @@ impl RasterWorkerPool {
         Ok(pool)
     }
 
+    pub(super) fn worker_count(&self) -> usize {
+        self.workers.len()
+    }
+
     pub(super) fn region_worker_count(&self) -> usize {
         self.workers.len().saturating_sub(1)
     }

@@ -54,7 +54,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use voxel_frontend::{
-    VoxelChangeSet, VoxelEditOutcome, VoxelSceneId, VoxelSceneRevision, VoxelSceneView,
+    VoxelChangeSet, VoxelEditOutcome, VoxelResidencySelection, VoxelSceneId, VoxelSceneRevision,
+    VoxelSceneView,
 };
 
 pub const RASTER_STRATEGY: RenderPathStrategy = RenderPathStrategy::new("voxel-nexus.raster");
@@ -146,6 +147,35 @@ impl RasterRenderPathAdapter {
         )
     }
 
+    pub fn from_residency_artifact(
+        artifact: RasterArtifact,
+        camera_pose: CameraPose,
+        camera_state_revision: CameraStateRevision,
+    ) -> Result<Self, RasterConvergenceError> {
+        if artifact.residency_selection().is_none() {
+            return Err(RasterConvergenceError::UnsupportedVisibleInstallation);
+        }
+        let scene_identity = artifact.scene_identity().clone();
+        let initial_revision = artifact.source_revision();
+        let mut render_path = RasterRenderPath::with_camera_pose(camera_pose);
+        render_path.camera_control =
+            RasterCameraController::new(camera_pose, camera_state_revision);
+        render_path.acknowledged_camera_revision = camera_state_revision;
+        render_path.install_artifact(artifact);
+        render_path.begin_convergence()?;
+        Ok(Self {
+            render_path,
+            scene_identity,
+            initial_revision,
+            semantic_face_controller: None,
+        })
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn qualification_advance_frame_boundary(&mut self) -> Result<(), RasterConvergenceError> {
+        self.render_path.qualification_advance_frame_boundary()
+    }
+
     pub fn enable_lifecycle_control(&mut self) -> RasterLifecycleController {
         self.enable_lifecycle_control_inner(false)
     }
@@ -190,6 +220,17 @@ impl RasterRenderPathAdapter {
 }
 
 impl RenderPath for RasterRenderPathAdapter {
+    fn installed_residency_coverage(&self) -> Option<&render_backend::RenderPathCoverage> {
+        self.render_path.installed_residency_coverage()
+    }
+
+    fn submit_residency_selection(
+        &mut self,
+        selection: VoxelResidencySelection,
+    ) -> RenderPathResult<()> {
+        self.render_path.submit_residency_selection(selection)
+    }
+
     fn submit_edit_outcome(&mut self, outcome: VoxelEditOutcome) -> RenderPathResult<()> {
         self.render_path.submit_edit_outcome(outcome)
     }
@@ -252,7 +293,7 @@ impl SwitchableRenderPath for RasterRenderPathAdapter {
         } else {
             RenderPathReadiness::Preparing
         };
-        RenderPathStamp::new(
+        let stamp = RenderPathStamp::new(
             RASTER_STRATEGY,
             self.scene_identity.clone(),
             self.required_revision(),
@@ -260,7 +301,16 @@ impl SwitchableRenderPath for RasterRenderPathAdapter {
             self.render_path.acknowledged_camera_revision,
             self.render_path.configuration_id,
             readiness,
-        )
+        );
+        match (
+            self.render_path.required_residency(),
+            self.render_path.installed_residency(),
+        ) {
+            (Some(required), Some(installed)) => {
+                stamp.with_residency(required.clone(), installed.clone())
+            }
+            _ => stamp,
+        }
     }
 
     fn retire_at_frame_boundary(
@@ -399,6 +449,7 @@ impl RasterRenderPath {
                 peak_live_gpu_resources: 0,
                 installed_gpu_resources: RasterGpuResourceUsage::default(),
                 characterization: None,
+                residency_status: None,
             })),
         };
         self.lifecycle_control = Some(controller.clone());
@@ -492,6 +543,136 @@ impl RasterRenderPath {
             .accept(outcome)
     }
 
+    pub fn accept_residency_selection(
+        &mut self,
+        selection: VoxelResidencySelection,
+    ) -> Result<bool, RasterConvergenceError> {
+        if self.installed_residency().is_none() {
+            return Ok(false);
+        }
+        if self.convergence.is_none() {
+            self.begin_convergence()?;
+        }
+        self.convergence
+            .as_mut()
+            .ok_or(RasterConvergenceError::NotStarted)?
+            .accept_residency_selection(selection)
+    }
+
+    pub fn installed_residency(&self) -> Option<&VoxelResidencySelection> {
+        self.artifact
+            .as_ref()
+            .and_then(RasterArtifact::residency_selection)
+    }
+
+    pub fn required_residency(&self) -> Option<&VoxelResidencySelection> {
+        self.convergence
+            .as_ref()
+            .and_then(|convergence| convergence.residency_target.as_ref())
+            .map(|target| &target.selection)
+            .or_else(|| self.installed_residency())
+    }
+
+    pub fn residency_status(&self) -> Result<RasterResidencyStatus, RasterConvergenceError> {
+        self.residency_status_with_convergence(self.convergence.as_ref())
+    }
+
+    fn residency_status_with_convergence(
+        &self,
+        convergence: Option<&RasterConvergence>,
+    ) -> Result<RasterResidencyStatus, RasterConvergenceError> {
+        let cache = convergence
+            .and_then(|convergence| convergence.residency_target.as_ref())
+            .map(|target| &target.cache)
+            .or_else(|| {
+                self.artifact
+                    .as_ref()
+                    .and_then(|artifact| artifact.residency.as_ref())
+                    .map(|residency| &residency.cache)
+            });
+        let (representation_copies, derived_volumes) = match cache {
+            Some(cache) => {
+                let cache = cache
+                    .lock()
+                    .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
+                (cache.retained_copies(), cache.derived_volumes)
+            }
+            None => (0, 0),
+        };
+        Ok(RasterResidencyStatus {
+            representation_copies,
+            derived_volumes,
+            workers: convergence
+                .and_then(|convergence| convergence.worker_pool.as_ref())
+                .map_or(0, |pool| pool.worker_count()),
+            gpu_allocations: usize::from(self.depth_memory != vk::DeviceMemory::null())
+                + self
+                    .region_resources
+                    .iter()
+                    .chain(
+                        convergence
+                            .and_then(|convergence| convergence.hidden_candidate.as_ref())
+                            .into_iter()
+                            .flat_map(|candidate| candidate.successor_gpu_resources.iter()),
+                    )
+                    .map(|resources| {
+                        usize::from(resources.vertex_memory != vk::DeviceMemory::null())
+                            + usize::from(resources.index_memory != vk::DeviceMemory::null())
+                            + usize::from(resources.material_memory != vk::DeviceMemory::null())
+                    })
+                    .sum::<usize>(),
+        })
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn qualification_fail_next_convergence(
+        &mut self,
+        phase: RasterConvergenceFailurePhase,
+    ) -> Result<(), RasterConvergenceError> {
+        self.convergence
+            .as_mut()
+            .ok_or(RasterConvergenceError::NotStarted)?
+            .injected_failure = Some(phase);
+        Ok(())
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn qualification_retire(&mut self) -> Result<(), RasterConvergenceError> {
+        if !self.region_resources.is_empty() {
+            return Err(RasterConvergenceError::ConfiguredResourcesRequireDevice);
+        }
+        if let Some(convergence) = &mut self.convergence {
+            let shutdown = convergence.shutdown();
+            shutdown.retirement.release_with(drop);
+            if let Some(error) = shutdown.worker_error {
+                return Err(error);
+            }
+        }
+        self.release_residency_artifact();
+        if let Some(controller) = &self.lifecycle_control {
+            let status = self.residency_status()?;
+            controller
+                .state
+                .lock()
+                .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?
+                .residency_status = Some(status);
+        }
+        Ok(())
+    }
+
+    fn release_residency_artifact(&mut self) {
+        if self.installed_residency().is_some() {
+            self.artifact = None;
+            self.installed_regions.clear();
+            self.installed_source_revision = None;
+        }
+    }
+
+    #[cfg(any(test, feature = "qualification"))]
+    pub fn qualification_advance_frame_boundary(&mut self) -> Result<(), RasterConvergenceError> {
+        self.advance_convergence_at_frame_boundary(None)
+    }
+
     pub fn request_convergence_retry(
         &mut self,
     ) -> Result<RasterConvergenceRetry, RasterConvergenceError> {
@@ -539,6 +720,9 @@ impl RasterRenderPath {
                     state.cpu_barrier.clone(),
                 )
             };
+            if let Some(convergence) = &mut self.convergence {
+                convergence.cpu_barrier = cpu_barrier.clone();
+            }
             if !outcomes.is_empty() && self.convergence.is_none() {
                 self.begin_convergence()?;
                 if let Some(convergence) = &mut self.convergence {
@@ -701,6 +885,11 @@ impl RasterRenderPath {
             }
             Ok(())
         })();
+        let residency_status = convergence
+            .residency_target
+            .as_ref()
+            .map(|_| self.residency_status_with_convergence(Some(&convergence)))
+            .transpose()?;
         if let Some(controller) = &self.lifecycle_control {
             let installed = raster_gpu_resource_usage(self.region_resources.iter())
                 .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
@@ -709,6 +898,7 @@ impl RasterRenderPath {
                 .lock()
                 .map_err(|_| RasterConvergenceError::LifecycleControlUnavailable)?;
             state.installed_gpu_resources = installed;
+            state.residency_status = residency_status;
             state.status = Some(convergence.status(self.installed_regions.len()));
             if let Some(characterization) = &mut state.characterization {
                 characterization.phases.cpu_derivation_milliseconds =
@@ -750,6 +940,9 @@ impl RasterRenderPath {
         successor_view: &VoxelSceneView,
         change_set: &VoxelChangeSet,
     ) -> Result<RasterAdjacentChangeOutcome, RasterAdjacentChangeError> {
+        if self.installed_residency().is_some() {
+            return Err(RasterAdjacentChangeError::StreamedRequiresConvergence);
+        }
         let mut mismatches = Vec::new();
         let installed_scene_identity = self
             .artifact
@@ -1025,3 +1218,6 @@ use gpu_resources::*;
 
 #[cfg(test)]
 mod convergence_tests;
+
+mod residency;
+pub use residency::{RasterResidencyStatus, derive_raster_residency};

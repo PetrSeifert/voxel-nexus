@@ -8,6 +8,88 @@ use render_backend::{
 };
 use voxel_frontend::{VoxelFrontend, VoxelSceneId, VoxelSceneRevision};
 
+#[test]
+#[cfg(feature = "qualification")]
+fn streamed_adapter_stamps_install_revision_and_selection_together()
+-> Result<(), Box<dyn std::error::Error>> {
+    use render_backend::RenderPath;
+    use std::sync::Arc;
+    use voxel_frontend::*;
+    let frontend = Arc::new(VoxelFrontend::new());
+    let view = frontend.publish(DenseVoxelScene::new(
+        VoxelSceneId::new("streamed-stamp"),
+        VoxelSceneRevision::new(1),
+        vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
+        (0..2)
+            .map(|index| {
+                DenseVoxelVolume::new(
+                    VoxelVolumeMetadata::new(
+                        VoxelVolumeId::new(index.to_string()),
+                        VoxelExtent::new(1, 1, 1),
+                        [index as f32, 0.0, 0.0],
+                        1.0,
+                    ),
+                    vec![DenseVoxelBatch::new(
+                        VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(1, 1, 1)),
+                        vec![VoxelValue::Occupied(VoxelMaterialId::new("stone"))],
+                    )],
+                )
+            })
+            .collect(),
+    ))?;
+    let old =
+        view.residency_selection(VoxelResidencySelectionId::new(1), [VoxelVolumeId::new("0")])?;
+    let newest =
+        view.residency_selection(VoxelResidencySelectionId::new(2), [VoxelVolumeId::new("1")])?;
+    let artifact = raster_render_path::derive_raster_residency(
+        frontend.clone(),
+        &view,
+        old.clone(),
+        VoxelExtent::new(1, 1, 1),
+    )?;
+    let mut adapter = RasterRenderPathAdapter::from_residency_artifact(
+        artifact,
+        camera_pose(),
+        CameraStateRevision::new(4),
+    )?;
+    assert_eq!(adapter.stamp().installed_selection(), Some(old.identity()));
+    adapter
+        .submit_residency_selection(newest.clone())
+        .map_err(|error| error.to_string())?;
+    adapter
+        .submit_edit_outcome(frontend.edit(VoxelEditCommand::new(
+            VoxelVolumeId::new("1"),
+            VoxelCoordinate::new(0, 0, 0),
+            VoxelValue::Empty,
+        ))?)
+        .map_err(|error| error.to_string())?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if std::time::Instant::now() >= deadline {
+            return Err("combined adapter stamp did not converge".into());
+        }
+        adapter.qualification_advance_frame_boundary()?;
+        let stamp = adapter.stamp();
+        assert_eq!(stamp.required_selection(), Some(newest.identity()));
+        assert_eq!(stamp.required_revision(), VoxelSceneRevision::new(2));
+        if stamp.installed_selection() == Some(newest.identity()) {
+            assert_eq!(stamp.visible_revision(), VoxelSceneRevision::new(2));
+            assert_eq!(
+                adapter
+                    .installed_residency_coverage()
+                    .ok_or("missing coverage")?
+                    .installed_selection(),
+                &newest
+            );
+            break;
+        }
+        assert_eq!(stamp.installed_selection(), Some(old.identity()));
+        assert_eq!(stamp.visible_revision(), VoxelSceneRevision::new(1));
+        std::thread::yield_now();
+    }
+    Ok(())
+}
+
 fn camera_pose() -> CameraPose {
     CameraPose::default()
 }

@@ -26,6 +26,7 @@ pub(super) struct RasterLifecycleControlState {
     pub(super) shutdown_owned_resource_count: Option<usize>,
     pub(super) cpu_barrier: Option<Arc<RasterConvergenceCpuBarrierShared>>,
     pub(super) status: Option<RasterConvergenceStatus>,
+    pub(super) residency_status: Option<super::RasterResidencyStatus>,
     pub(super) rejected_candidate: Option<RasterRejectedCandidate>,
     pub(super) peak_live_gpu_bytes: u64,
     pub(super) peak_live_gpu_resources: usize,
@@ -355,6 +356,15 @@ impl RasterLifecycleController {
             .clone()
             .ok_or(RasterLifecycleControlError)?;
         barrier.release().map_err(|_| RasterLifecycleControlError)
+    }
+
+    pub fn residency_status(
+        &self,
+    ) -> Result<Option<super::RasterResidencyStatus>, RasterLifecycleControlError> {
+        self.state
+            .lock()
+            .map(|state| state.residency_status)
+            .map_err(|_| RasterLifecycleControlError)
     }
 
     pub fn convergence_status(

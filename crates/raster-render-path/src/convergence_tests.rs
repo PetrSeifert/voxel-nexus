@@ -77,7 +77,8 @@ fn canonical_changed(
 }
 
 fn wait_until_ready(convergence: &mut RasterConvergence) -> Result<(), Box<dyn std::error::Error>> {
-    for _ in 0..10_000 {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
         if convergence
             .drain_events()?
             .iter()
@@ -93,7 +94,8 @@ fn wait_until_ready(convergence: &mut RasterConvergence) -> Result<(), Box<dyn s
 fn wait_until_ready_without_draining(
     convergence: &mut RasterConvergence,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    for _ in 0..10_000 {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
         convergence.poll_preparation()?;
         if convergence.active_is_ready() {
             return Ok(());
@@ -599,6 +601,107 @@ fn superseded_uploaded_resources_remain_live_until_fence_safe_retirement()
         .shutdown()
         .retirement
         .release_with(|resources| lifecycle.retire(resources));
+    lifecycle.assert_balanced();
+    Ok(())
+}
+
+#[test]
+fn residency_crossing_reuses_gpu_resources_and_retires_outgoing_volumes_at_the_boundary()
+-> Result<(), Box<dyn std::error::Error>> {
+    let frontend = Arc::new(VoxelFrontend::new());
+    let scene = VoxelSceneId::new("gpu-residency");
+    let view = frontend.publish(DenseVoxelScene::new(
+        scene,
+        VoxelSceneRevision::new(1),
+        vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
+        (0..3)
+            .map(|index| {
+                DenseVoxelVolume::new(
+                    VoxelVolumeMetadata::new(
+                        VoxelVolumeId::new(index.to_string()),
+                        VoxelExtent::new(1, 1, 1),
+                        [index as f32, 0.0, 0.0],
+                        1.0,
+                    ),
+                    vec![DenseVoxelBatch::new(
+                        VoxelRegion::new(VoxelCoordinate::new(0, 0, 0), VoxelExtent::new(1, 1, 1)),
+                        vec![VoxelValue::Occupied(VoxelMaterialId::new("stone"))],
+                    )],
+                )
+            })
+            .collect(),
+    ))?;
+    let old = view.residency_selection(
+        voxel_frontend::VoxelResidencySelectionId::new(1),
+        [VoxelVolumeId::new("0"), VoxelVolumeId::new("1")],
+    )?;
+    let newest = view.residency_selection(
+        voxel_frontend::VoxelResidencySelectionId::new(2),
+        [VoxelVolumeId::new("1"), VoxelVolumeId::new("2")],
+    )?;
+    let mut path = RasterRenderPath::new();
+    path.install_artifact(derive_raster_residency(
+        frontend,
+        &view,
+        old,
+        VoxelExtent::new(1, 1, 1),
+    )?);
+    let mut lifecycle = DeterministicResourceLifecycle::with_next_identity(10);
+    path.region_resources = path
+        .installed_regions()
+        .iter()
+        .map(|installation| lifecycle.create(installation.identity().clone()))
+        .collect();
+    let shared_buffer = path
+        .region_resources
+        .iter()
+        .find(|resources| resources.identity.volume_identity() == &VoxelVolumeId::new("1"))
+        .ok_or("missing shared volume")?
+        .vertex_buffer;
+    let mut convergence = RasterConvergence::from_visible(&path)?;
+    convergence.accept_residency_selection(newest.clone())?;
+    wait_until_ready_without_draining(&mut convergence)?;
+    convergence.upload_ready_with_test_resources(&path, &mut |region| {
+        Ok(lifecycle.create(region.identity().clone()))
+    })?;
+    assert_eq!(lifecycle.created, 3);
+    assert_eq!(lifecycle.retired, 0);
+    let RasterConvergenceCommit::Committed { retirement } =
+        convergence.commit_at_frame_boundary(&mut path)?
+    else {
+        return Err("selection did not commit".into());
+    };
+    assert_eq!(path.installed_residency(), Some(&newest));
+    assert_eq!(path.region_resources.len(), 2);
+    assert_eq!(retirement.resource_count(), 1);
+    assert_eq!(lifecycle.live.len(), 3);
+    assert_eq!(
+        path.region_resources
+            .iter()
+            .find(|resources| resources.identity.volume_identity() == &VoxelVolumeId::new("1"))
+            .ok_or("shared volume disappeared")?
+            .vertex_buffer,
+        shared_buffer
+    );
+    retirement.release_with(|resources| lifecycle.retire(resources));
+    assert_eq!(lifecycle.live.len(), 2);
+    convergence
+        .shutdown()
+        .retirement
+        .release_with(|resources| lifecycle.retire(resources));
+    for resources in std::mem::take(&mut path.region_resources) {
+        lifecycle.retire(resources);
+    }
+    path.release_residency_artifact();
+    let cache = convergence
+        .residency_target
+        .as_ref()
+        .ok_or("missing cache")?
+        .cache
+        .lock()
+        .map_err(|_| "cache poisoned")?;
+    assert_eq!(cache.retained_copies(), 0);
+    assert!(convergence.worker_pool.is_none());
     lifecycle.assert_balanced();
     Ok(())
 }

@@ -90,6 +90,7 @@ pub struct RasterArtifact {
     vertex_byte_size: usize,
     index_byte_size: usize,
     regions: Vec<RasterRegionResult>,
+    pub(super) residency: Option<super::residency::RasterResidencyArtifact>,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -210,6 +211,12 @@ impl RasterRegionResult {
 }
 
 impl RasterArtifact {
+    pub fn residency_selection(&self) -> Option<&voxel_frontend::VoxelResidencySelection> {
+        self.residency
+            .as_ref()
+            .map(|residency| residency.coverage.installed_selection())
+    }
+
     #[cfg(feature = "qualification")]
     pub fn qualification_assemble(
         view: &VoxelSceneView,
@@ -376,6 +383,12 @@ impl fmt::Display for RasterArtifactBuildPhase {
 
 #[derive(Debug, Error)]
 pub enum RasterArtifactBuildCause {
+    #[error("Raster residency cache is unavailable")]
+    ResidencyCacheUnavailable,
+    #[error("Raster residency selection exceeds nine volumes")]
+    ResidencySelectionTooLarge,
+    #[error("Raster residency representation limit of eighteen copies is exhausted")]
+    ResidencyCopyLimit,
     #[cfg(feature = "qualification")]
     #[error("qualification artifacts must be unique regions in the supplied scene selection")]
     QualificationAssembly,
@@ -639,53 +652,74 @@ pub(super) fn visit_raster_region_cores(
     region_extent: VoxelExtent,
     mut visit: impl FnMut(&VoxelVolumeMetadata, VoxelRegion) -> Result<bool, RasterArtifactBuildError>,
 ) -> Result<bool, RasterArtifactBuildError> {
-    let source_revision = view.revision();
-    let [region_width, region_height, region_depth] = region_extent.dimensions();
-    if region_width == 0 || region_height == 0 || region_depth == 0 {
+    // Validate even when a scene has no volumes.
+    validate_raster_region_extent(view.revision(), region_extent)?;
+    for metadata in view.volumes() {
+        if !visit_volume_region_cores(view.revision(), metadata, region_extent, &mut visit)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+fn validate_raster_region_extent(
+    source_revision: VoxelSceneRevision,
+    region_extent: VoxelExtent,
+) -> Result<(), RasterArtifactBuildError> {
+    if region_extent.dimensions().contains(&0) {
         return Err(build_error(
             source_revision,
             RasterArtifactBuildPhase::Metadata,
             RasterArtifactBuildCause::EmptyRasterRegionExtent,
         ));
     }
-    for metadata in view.volumes() {
-        let [volume_width, volume_height, volume_depth] = metadata.extent().dimensions();
-        checked_dimensions(metadata.extent()).ok_or_else(|| {
-            build_error(
-                source_revision,
-                RasterArtifactBuildPhase::Metadata,
-                RasterArtifactBuildCause::UnrepresentableVolumeDimensions,
-            )
-        })?;
-        let mut origin_z = 0_u32;
-        while origin_z < volume_depth {
-            let mut origin_y = 0_u32;
-            while origin_y < volume_height {
-                let mut origin_x = 0_u32;
-                while origin_x < volume_width {
-                    let core = VoxelRegion::new(
-                        raster_region_origin(source_revision, origin_x, origin_y, origin_z)?,
-                        VoxelExtent::new(
-                            region_width.min(volume_width - origin_x),
-                            region_height.min(volume_height - origin_y),
-                            region_depth.min(volume_depth - origin_z),
-                        ),
-                    );
-                    if !visit(metadata, core)? {
-                        return Ok(false);
-                    }
-                    origin_x = origin_x
-                        .checked_add(region_width)
-                        .ok_or_else(|| metadata_dimensions_error(source_revision))?;
+    Ok(())
+}
+
+pub(super) fn visit_volume_region_cores(
+    source_revision: VoxelSceneRevision,
+    metadata: &VoxelVolumeMetadata,
+    region_extent: VoxelExtent,
+    mut visit: impl FnMut(&VoxelVolumeMetadata, VoxelRegion) -> Result<bool, RasterArtifactBuildError>,
+) -> Result<bool, RasterArtifactBuildError> {
+    validate_raster_region_extent(source_revision, region_extent)?;
+    let [region_width, region_height, region_depth] = region_extent.dimensions();
+    let [volume_width, volume_height, volume_depth] = metadata.extent().dimensions();
+    checked_dimensions(metadata.extent()).ok_or_else(|| {
+        build_error(
+            source_revision,
+            RasterArtifactBuildPhase::Metadata,
+            RasterArtifactBuildCause::UnrepresentableVolumeDimensions,
+        )
+    })?;
+    let mut origin_z = 0_u32;
+    while origin_z < volume_depth {
+        let mut origin_y = 0_u32;
+        while origin_y < volume_height {
+            let mut origin_x = 0_u32;
+            while origin_x < volume_width {
+                let core = VoxelRegion::new(
+                    raster_region_origin(source_revision, origin_x, origin_y, origin_z)?,
+                    VoxelExtent::new(
+                        region_width.min(volume_width - origin_x),
+                        region_height.min(volume_height - origin_y),
+                        region_depth.min(volume_depth - origin_z),
+                    ),
+                );
+                if !visit(metadata, core)? {
+                    return Ok(false);
                 }
-                origin_y = origin_y
-                    .checked_add(region_height)
+                origin_x = origin_x
+                    .checked_add(region_width)
                     .ok_or_else(|| metadata_dimensions_error(source_revision))?;
             }
-            origin_z = origin_z
-                .checked_add(region_depth)
+            origin_y = origin_y
+                .checked_add(region_height)
                 .ok_or_else(|| metadata_dimensions_error(source_revision))?;
         }
+        origin_z = origin_z
+            .checked_add(region_depth)
+            .ok_or_else(|| metadata_dimensions_error(source_revision))?;
     }
     Ok(true)
 }
@@ -976,6 +1010,7 @@ pub(super) fn assemble_raster_artifact(
         vertex_byte_size,
         index_byte_size,
         regions,
+        residency: None,
     })
 }
 
@@ -1177,6 +1212,7 @@ fn build_geometry(
         vertex_byte_size,
         index_byte_size,
         regions: vec![region],
+        residency: None,
     })
 }
 

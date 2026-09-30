@@ -9,7 +9,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 use thiserror::Error;
 use voxel_frontend::{
-    VoxelCoordinate, VoxelExtent, VoxelSceneRevision, VoxelSceneView, VoxelVolumeId,
+    VoxelCoordinate, VoxelExtent, VoxelFrontend, VoxelResidencySelection, VoxelSceneRevision,
+    VoxelSceneView, VoxelVolumeId,
 };
 
 pub(super) fn raster_region_origin(
@@ -90,6 +91,38 @@ pub struct RasterArtifactPreparation {
 }
 
 impl RasterArtifactPreparation {
+    pub fn start_residency(
+        frontend: Arc<VoxelFrontend>,
+        view: VoxelSceneView,
+        selection: VoxelResidencySelection,
+        region_extent: VoxelExtent,
+        notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
+    ) -> Result<Self, RasterArtifactPreparationError> {
+        let source_revision = view.revision();
+        Self::start_with_derivation(
+            source_revision,
+            false,
+            #[cfg(any(test, feature = "qualification"))]
+            None,
+            notify,
+            move |cancellation, _| {
+                super::residency::derive_selection(
+                    &view,
+                    region_extent,
+                    &super::residency::RasterResidencyTarget {
+                        frontend,
+                        selection,
+                        cache: Arc::new(std::sync::Mutex::new(
+                            super::residency::RasterVolumeCache::default(),
+                        )),
+                    },
+                    &cancellation,
+                    None,
+                )
+            },
+        )
+    }
+
     pub fn start_regions(
         view: VoxelSceneView,
         region_extent: VoxelExtent,
@@ -98,6 +131,7 @@ impl RasterArtifactPreparation {
         let source_revision = view.revision();
         Self::start_with_derivation(
             source_revision,
+            true,
             #[cfg(any(test, feature = "qualification"))]
             None,
             notify,
@@ -117,6 +151,7 @@ impl RasterArtifactPreparation {
         let source_revision = view.revision();
         Self::start_with_derivation(
             source_revision,
+            true,
             barrier,
             notify,
             move |cancellation, pool| {
@@ -133,6 +168,7 @@ impl RasterArtifactPreparation {
         let source_revision = view.revision();
         Self::start_with_derivation(
             source_revision,
+            true,
             #[cfg(any(test, feature = "qualification"))]
             None,
             notify,
@@ -148,13 +184,14 @@ impl RasterArtifactPreparation {
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
     ) -> Result<Self, RasterArtifactPreparationError> {
         let source_revision = view.revision();
-        Self::start_with_derivation(source_revision, barrier, notify, move |_, _| {
+        Self::start_with_derivation(source_revision, true, barrier, notify, move |_, _| {
             derive_raster_artifact(&view, &volume_identity).map(Some)
         })
     }
 
     fn start_with_derivation(
         source_revision: VoxelSceneRevision,
+        parallel_regions: bool,
         #[cfg(any(test, feature = "qualification"))] barrier: Option<RasterPreparationBarrier>,
         notify: impl Fn(RasterArtifactPreparationEvent) + Send + 'static,
         derive: impl FnOnce(
@@ -173,12 +210,17 @@ impl RasterArtifactPreparation {
                 .map(|barrier| RasterPreparationBarrierRelease {
                     shared: barrier.shared.clone(),
                 });
-        let worker_pool = Arc::new(RasterWorkerPool::new().map_err(|source| {
-            RasterArtifactPreparationError::WorkerStart {
+        let worker_pool = Arc::new(
+            (if parallel_regions {
+                RasterWorkerPool::new()
+            } else {
+                RasterWorkerPool::with_region_workers(0)
+            })
+            .map_err(|source| RasterArtifactPreparationError::WorkerStart {
                 source_revision,
                 source,
-            }
-        })?);
+            })?,
+        );
         let worker_task = {
             let worker_pool = worker_pool.clone();
             let cancellation = cancellation.clone();

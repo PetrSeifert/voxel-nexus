@@ -145,6 +145,8 @@ pub enum RasterAdjacentChangeOutcome {
 
 #[derive(Debug, Error)]
 pub enum RasterAdjacentChangeError {
+    #[error("streamed Raster edits require combined revision and residency convergence")]
+    StreamedRequiresConvergence,
     #[error(transparent)]
     Derivation(#[from] RasterArtifactBuildError),
     #[error("Raster Region installation generation overflow for {identity:?}")]

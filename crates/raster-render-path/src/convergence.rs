@@ -14,6 +14,7 @@ use super::meshing::{
     affected_raster_region_identities, assemble_raster_artifact, derive_raster_region,
     visit_raster_region_cores,
 };
+use super::residency::{RasterResidencyTarget, derive_selection};
 use super::worker_pool::{RasterTask, RasterWorkerPool};
 use render_backend::RenderPathDeviceContext;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -22,7 +23,8 @@ use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 use voxel_frontend::{
-    VoxelEditOutcome, VoxelExtent, VoxelSceneId, VoxelSceneRevision, VoxelSceneView,
+    VoxelEditOutcome, VoxelExtent, VoxelFrontendError, VoxelResidencySelection, VoxelSceneId,
+    VoxelSceneRevision, VoxelSceneView,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -277,6 +279,10 @@ type RasterResourceUploader<'uploader> = dyn FnMut(&RasterRegionResult) -> Resul
 
 #[derive(Debug, Error)]
 pub enum RasterConvergenceError {
+    #[error(transparent)]
+    Residency(#[from] VoxelFrontendError),
+    #[error("Raster residency selection exceeds nine volumes")]
+    ResidencySelectionTooLarge,
     #[error("Raster Convergence has already been started")]
     AlreadyStarted,
     #[error("Raster Convergence has not been started")]
@@ -352,6 +358,7 @@ pub enum RasterConvergenceError {
 pub(super) enum RasterPreparationTargetScope {
     Localized(HashSet<RasterRegionIdentity>),
     FullRebuild,
+    Residency(RasterResidencyTarget),
 }
 
 #[derive(Clone)]
@@ -362,6 +369,7 @@ pub(super) struct RasterPreparationTarget {
 }
 
 pub(super) enum RasterPreparationCompletion {
+    Selection(Result<Option<RasterArtifact>, RasterArtifactBuildError>),
     Completed(Result<Vec<RasterRegionResult>, RasterDerivationFailure>),
     Cancelled,
     #[cfg(any(test, feature = "qualification"))]
@@ -386,6 +394,7 @@ pub(super) struct RasterActivePreparation {
     pub(super) worker: Option<RasterTask<()>>,
     pub(super) status: RasterActivePreparationStatus,
     counters: Arc<RasterPreparationCounters>,
+    prepared_artifact: Option<RasterArtifact>,
 }
 
 #[derive(Default)]
@@ -427,6 +436,10 @@ pub struct RasterConvergence {
     required_revision: VoxelSceneRevision,
     region_extent: VoxelExtent,
     required_generation: RasterConvergenceGeneration,
+    pub(super) residency_target: Option<RasterResidencyTarget>,
+    required_view: Option<VoxelSceneView>,
+    #[cfg(any(test, feature = "qualification"))]
+    pub(super) injected_failure: Option<RasterConvergenceFailurePhase>,
     pub(super) active: Option<RasterActivePreparation>,
     pub(super) pending: Option<RasterPreparationTarget>,
     pub(super) paused: Option<RasterPreparationTarget>,
@@ -456,6 +469,20 @@ impl RasterConvergence {
             required_revision: visible_revision,
             region_extent,
             required_generation: RasterConvergenceGeneration::initial(),
+            residency_target: artifact
+                .residency
+                .as_ref()
+                .map(|residency| RasterResidencyTarget {
+                    selection: residency.coverage.installed_selection().clone(),
+                    frontend: residency.frontend.clone(),
+                    cache: residency.cache.clone(),
+                }),
+            required_view: artifact
+                .residency
+                .as_ref()
+                .map(|residency| residency.view.clone()),
+            #[cfg(any(test, feature = "qualification"))]
+            injected_failure: None,
             active: None,
             pending: None,
             paused: None,
@@ -480,7 +507,10 @@ impl RasterConvergence {
     pub(super) fn status(&self, installed_region_count: usize) -> RasterConvergenceStatus {
         let affected_region_count = match self.newest_target().map(|target| &target.scope) {
             Some(RasterPreparationTargetScope::Localized(affected)) => affected.len(),
-            Some(RasterPreparationTargetScope::FullRebuild) => installed_region_count,
+            Some(
+                RasterPreparationTargetScope::FullRebuild
+                | RasterPreparationTargetScope::Residency(_),
+            ) => installed_region_count,
             None => self.last_affected_region_count,
         }
         .min(installed_region_count);
@@ -525,10 +555,15 @@ impl RasterConvergence {
             });
         }
 
-        let target_scope = if change_set.predecessor_revision() == self.required_revision {
+        let target_scope = if let Some(residency) = &self.residency_target {
+            RasterPreparationTargetScope::Residency(residency.clone())
+        } else if change_set.predecessor_revision() == self.required_revision {
             let mut affected = match self.newest_target().map(|target| &target.scope) {
                 Some(RasterPreparationTargetScope::Localized(affected)) => affected.clone(),
-                Some(RasterPreparationTargetScope::FullRebuild) => HashSet::new(),
+                Some(
+                    RasterPreparationTargetScope::FullRebuild
+                    | RasterPreparationTargetScope::Residency(_),
+                ) => HashSet::new(),
                 None => HashSet::new(),
             };
             if matches!(
@@ -547,6 +582,7 @@ impl RasterConvergence {
         } else {
             RasterPreparationTargetScope::FullRebuild
         };
+        let required_view = view.clone();
         let target = RasterPreparationTarget {
             view,
             region_extent: self.region_extent,
@@ -559,9 +595,53 @@ impl RasterConvergence {
         self.schedule_target(generation, target)?;
         self.required_generation = generation;
         self.required_revision = change_set.successor_revision();
+        if self.residency_target.is_some() {
+            self.required_view = Some(required_view);
+        }
         Ok(RasterConvergenceAcceptance::Accepted {
             revision: self.required_revision,
         })
+    }
+
+    pub fn accept_residency_selection(
+        &mut self,
+        selection: VoxelResidencySelection,
+    ) -> Result<bool, RasterConvergenceError> {
+        let Some(current) = self.residency_target.as_ref() else {
+            return Ok(false);
+        };
+        let view = self
+            .required_view
+            .as_ref()
+            .ok_or(RasterConvergenceError::MissingVisibleInstallation)?;
+        render_backend::RenderPathCoverage::new(view, selection.clone())?;
+        if selection.volumes().len() > 9 {
+            return Err(RasterConvergenceError::ResidencySelectionTooLarge);
+        }
+        if selection.identity() == current.selection.identity() && selection != current.selection {
+            return Err(VoxelFrontendError::ResidencyIdentityConflict.into());
+        }
+        if selection.identity() <= current.selection.identity() {
+            return Ok(false);
+        }
+        let residency = RasterResidencyTarget {
+            selection,
+            frontend: current.frontend.clone(),
+            cache: current.cache.clone(),
+        };
+        let target = RasterPreparationTarget {
+            view: view.clone(),
+            region_extent: self.region_extent,
+            scope: RasterPreparationTargetScope::Residency(residency.clone()),
+        };
+        let generation = self
+            .required_generation
+            .checked_successor()
+            .ok_or(RasterConvergenceError::GenerationOverflow)?;
+        self.schedule_target(generation, target)?;
+        self.required_generation = generation;
+        self.residency_target = Some(residency);
+        Ok(true)
     }
 
     pub fn request_retry(&mut self) -> Result<RasterConvergenceRetry, RasterConvergenceError> {
@@ -607,6 +687,9 @@ impl RasterConvergence {
         render_path: &RasterRenderPath,
         mut test_uploader: Option<&mut RasterResourceUploader<'_>>,
     ) -> Result<RasterConvergenceUpload, RasterConvergenceError> {
+        if self.active.is_none() && self.hidden_candidate.is_none() {
+            self.start_pending_preparation()?;
+        }
         self.poll_preparation()?;
         if let Some(candidate) = &self.hidden_candidate {
             return Ok(RasterConvergenceUpload::CandidateAlreadyRetained {
@@ -640,6 +723,17 @@ impl RasterConvergence {
                 }
             };
         }
+        #[cfg(any(test, feature = "qualification"))]
+        if self.injected_failure == Some(RasterConvergenceFailurePhase::Upload) {
+            self.injected_failure = None;
+            self.pause_after_upload_failure(
+                target,
+                revision,
+                "injected upload failure".into(),
+                None,
+            );
+            return Ok(RasterConvergenceUpload::NoReadyPreparation);
+        }
         if render_path.installed_source_revision() != Some(self.visible_revision) {
             retain_after_upload_failure!(
                 Err::<(), _>(RasterConvergenceError::VisibleRevisionMismatch {
@@ -657,10 +751,20 @@ impl RasterConvergence {
         );
         let affected_regions = regions
             .iter()
+            .filter(|region| {
+                !matches!(
+                    active.target.scope,
+                    RasterPreparationTargetScope::Residency(_)
+                ) || !installed_artifact.regions().iter().any(|prior| {
+                    prior.identity() == region.identity()
+                        && Arc::ptr_eq(&prior.geometry, &region.geometry)
+                })
+            })
             .map(|region| region.identity().clone())
             .collect::<HashSet<_>>();
         let successor_regions = match &active.target.scope {
-            RasterPreparationTargetScope::FullRebuild => regions.clone(),
+            RasterPreparationTargetScope::FullRebuild
+            | RasterPreparationTargetScope::Residency(_) => regions.clone(),
             RasterPreparationTargetScope::Localized(_) => {
                 let replacements = regions
                     .iter()
@@ -679,15 +783,19 @@ impl RasterConvergence {
                     .collect()
             }
         };
-        let artifact = retain_after_upload_failure!(
-            assemble_raster_artifact(
-                self.scene_identity.clone(),
-                revision,
-                self.region_extent,
-                successor_regions,
-            ),
-            None
-        );
+        let artifact = if let Some(artifact) = &active.prepared_artifact {
+            artifact.clone()
+        } else {
+            retain_after_upload_failure!(
+                assemble_raster_artifact(
+                    self.scene_identity.clone(),
+                    revision,
+                    self.region_extent,
+                    successor_regions,
+                ),
+                None
+            )
+        };
         let mut installations = Vec::new();
         retain_after_upload_failure!(
             installations
@@ -750,6 +858,13 @@ impl RasterConvergence {
         }
         if configured_resources {
             for identity in &affected_regions {
+                if !installed_artifact
+                    .regions()
+                    .iter()
+                    .any(|region| region.identity() == identity)
+                {
+                    continue;
+                }
                 if !render_path
                     .region_resources
                     .iter()
@@ -769,13 +884,13 @@ impl RasterConvergence {
         if configured_resources {
             retain_after_upload_failure!(
                 successor_gpu_resources
-                    .try_reserve_exact(render_path.region_resources.len())
+                    .try_reserve_exact(artifact.regions().len())
                     .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation),
                 None
             );
             retain_after_upload_failure!(
                 retired_gpu_resources
-                    .try_reserve_exact(affected_regions.len())
+                    .try_reserve_exact(render_path.region_resources.len())
                     .map_err(|_| RasterConvergenceError::ResourceBookkeepingAllocation),
                 None
             );
@@ -861,6 +976,11 @@ impl RasterConvergence {
                 },
             });
         }
+        #[cfg(any(test, feature = "qualification"))]
+        if self.injected_failure == Some(RasterConvergenceFailurePhase::Commit) {
+            self.injected_failure = None;
+            return self.fail_hidden_candidate("injected pre-swap installation failure".into());
+        }
         if render_path.installed_source_revision() != Some(self.visible_revision) {
             let error = RasterConvergenceError::VisibleRevisionMismatch {
                 expected: self.visible_revision,
@@ -885,7 +1005,13 @@ impl RasterConvergence {
         self.last_affected_region_count = candidate.affected_regions.len();
         if candidate.configured_resources {
             for resources in std::mem::take(&mut render_path.region_resources) {
-                if candidate.affected_regions.contains(&resources.identity) {
+                if candidate.affected_regions.contains(&resources.identity)
+                    || !candidate
+                        .artifact
+                        .regions()
+                        .iter()
+                        .any(|region| region.identity() == &resources.identity)
+                {
                     candidate.retired_gpu_resources.push(resources);
                 } else {
                     candidate.successor_gpu_resources.push(resources);
@@ -1062,7 +1188,10 @@ impl RasterConvergence {
         generation: RasterConvergenceGeneration,
         target: RasterPreparationTarget,
     ) -> Result<(), RasterConvergenceError> {
-        let result = if self.active_is_ready() {
+        let result = if self.residency_target.is_some() && self.hidden_candidate.is_some() {
+            self.pending = Some(target);
+            Ok(())
+        } else if self.active_is_ready() {
             self.replace_ready_preparation(generation, target)
         } else if let Some(active) = &self.active {
             active.cancellation.store(true, Ordering::Release);
@@ -1102,6 +1231,11 @@ impl RasterConvergence {
         generation: RasterConvergenceGeneration,
         target: RasterPreparationTarget,
     ) -> Result<(), RasterConvergenceError> {
+        if self.residency_target.is_some() {
+            self.discard_ready_preparation();
+            self.pending = Some(target);
+            return self.start_pending_preparation_with_generation(generation);
+        }
         let mut started_events = RasterConvergenceEvents::new();
         let replacement = Self::start_preparation(
             &mut self.worker_pool,
@@ -1128,9 +1262,14 @@ impl RasterConvergence {
         let counters = Arc::new(RasterPreparationCounters::default());
         let (completion_sender, completion_receiver) = mpsc::sync_channel(1);
         if worker_pool.is_none() {
-            *worker_pool = Some(Arc::new(RasterWorkerPool::new().map_err(|source| {
-                RasterConvergenceError::PreparationStart { revision, source }
-            })?));
+            *worker_pool = Some(Arc::new(
+                (if matches!(target.scope, RasterPreparationTargetScope::Residency(_)) {
+                    RasterWorkerPool::with_region_workers(0)
+                } else {
+                    RasterWorkerPool::new()
+                })
+                .map_err(|source| RasterConvergenceError::PreparationStart { revision, source })?,
+            ));
         }
         let pool = worker_pool
             .as_ref()
@@ -1165,6 +1304,7 @@ impl RasterConvergence {
             worker: Some(worker),
             status: RasterActivePreparationStatus::Running,
             counters,
+            prepared_artifact: None,
         })
     }
 
@@ -1191,6 +1331,23 @@ impl RasterConvergence {
                     revision: self.required_revision,
                 })?;
         let revision = active.target.view.revision();
+        let completion = match completion {
+            RasterPreparationCompletion::Selection(Ok(Some(artifact))) => {
+                let regions = artifact.regions().to_vec();
+                active.prepared_artifact = Some(artifact);
+                RasterPreparationCompletion::Completed(Ok(regions))
+            }
+            RasterPreparationCompletion::Selection(Ok(None)) => {
+                RasterPreparationCompletion::Cancelled
+            }
+            RasterPreparationCompletion::Selection(Err(source)) => {
+                RasterPreparationCompletion::Completed(Err(RasterDerivationFailure {
+                    region_identity: None,
+                    source,
+                }))
+            }
+            completion => completion,
+        };
         if active
             .worker
             .take()
@@ -1263,6 +1420,9 @@ impl RasterConvergence {
                     revision,
                     disposition: RasterPreparationDisposition::SupersededBeforeUpload,
                 });
+            // The completion also holds region geometry; release both holds before the next admission.
+            drop(completion);
+            drop(active);
             self.start_pending_preparation()?;
             return Ok(());
         }
@@ -1277,6 +1437,18 @@ impl RasterConvergence {
             .work_disposition
             .completed
             .saturating_add(completed_regions);
+        #[cfg(any(test, feature = "qualification"))]
+        if self.injected_failure == Some(RasterConvergenceFailurePhase::Derivation) {
+            self.injected_failure = None;
+            self.record_failure(
+                revision,
+                RasterConvergenceFailurePhase::Derivation,
+                "injected preparation failure".into(),
+                None,
+            );
+            self.paused = Some(active.target);
+            return Ok(());
+        }
         active.status = RasterActivePreparationStatus::Ready { regions };
         self.active = Some(active);
         self.events
@@ -1285,12 +1457,19 @@ impl RasterConvergence {
     }
 
     fn start_pending_preparation(&mut self) -> Result<(), RasterConvergenceError> {
+        self.start_pending_preparation_with_generation(self.required_generation)
+    }
+
+    fn start_pending_preparation_with_generation(
+        &mut self,
+        generation: RasterConvergenceGeneration,
+    ) -> Result<(), RasterConvergenceError> {
         let Some(target) = self.pending.take() else {
             return Ok(());
         };
         let preparation = Self::start_preparation(
             &mut self.worker_pool,
-            self.required_generation,
+            generation,
             target.clone(),
             self.cpu_barrier.clone(),
             &mut self.events,
@@ -1357,6 +1536,24 @@ fn derive_convergence_target(
     counters: Arc<RasterPreparationCounters>,
     pool: &RasterWorkerPool,
 ) -> RasterPreparationCompletion {
+    if let RasterPreparationTargetScope::Residency(residency) = &target.scope {
+        let result = derive_selection(
+            &target.view,
+            target.region_extent,
+            residency,
+            &cancellation,
+            cpu_barrier,
+        );
+        #[cfg(any(test, feature = "qualification"))]
+        if cpu_barrier.is_some_and(|barrier| {
+            barrier
+                .finish(target.view.revision(), matches!(result, Ok(None)))
+                .is_err()
+        }) {
+            return RasterPreparationCompletion::SynchronizationFailed;
+        }
+        return RasterPreparationCompletion::Selection(result);
+    }
     let mut cores = Vec::new();
     let traversal = visit_raster_region_cores(
         &target.view,
