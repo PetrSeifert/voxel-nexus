@@ -46,7 +46,7 @@ impl VoxelVolumeSource for Recipe {
 #[test]
 fn publication_keeps_only_metadata_until_a_whole_scene_read()
 -> Result<(), Box<dyn std::error::Error>> {
-    let frontend = VoxelFrontend::new();
+    let frontend = streamed_frontend();
     let scene = VoxelSceneId::new("streamed");
     let revision = VoxelSceneRevision::new(7);
     let generations = Arc::new(AtomicUsize::new(0));
@@ -178,7 +178,7 @@ fn every_read_api_equals_fully_materialized_sparse_meaning()
             ],
         )),
     ];
-    let streamed = VoxelFrontend::new().publish_streamed(streamed(
+    let streamed = streamed_frontend().publish_streamed(streamed(
         metadata
             .iter()
             .map(|metadata| {
@@ -246,7 +246,7 @@ fn every_read_api_equals_fully_materialized_sparse_meaning()
 #[test]
 fn a_live_query_copy_is_shared_and_a_second_copy_is_rejected()
 -> Result<(), Box<dyn std::error::Error>> {
-    let frontend = VoxelFrontend::new();
+    let frontend = streamed_frontend();
     let first = Arc::new(recipe(metadata("first"), None));
     let second = Arc::new(recipe(metadata("second"), None));
     let view = frontend.publish_streamed(streamed(vec![
@@ -351,16 +351,16 @@ fn publication_rejects_each_invalid_input_without_generating()
     let source = Arc::new(recipe(metadata("volume"), None));
     let volume = StreamedVoxelVolume::new(source.metadata.clone(), source.clone());
     assert!(matches!(
-        VoxelFrontend::new().publish_streamed(streamed(vec![volume.clone(), volume.clone()])),
+        streamed_frontend().publish_streamed(streamed(vec![volume.clone(), volume.clone()])),
         Err(VoxelFrontendError::DuplicateVolumeIdentity { .. })
     ));
     assert!(matches!(
-        VoxelFrontend::new()
+        streamed_frontend()
             .publish_streamed(streamed(vec![volume.clone()]).with_storage_tier(StorageTier::Dense)),
         Err(VoxelFrontendError::StreamedStorageTier { .. })
     ));
     assert!(matches!(
-        VoxelFrontend::new().publish_streamed(StreamedVoxelScene::new(
+        streamed_frontend().publish_streamed(StreamedVoxelScene::new(
             VoxelSceneId::new("streamed"),
             VoxelSceneRevision::new(7),
             vec![],
@@ -369,7 +369,7 @@ fn publication_rejects_each_invalid_input_without_generating()
         Err(VoxelFrontendError::EmptySourceMaterialPalette { .. })
     ));
     assert!(matches!(
-        VoxelFrontend::new().publish_streamed(StreamedVoxelScene::new(
+        streamed_frontend().publish_streamed(StreamedVoxelScene::new(
             VoxelSceneId::new("another-scene"),
             VoxelSceneRevision::new(7),
             palette(),
@@ -389,7 +389,7 @@ fn publication_rejects_each_invalid_input_without_generating()
             voxel_size,
         );
         assert!(matches!(
-            VoxelFrontend::new().publish_streamed(streamed(vec![StreamedVoxelVolume::new(
+            streamed_frontend().publish_streamed(streamed(vec![StreamedVoxelVolume::new(
                 invalid,
                 source.clone()
             )])),
@@ -397,7 +397,7 @@ fn publication_rejects_each_invalid_input_without_generating()
         ));
     }
     assert!(matches!(
-        VoxelFrontend::new().publish_streamed(streamed(vec![StreamedVoxelVolume::new(
+        streamed_frontend().publish_streamed(streamed(vec![StreamedVoxelVolume::new(
             VoxelVolumeMetadata::new(
                 VoxelVolumeId::new("volume"),
                 VoxelExtent::new(0, 1, 1),
@@ -409,7 +409,7 @@ fn publication_rejects_each_invalid_input_without_generating()
         Err(VoxelFrontendError::EmptyVolumeExtent { .. })
     ));
     assert!(matches!(
-        VoxelFrontend::new().publish_streamed(streamed(vec![StreamedVoxelVolume::new(
+        streamed_frontend().publish_streamed(streamed(vec![StreamedVoxelVolume::new(
             VoxelVolumeMetadata::new(
                 VoxelVolumeId::new("volume"),
                 VoxelExtent::new(u32::MAX, 1, 1),
@@ -421,7 +421,7 @@ fn publication_rejects_each_invalid_input_without_generating()
         Err(VoxelFrontendError::VolumeTooLarge { .. })
     ));
     assert_eq!(source.generations.load(Ordering::SeqCst), 0);
-    let frontend = VoxelFrontend::new();
+    let frontend = streamed_frontend();
     frontend.publish_streamed(streamed(vec![volume.clone()]))?;
     assert!(matches!(
         frontend.publish_streamed(streamed(vec![volume])),
@@ -435,7 +435,7 @@ fn publication_rejects_each_invalid_input_without_generating()
 fn an_empty_source_needs_no_material_palette() -> Result<(), Box<dyn std::error::Error>> {
     let metadata = metadata("empty");
     let output_metadata = metadata.clone();
-    let view = VoxelFrontend::new().publish_streamed(StreamedVoxelScene::new(
+    let view = streamed_frontend().publish_streamed(StreamedVoxelScene::new(
         VoxelSceneId::new("streamed"),
         VoxelSceneRevision::new(7),
         vec![],
@@ -521,7 +521,7 @@ fn invalid_source_output_never_becomes_scene_meaning() -> Result<(), Box<dyn std
                 StorageTier::SparsePages
             }))
         });
-        let view = VoxelFrontend::new().publish_streamed(streamed(vec![volume]))?;
+        let view = streamed_frontend().publish_streamed(streamed(vec![volume]))?;
         for _ in 0..2 {
             let mut values = vec![VoxelValue::Occupied(VoxelMaterialId::new("grass")); 19 * 5 * 3];
             let unchanged = values.clone();
@@ -575,7 +575,7 @@ fn generation_and_cache_exhaustion_errors_release_admission_for_retry()
             )
             .with_storage_tier(StorageTier::SparsePages))
         });
-        let view = VoxelFrontend::new().publish_streamed(streamed(vec![volume]))?;
+        let view = streamed_frontend().publish_streamed(streamed(vec![volume]))?;
         let failure = view.region_content(metadata.identity(), region);
         if allocation_failure {
             assert!(matches!(
@@ -604,7 +604,7 @@ fn generation_and_cache_exhaustion_errors_release_admission_for_retry()
 #[test]
 fn invalid_read_requests_do_not_materialize_content() -> Result<(), Box<dyn std::error::Error>> {
     let recipe = Arc::new(recipe(metadata("volume"), None));
-    let frontend = VoxelFrontend::new();
+    let frontend = streamed_frontend();
     let view = frontend.publish_streamed(streamed(vec![StreamedVoxelVolume::new(
         recipe.metadata.clone(),
         recipe.clone(),
@@ -702,7 +702,7 @@ fn concurrent_generation_reserves_the_query_slot_before_calling_the_source()
         )
         .with_storage_tier(StorageTier::SparsePages))
     });
-    let view = VoxelFrontend::new().publish_streamed(streamed(vec![
+    let view = streamed_frontend().publish_streamed(streamed(vec![
         first,
         StreamedVoxelVolume::new(second.metadata.clone(), second.clone()),
     ]))?;
@@ -809,7 +809,7 @@ fn generated_terrain_reproduces_the_frozen_cpu_prototype_fingerprint_after_evict
             )
         })
         .collect();
-    let frontend = VoxelFrontend::new();
+    let frontend = streamed_frontend();
     let view = frontend.publish_streamed(streamed(volumes))?;
     let mut values = vec![VoxelValue::Empty; 64 * 64 * 64];
     for identity in [
@@ -900,7 +900,7 @@ fn source_coordinate_failures_reject_the_entire_command_without_generating()
         let generations = Arc::new(AtomicUsize::new(0));
         let generation_counter = generations.clone();
         let output_metadata = second_metadata.clone();
-        let frontend = VoxelFrontend::new();
+        let frontend = streamed_frontend();
         let original = frontend.publish_streamed(streamed(vec![
             StreamedVoxelVolume::new(
                 first_metadata.clone(),
@@ -956,4 +956,10 @@ fn source_coordinate_failures_reject_the_entire_command_without_generating()
         assert_eq!(generations.load(Ordering::SeqCst), 0);
     }
     Ok(())
+}
+
+fn streamed_frontend() -> VoxelFrontend {
+    VoxelFrontend::with_residency_limits(
+        VoxelResidencyLimits::new(9).expect("nine is a valid maximum selection size"),
+    )
 }

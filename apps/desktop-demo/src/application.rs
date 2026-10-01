@@ -396,7 +396,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         };
         self.desktop.drawable_extent = initial_drawable_extent;
         self.desktop.last_drawable_extent = initial_drawable_extent;
-        let frontend = Arc::new(VoxelFrontend::new());
+        let frontend = Arc::new(match self.desktop.render_configuration.scene {
+            DesktopSceneSelection::StreamedWorld => super::streamed_world::frontend(),
+            _ => VoxelFrontend::new(),
+        });
         let (publication, occupied_voxels) = match self.desktop.render_configuration.scene {
             DesktopSceneSelection::StreamedWorld => {
                 (frontend.publish_streamed(super::streamed_world::scene()), 0)

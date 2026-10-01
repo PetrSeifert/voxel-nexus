@@ -668,8 +668,8 @@ pub(crate) enum ComputeConvergenceShutdownError {
 pub enum ComputeConvergenceError {
     #[error("this compute path has no streamed residency owner")]
     ResidencyUnavailable,
-    #[error("streamed Brickmap construction supports at most nine selected volumes")]
-    ResidencyVolumeLimit,
+    #[error("streamed Brickmap construction supports at most {maximum} selected volumes")]
+    ResidencyVolumeLimit { maximum: usize },
     #[error(transparent)]
     Residency(#[from] VoxelFrontendError),
     #[error("brickmap patch base revision or pool allocation changed before installation")]
@@ -920,8 +920,9 @@ impl ComputeConvergence {
         if selection.scene_id() != &self.scene_identity {
             return Err(VoxelFrontendError::ResidencySceneMismatch.into());
         }
-        if selection.volumes().len() > crate::MAXIMUM_RESIDENCY_VOLUME_COUNT {
-            return Err(ComputeConvergenceError::ResidencyVolumeLimit);
+        let maximum = view.residency_limits()?.maximum_selection_volumes();
+        if selection.volumes().len() > maximum {
+            return Err(ComputeConvergenceError::ResidencyVolumeLimit { maximum });
         }
         for identity in selection.volumes() {
             view.volume_content_version(identity)?;

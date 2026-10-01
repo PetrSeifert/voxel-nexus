@@ -78,7 +78,6 @@ pub const COMPUTE_RAY_STRATEGY: RenderPathStrategy =
     RenderPathStrategy::new("voxel-nexus.compute-ray");
 
 const OUTPUT_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
-const MAXIMUM_RESIDENCY_VOLUME_COUNT: usize = 9;
 const WORKGROUP_SIZE: [u32; 3] = [8, 8, 1];
 const CAMERA_WORD_COUNT: usize = 20;
 const CAMERA_BUFFER_SIZE: u32 = (CAMERA_WORD_COUNT * std::mem::size_of::<f32>()) as u32;
@@ -110,10 +109,11 @@ impl ComputeRayRenderPathAdapter {
         if matches!(representation, ComputeRepresentation::Dense) {
             return Err(ComputeSceneBuildError::StreamedDense);
         }
-        if selection.volumes().len() > MAXIMUM_RESIDENCY_VOLUME_COUNT {
-            return Err(ComputeSceneBuildError::ResidencyVolumeLimit);
-        }
         let view = frontend.scene_view()?;
+        let maximum = view.residency_limits()?.maximum_selection_volumes();
+        if selection.volumes().len() > maximum {
+            return Err(ComputeSceneBuildError::ResidencyVolumeLimit { maximum });
+        }
         let copies = frontend.materialize_residency(&selection, &view)?;
         let scene_bundle = ComputeSceneBundle::from_residency(copies, representation)?;
         let mut render_path = ComputeRayRenderPath::new(scene_bundle, camera_state, None);

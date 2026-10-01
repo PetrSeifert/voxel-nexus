@@ -16,6 +16,47 @@ impl fmt::Display for VoxelResidencySelectionId {
     }
 }
 
+/// The caller-chosen maximum Voxel Residency Selection size, N, from which every streamed
+/// residency limit derives, so the frontend and Render Paths cannot disagree.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct VoxelResidencyLimits {
+    maximum_selection_volumes: usize,
+}
+
+impl VoxelResidencyLimits {
+    pub fn new(maximum_selection_volumes: usize) -> Result<Self, VoxelFrontendError> {
+        if maximum_selection_volumes == 0 {
+            return Err(VoxelFrontendError::ZeroResidencyLimit);
+        }
+        if maximum_selection_volumes
+            .checked_mul(2)
+            .and_then(|copies| copies.checked_add(1))
+            .is_none()
+        {
+            return Err(VoxelFrontendError::ResidencyLimitTooLarge {
+                maximum_selection_volumes,
+            });
+        }
+        Ok(Self {
+            maximum_selection_volumes,
+        })
+    }
+
+    pub fn maximum_selection_volumes(&self) -> usize {
+        self.maximum_selection_volumes
+    }
+
+    /// 2N: one Render Path owner retains its installed and newest selections.
+    pub fn retained_representation_copies(&self) -> usize {
+        2 * self.maximum_selection_volumes
+    }
+
+    /// 2N + 1: the old and newest selections plus one query-only copy.
+    pub fn materialization_copy_cap(&self) -> usize {
+        2 * self.maximum_selection_volumes + 1
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VoxelResidencySelection {
     identity: VoxelResidencySelectionId,
@@ -48,6 +89,12 @@ impl VoxelResidencySelection {
 }
 
 impl VoxelSceneView {
+    pub fn residency_limits(&self) -> Result<VoxelResidencyLimits, VoxelFrontendError> {
+        self.published
+            .residency_limits
+            .ok_or(VoxelFrontendError::ResidencyLimitsUndeclared)
+    }
+
     pub fn residency_selection(
         &self,
         identity: VoxelResidencySelectionId,

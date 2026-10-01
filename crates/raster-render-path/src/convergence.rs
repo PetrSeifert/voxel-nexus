@@ -281,8 +281,8 @@ type RasterResourceUploader<'uploader> = dyn FnMut(&RasterRegionResult) -> Resul
 pub enum RasterConvergenceError {
     #[error(transparent)]
     Residency(#[from] VoxelFrontendError),
-    #[error("Raster residency selection exceeds nine volumes")]
-    ResidencySelectionTooLarge,
+    #[error("Raster residency selection exceeds {maximum} volumes")]
+    ResidencySelectionTooLarge { maximum: usize },
     #[error("Raster Convergence has already been started")]
     AlreadyStarted,
     #[error("Raster Convergence has not been started")]
@@ -615,8 +615,9 @@ impl RasterConvergence {
             .as_ref()
             .ok_or(RasterConvergenceError::MissingVisibleInstallation)?;
         render_backend::RenderPathCoverage::new(view, selection.clone())?;
-        if selection.volumes().len() > 9 {
-            return Err(RasterConvergenceError::ResidencySelectionTooLarge);
+        let maximum = view.residency_limits()?.maximum_selection_volumes();
+        if selection.volumes().len() > maximum {
+            return Err(RasterConvergenceError::ResidencySelectionTooLarge { maximum });
         }
         if selection.identity() == current.selection.identity() && selection != current.selection {
             return Err(VoxelFrontendError::ResidencyIdentityConflict.into());

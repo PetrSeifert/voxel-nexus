@@ -10,7 +10,9 @@ mod cell_enumeration;
 mod cell_enumeration_tests;
 mod page_table;
 mod residency;
-pub use residency::{VoxelResidencyCopies, VoxelResidencySelection, VoxelResidencySelectionId};
+pub use residency::{
+    VoxelResidencyCopies, VoxelResidencyLimits, VoxelResidencySelection, VoxelResidencySelectionId,
+};
 #[cfg(feature = "qualification")]
 mod allocation_observation;
 #[cfg(feature = "qualification")]
@@ -548,6 +550,14 @@ impl VoxelEditOutcome {
 pub enum VoxelFrontendError {
     #[error("Voxel Residency Selection must contain at least one Voxel Volume")]
     EmptyResidencySelection,
+    #[error("the maximum Voxel Residency Selection size must be at least one Voxel Volume")]
+    ZeroResidencyLimit,
+    #[error(
+        "a maximum Voxel Residency Selection size of {maximum_selection_volumes} volumes cannot bound materialization copies"
+    )]
+    ResidencyLimitTooLarge { maximum_selection_volumes: usize },
+    #[error("this Voxel Frontend was constructed without residency limits")]
+    ResidencyLimitsUndeclared,
     #[error("Voxel Residency Selection belongs to a different Voxel Scene")]
     ResidencySceneMismatch,
     #[error("Voxel Residency Selection identity already names a different selection")]
@@ -712,11 +722,19 @@ pub struct VoxelFrontend {
     materialization_cache: Arc<MaterializationCache>,
     residency: std::sync::Mutex<residency::ResidencyState>,
     residency_worker: std::sync::Mutex<()>,
+    residency_limits: Option<VoxelResidencyLimits>,
 }
 
 impl VoxelFrontend {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn with_residency_limits(limits: VoxelResidencyLimits) -> Self {
+        Self {
+            residency_limits: Some(limits),
+            ..Self::default()
+        }
     }
 
     pub fn publish(&self, scene: DenseVoxelScene) -> Result<VoxelSceneView, VoxelFrontendError> {
@@ -740,7 +758,8 @@ impl VoxelFrontend {
         )?)
     }
 
-    fn install(&self, published: PublishedScene) -> Result<VoxelSceneView, VoxelFrontendError> {
+    fn install(&self, mut published: PublishedScene) -> Result<VoxelSceneView, VoxelFrontendError> {
+        published.residency_limits = self.residency_limits;
         let published = Arc::new(published);
         let mut current = self
             .published
@@ -1099,6 +1118,7 @@ struct PublishedScene {
     volumes: HashMap<VoxelVolumeId, Arc<dyn Storage>>,
     volume_content_versions: HashMap<VoxelVolumeId, VoxelSceneRevision>,
     streamed: Option<StreamedScene>,
+    residency_limits: Option<VoxelResidencyLimits>,
 }
 
 trait VolumeInput {
@@ -1237,6 +1257,7 @@ impl PublishedScene {
             volumes: storage_by_volume,
             volume_content_versions,
             streamed: None,
+            residency_limits: None,
         })
     }
 }

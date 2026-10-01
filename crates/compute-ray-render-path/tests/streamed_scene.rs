@@ -29,7 +29,7 @@ impl VoxelVolumeSource for Recipe {
 }
 
 fn scene() -> Result<(VoxelFrontend, VoxelSceneView), Box<dyn std::error::Error>> {
-    let frontend = VoxelFrontend::new();
+    let frontend = VoxelFrontend::with_residency_limits(VoxelResidencyLimits::new(9)?);
     let scene = VoxelSceneId::new("streamed-compute");
     let metadata = VoxelVolumeMetadata::new(
         VoxelVolumeId::new("terrain"),

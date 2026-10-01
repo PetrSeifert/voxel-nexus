@@ -79,12 +79,15 @@ impl StreamedVoxelScene {
 
 impl VoxelFrontend {
     /// Publishes the complete fixed volume catalog without generating any payload.
-    /// Reads share the bounded residency cache. Concurrent requests needing a second
-    /// query-only copy return a typed error.
+    /// Reads share the residency cache bounded by this frontend's residency limits.
+    /// Concurrent requests needing a second query-only copy return a typed error.
     pub fn publish_streamed(
         &self,
         scene: StreamedVoxelScene,
     ) -> Result<VoxelSceneView, VoxelFrontendError> {
+        if self.residency_limits.is_none() {
+            return Err(VoxelFrontendError::ResidencyLimitsUndeclared);
+        }
         let mut published = PublishedScene::new(
             scene.identity,
             scene.revision,
@@ -171,8 +174,6 @@ struct MaterializationKey {
     volume: VoxelVolumeId,
     content_version: VoxelSceneRevision,
 }
-
-pub const MATERIALIZATION_COPY_CAP: usize = 19;
 
 /// Copies includes reservations inside generation, before any payload allocation.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -350,6 +351,7 @@ impl MaterializationCache {
         volume: &StreamedVoxelVolume,
         materials: &Arc<HashMap<VoxelMaterialId, MaterialIndex>>,
         overlay: &Arc<OverlayVersion>,
+        copy_cap: usize,
         for_selection: bool,
     ) -> Result<MaterializationAdmission, VoxelFrontendError> {
         let mut entries = self
@@ -377,7 +379,7 @@ impl MaterializationCache {
         if !for_selection && self.query_only_copies.load(Ordering::SeqCst) > 0 {
             return Err(VoxelFrontendError::QueryOnlyCopyBusy);
         }
-        if self.copies.load(Ordering::SeqCst) >= MATERIALIZATION_COPY_CAP {
+        if self.copies.load(Ordering::SeqCst) >= copy_cap {
             return Err(VoxelFrontendError::MaterializationCacheExhausted);
         }
         let copies = self.copies.fetch_add(1, Ordering::SeqCst) + 1;
@@ -537,6 +539,9 @@ impl PublishedScene {
             volume,
             &self.material_indices,
             &streamed.overlay,
+            self.residency_limits
+                .ok_or(VoxelFrontendError::ResidencyLimitsUndeclared)?
+                .materialization_copy_cap(),
             for_selection,
         )
     }

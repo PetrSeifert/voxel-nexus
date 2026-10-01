@@ -103,7 +103,7 @@ pub fn record_fingerprint(
 }
 
 pub fn publish(side: u32) -> Result<Arc<VoxelFrontend>, String> {
-    let frontend = Arc::new(VoxelFrontend::new());
+    let frontend = Arc::new(streamed_world::frontend());
     allocation::within(Category::Metadata, || {
         frontend.publish_streamed(streamed_world::scene_with_side(side))
     })
@@ -291,8 +291,12 @@ pub fn lifecycle(output: &mut File, frontend: &Arc<VoxelFrontend>) -> Result<(),
     let rejected = restored
         .enumerate_cells(&recipe::volume_identity(14, 15), 16, 64)
         .is_err();
-    if stats.copies != 19 || !rejected {
-        return Err(format!("nineteen-copy admission failed: {stats:?}"));
+    let copy_cap = restored
+        .residency_limits()
+        .map_err(|error| error.to_string())?
+        .materialization_copy_cap();
+    if stats.copies != copy_cap || !rejected {
+        return Err(format!("{copy_cap}-copy admission failed: {stats:?}"));
     }
     sample(output, frontend, "disjoint-query-overlap")?;
     drop(query);
@@ -322,7 +326,7 @@ pub fn lifecycle(output: &mut File, frontend: &Arc<VoxelFrontend>) -> Result<(),
     emit(
         output,
         json!({"kind":"cpu-lifecycle-result","evicted_edit":true,"historical_reads":true,"restored":true,
-        "unrelated_edit_reuse":reuse,"compacted":true,"nineteen_copy_admission":stats.copies==19 && rejected,"repeat_laps":2}),
+        "unrelated_edit_reuse":reuse,"compacted":true,"nineteen_copy_admission":stats.copies==copy_cap && rejected,"repeat_laps":2}),
     )
 }
 

@@ -350,10 +350,10 @@ impl fmt::Display for RasterArtifactBuildPhase {
 pub enum RasterArtifactBuildCause {
     #[error("Raster residency cache is unavailable")]
     ResidencyCacheUnavailable,
-    #[error("Raster residency selection exceeds nine volumes")]
-    ResidencySelectionTooLarge,
-    #[error("Raster residency representation limit of eighteen copies is exhausted")]
-    ResidencyCopyLimit,
+    #[error("Raster residency selection exceeds {maximum} volumes")]
+    ResidencySelectionTooLarge { maximum: usize },
+    #[error("Raster residency representation limit of {maximum} copies is exhausted")]
+    ResidencyCopyLimit { maximum: usize },
     #[error("unknown Voxel Volume identity {0:?}")]
     UnknownVolume(VoxelVolumeId),
     #[error("Voxel Volume dimensions cannot be represented as logical coordinates")]

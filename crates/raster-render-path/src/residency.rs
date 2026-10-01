@@ -121,11 +121,20 @@ pub(super) fn derive_selection(
             RasterArtifactBuildCause::VoxelRead(source),
         )
     })?;
-    if target.selection.volumes().len() > 9 {
+    let limits = view.residency_limits().map_err(|source| {
+        build_error(
+            revision,
+            RasterArtifactBuildPhase::Metadata,
+            RasterArtifactBuildCause::VoxelRead(source),
+        )
+    })?;
+    if target.selection.volumes().len() > limits.maximum_selection_volumes() {
         return Err(build_error(
             revision,
             RasterArtifactBuildPhase::Metadata,
-            RasterArtifactBuildCause::ResidencySelectionTooLarge,
+            RasterArtifactBuildCause::ResidencySelectionTooLarge {
+                maximum: limits.maximum_selection_volumes(),
+            },
         ));
     }
     let mut volumes = Vec::new();
@@ -152,11 +161,13 @@ pub(super) fn derive_selection(
         }
         {
             let mut cache = target.cache.lock().map_err(|_| cache_error(revision))?;
-            if cache.retained_copies() >= 18 {
+            if cache.retained_copies() >= limits.retained_representation_copies() {
                 return Err(build_error(
                     revision,
                     RasterArtifactBuildPhase::Metadata,
-                    RasterArtifactBuildCause::ResidencyCopyLimit,
+                    RasterArtifactBuildCause::ResidencyCopyLimit {
+                        maximum: limits.retained_representation_copies(),
+                    },
                 ));
             }
             cache.constructing += 1;

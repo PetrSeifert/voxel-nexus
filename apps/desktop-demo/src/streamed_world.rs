@@ -2,14 +2,25 @@ use super::streamed_fixture_recipe as recipe;
 use render_backend::CameraState;
 use std::sync::Arc;
 use voxel_frontend::{
-    SparseVoxelVolume, StreamedVoxelScene, StreamedVoxelVolume, VoxelCoordinate, VoxelSceneId,
-    VoxelSceneRevision, VoxelSourceError, VoxelValue, VoxelVolumeId, VoxelVolumeSource,
+    SparseVoxelVolume, StreamedVoxelScene, StreamedVoxelVolume, VoxelCoordinate, VoxelFrontend,
+    VoxelResidencyLimits, VoxelSceneId, VoxelSceneRevision, VoxelSourceError, VoxelValue,
+    VoxelVolumeId, VoxelVolumeSource,
 };
 
 // Per-volume source bindings all invoke this one immutable, stateless fixture recipe.
 #[cfg(feature = "qualification")]
 #[allow(dead_code)]
 pub(super) const FIXTURE_RECIPE_COUNT: usize = 1;
+
+/// The 3x3 neighbourhood that `residency_volumes` selects bounds every residency limit.
+const NEIGHBOURHOOD_VOLUMES: usize = 9;
+
+pub(super) fn frontend() -> VoxelFrontend {
+    VoxelFrontend::with_residency_limits(
+        VoxelResidencyLimits::new(NEIGHBOURHOOD_VOLUMES)
+            .expect("the 3x3 neighbourhood is a non-zero size"),
+    )
+}
 
 pub(super) fn scene() -> StreamedVoxelScene {
     scene_with_side(16)
@@ -101,12 +112,12 @@ pub(super) fn camera_state(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use voxel_frontend::{VoxelExtent, VoxelFrontend, VoxelRegion, VoxelResidencySelectionId};
+    use voxel_frontend::{VoxelExtent, VoxelRegion, VoxelResidencySelectionId};
 
     #[test]
     fn rotating_in_place_keeps_the_same_voxel_visibility_at_the_edge_and_center()
     -> Result<(), Box<dyn std::error::Error>> {
-        let frontend = VoxelFrontend::new();
+        let frontend = frontend();
         frontend.publish_streamed(scene())?;
         let extent = ash::vk::Extent2D {
             width: 1601,
@@ -177,7 +188,7 @@ mod tests {
     #[test]
     fn camera_frustum_fits_residency_at_boundaries_in_wide_and_tall_windows()
     -> Result<(), Box<dyn std::error::Error>> {
-        let view = VoxelFrontend::new().publish_streamed(scene())?;
+        let view = frontend().publish_streamed(scene())?;
         for dimensions in [[800, 600], [1920, 400], [1920, 300], [3840, 1], [1, 3840]] {
             for eye in [
                 [130.0, 42.0, 160.0],
@@ -212,7 +223,7 @@ mod tests {
     #[test]
     fn production_fixture_keeps_frozen_contents_and_edits_after_eviction_and_restoration()
     -> Result<(), Box<dyn std::error::Error>> {
-        let frontend = VoxelFrontend::new();
+        let frontend = frontend();
         let original = frontend.publish_streamed(scene())?;
         assert!(original.is_streamed());
         assert_eq!(original.volumes().len(), 256);

@@ -49,7 +49,7 @@ fn frontend_with_extent(
     revision: u64,
     extent: VoxelExtent,
 ) -> Result<(VoxelFrontend, Vec<Arc<Recipe>>), VoxelFrontendError> {
-    let frontend = VoxelFrontend::new();
+    let frontend = streamed_frontend();
     let sources: Vec<_> = ["first", "second", "third"]
         .map(|name| {
             Arc::new(Recipe {
@@ -584,4 +584,10 @@ fn edited_and_historical_read_apis_equal_an_unstreamed_scene()
         }
     }
     Ok(())
+}
+
+fn streamed_frontend() -> VoxelFrontend {
+    VoxelFrontend::with_residency_limits(
+        VoxelResidencyLimits::new(9).expect("nine is a valid maximum selection size"),
+    )
 }

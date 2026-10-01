@@ -69,7 +69,15 @@ impl Fixture {
         count: usize,
         hook: Option<GenerationHook>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let frontend = Arc::new(VoxelFrontend::new());
+        Self::with_limits(count, hook, VoxelResidencyLimits::new(9)?)
+    }
+
+    fn with_limits(
+        count: usize,
+        hook: Option<GenerationHook>,
+        limits: VoxelResidencyLimits,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let frontend = Arc::new(VoxelFrontend::with_residency_limits(limits));
         let scene = VoxelSceneId::new("streamed");
         let generations: Vec<_> = (0..count).map(|_| Arc::new(AtomicUsize::new(0))).collect();
         let observations = Arc::new(Mutex::new(vec![]));
@@ -340,24 +348,42 @@ fn selection_identity_is_independent_and_invalid_membership_is_rejected() -> Tes
 
 #[test]
 fn disjoint_selections_and_query_reserve_exactly_nineteen_copies_including_workers() -> TestResult {
-    let fixture = Fixture::new(21)?;
+    disjoint_selections_and_query_reserve_exactly_the_copy_cap(9)
+}
+
+#[test]
+fn a_larger_maximum_selection_size_derives_its_copy_cap() -> TestResult {
+    disjoint_selections_and_query_reserve_exactly_the_copy_cap(25)
+}
+
+fn disjoint_selections_and_query_reserve_exactly_the_copy_cap(maximum: usize) -> TestResult {
+    let limits = VoxelResidencyLimits::new(maximum)?;
+    assert_eq!(limits.maximum_selection_volumes(), maximum);
+    assert_eq!(limits.materialization_copy_cap(), 2 * maximum + 1);
+    let fixture = Fixture::with_limits(2 * maximum + 3, None, limits)?;
+    assert_eq!(fixture.view.residency_limits()?, limits);
     let frontend = &fixture.frontend;
-    let old = fixture.selection(1, 0..9)?;
+    let old = fixture.selection(1, 0..maximum)?;
     frontend.require_residency(old.clone())?;
     frontend.establish_residency()?;
     let reader = frontend.materialize_residency(&old, &fixture.view)?;
-    assert_eq!(frontend.materialization_cache_stats()?.copies, 9);
-    let query = fixture.view.enumerate_cells(&Fixture::volume(18), 1, 1)?;
-    frontend.require_residency(fixture.selection(2, 9..18)?)?;
+    assert_eq!(frontend.materialization_cache_stats()?.copies, maximum);
+    let query = fixture
+        .view
+        .enumerate_cells(&Fixture::volume(2 * maximum), 1, 1)?;
+    frontend.require_residency(fixture.selection(2, maximum..2 * maximum)?)?;
     frontend.establish_residency()?;
     let stats = frontend.materialization_cache_stats()?;
-    assert_eq!(stats.copies, 19);
-    assert_eq!(stats.peak_copies, 19);
+    assert_eq!(stats.copies, limits.materialization_copy_cap());
+    assert_eq!(stats.peak_copies, limits.materialization_copy_cap());
+    assert_eq!(stats.query_only_copies, 1);
     assert!(matches!(
-        fixture.view.enumerate_cells(&Fixture::volume(19), 1, 1),
+        fixture
+            .view
+            .enumerate_cells(&Fixture::volume(2 * maximum + 1), 1, 1),
         Err(VoxelFrontendError::QueryOnlyCopyBusy)
     ));
-    let overflow = fixture.selection(3, [20])?;
+    let overflow = fixture.selection(3, [2 * maximum + 2])?;
     assert!(matches!(
         frontend.materialize_residency(&overflow, &fixture.view),
         Err(VoxelFrontendError::MaterializationCacheExhausted)
@@ -365,7 +391,7 @@ fn disjoint_selections_and_query_reserve_exactly_nineteen_copies_including_worke
     assert_eq!(
         fixture
             .generations
-            .get(20)
+            .get(2 * maximum + 2)
             .ok_or("missing counter")?
             .load(Ordering::SeqCst),
         0
@@ -376,15 +402,62 @@ fn disjoint_selections_and_query_reserve_exactly_nineteen_copies_including_worke
         .map_err(|_| "observations poisoned")?;
     assert_eq!(
         observations.last().ok_or("no generation samples")?.copies,
-        19
+        limits.materialization_copy_cap()
     );
-    assert!(observations.iter().all(|sample| sample.copies <= 19));
+    assert!(
+        observations
+            .iter()
+            .all(|sample| sample.copies <= limits.materialization_copy_cap())
+    );
     drop(observations);
     drop(query);
-    assert_eq!(frontend.materialization_cache_stats()?.copies, 18);
+    assert_eq!(frontend.materialization_cache_stats()?.copies, 2 * maximum);
     drop(reader);
-    assert_eq!(frontend.materialization_cache_stats()?.copies, 9);
+    assert_eq!(frontend.materialization_cache_stats()?.copies, maximum);
     assert_eq!(fixture.view.storage_bytes(&Fixture::volume(0))?, 0);
+    Ok(())
+}
+
+#[test]
+fn invalid_maximum_selection_sizes_are_rejected_where_declared() {
+    assert!(matches!(
+        VoxelResidencyLimits::new(0),
+        Err(VoxelFrontendError::ZeroResidencyLimit)
+    ));
+    assert!(matches!(
+        VoxelResidencyLimits::new(usize::MAX / 2 + 1),
+        Err(VoxelFrontendError::ResidencyLimitTooLarge { .. })
+    ));
+}
+
+#[test]
+fn streamed_publication_requires_declared_residency_limits() -> TestResult {
+    let scene = || {
+        StreamedVoxelScene::new(
+            VoxelSceneId::new("streamed"),
+            VoxelSceneRevision::new(7),
+            vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
+            vec![],
+        )
+    };
+    assert!(matches!(
+        VoxelFrontend::new().publish_streamed(scene()),
+        Err(VoxelFrontendError::ResidencyLimitsUndeclared)
+    ));
+    let unstreamed = VoxelFrontend::new().publish(DenseVoxelScene::new(
+        VoxelSceneId::new("dense"),
+        VoxelSceneRevision::new(1),
+        vec![],
+        vec![],
+    ))?;
+    assert!(matches!(
+        unstreamed.residency_limits(),
+        Err(VoxelFrontendError::ResidencyLimitsUndeclared)
+    ));
+    let limits = VoxelResidencyLimits::new(4)?;
+    let view = VoxelFrontend::with_residency_limits(limits).publish_streamed(scene())?;
+    assert_eq!(view.residency_limits()?, limits);
+    assert_eq!(limits.retained_representation_copies(), 8);
     Ok(())
 }
 

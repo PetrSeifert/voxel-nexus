@@ -15,7 +15,9 @@ fn streamed_adapter_stamps_install_revision_and_selection_together()
     use render_backend::RenderPath;
     use std::sync::Arc;
     use voxel_frontend::*;
-    let frontend = Arc::new(VoxelFrontend::new());
+    let frontend = Arc::new(VoxelFrontend::with_residency_limits(
+        VoxelResidencyLimits::new(9)?,
+    ));
     let view = frontend.publish(DenseVoxelScene::new(
         VoxelSceneId::new("streamed-stamp"),
         VoxelSceneRevision::new(1),

@@ -163,8 +163,12 @@ impl ComputeSceneBundle {
         if matches!(representation, crate::ComputeRepresentation::Dense) {
             return Err(ComputeSceneBuildError::StreamedDense);
         }
-        if copies.selection().volumes().len() > crate::MAXIMUM_RESIDENCY_VOLUME_COUNT {
-            return Err(ComputeSceneBuildError::ResidencyVolumeLimit);
+        let maximum = copies
+            .scene_view()
+            .residency_limits()?
+            .maximum_selection_volumes();
+        if copies.selection().volumes().len() > maximum {
+            return Err(ComputeSceneBuildError::ResidencyVolumeLimit { maximum });
         }
         let coverage = render_backend::RenderPathCoverage::new(
             copies.scene_view(),
@@ -792,8 +796,8 @@ impl ComputeSceneBundle {
 pub enum ComputeSceneBuildError {
     #[error("streamed Brickmap construction requires a Voxel Residency Selection")]
     ResidencySelectionRequired,
-    #[error("streamed Brickmap construction supports at most nine selected volumes")]
-    ResidencyVolumeLimit,
+    #[error("streamed Brickmap construction supports at most {maximum} selected volumes")]
+    ResidencyVolumeLimit { maximum: usize },
     #[error("streamed scenes require explicit Brickmap compute")]
     StreamedDense,
     #[error("the brickmap scene palette exceeds the 65,535 occupied material identity limit")]

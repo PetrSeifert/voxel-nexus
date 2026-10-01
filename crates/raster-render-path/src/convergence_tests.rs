@@ -608,7 +608,9 @@ fn superseded_uploaded_resources_remain_live_until_fence_safe_retirement()
 #[test]
 fn residency_crossing_reuses_gpu_resources_and_retires_outgoing_volumes_at_the_boundary()
 -> Result<(), Box<dyn std::error::Error>> {
-    let frontend = Arc::new(VoxelFrontend::new());
+    let frontend = Arc::new(VoxelFrontend::with_residency_limits(
+        voxel_frontend::VoxelResidencyLimits::new(9)?,
+    ));
     let scene = VoxelSceneId::new("gpu-residency");
     let view = frontend.publish(DenseVoxelScene::new(
         scene,

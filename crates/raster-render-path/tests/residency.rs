@@ -1,20 +1,33 @@
-use raster_render_path::{derive_raster_regions, derive_raster_residency};
+use raster_render_path::{
+    RasterArtifactBuildCause, RasterConvergenceError, RasterRenderPath, derive_raster_regions,
+    derive_raster_residency,
+};
 use std::sync::Arc;
 #[cfg(feature = "qualification")]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use voxel_frontend::{
     DenseVoxelBatch, DenseVoxelScene, DenseVoxelVolume, VoxelCoordinate, VoxelExtent,
-    VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelResidencySelectionId,
-    VoxelSceneId, VoxelSceneRevision, VoxelValue, VoxelVolumeId, VoxelVolumeMetadata,
+    VoxelFrontend, VoxelMaterial, VoxelMaterialId, VoxelRegion, VoxelResidencyLimits,
+    VoxelResidencySelectionId, VoxelSceneId, VoxelSceneRevision, VoxelValue, VoxelVolumeId,
+    VoxelVolumeMetadata,
 };
 
 fn frontend() -> Result<Arc<VoxelFrontend>, Box<dyn std::error::Error>> {
-    let frontend = Arc::new(VoxelFrontend::new());
+    frontend_with(20, 9)
+}
+
+fn frontend_with(
+    count: u32,
+    maximum_selection_volumes: usize,
+) -> Result<Arc<VoxelFrontend>, Box<dyn std::error::Error>> {
+    let frontend = Arc::new(VoxelFrontend::with_residency_limits(
+        VoxelResidencyLimits::new(maximum_selection_volumes)?,
+    ));
     frontend.publish(DenseVoxelScene::new(
         VoxelSceneId::new("residency"),
         VoxelSceneRevision::new(1),
         vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
-        (0..20)
+        (0..count)
             .map(|index| {
                 DenseVoxelVolume::new(
                     VoxelVolumeMetadata::new(
@@ -280,7 +293,9 @@ impl voxel_frontend::VoxelVolumeSource for Recipe {
 #[cfg(feature = "qualification")]
 fn streamed_sources_share_materializations_and_generation_failure_is_retryable()
 -> Result<(), Box<dyn std::error::Error>> {
-    let frontend = Arc::new(VoxelFrontend::new());
+    let frontend = Arc::new(VoxelFrontend::with_residency_limits(
+        VoxelResidencyLimits::new(9)?,
+    ));
     let scene = VoxelSceneId::new("streamed-residency");
     let generations: Vec<_> = (0..20).map(|_| Arc::new(AtomicUsize::new(0))).collect();
     let fail_next = Arc::new(AtomicBool::new(false));
@@ -492,5 +507,41 @@ fn selection_derives_exactly_its_volumes_with_volume_local_region_identities()
         assert_eq!(region.vertices(), original.vertices());
         assert_eq!(region.indices(), original.indices());
     }
+    Ok(())
+}
+
+#[test]
+fn a_configured_maximum_selection_size_bounds_raster_selections()
+-> Result<(), Box<dyn std::error::Error>> {
+    let maximum = 25;
+    let frontend = frontend_with(maximum + 1, 25)?;
+    let view = frontend.scene_view()?;
+    let selection = |identity, count| {
+        view.residency_selection(
+            VoxelResidencySelectionId::new(identity),
+            (0..count).map(|index: u32| VoxelVolumeId::new(index.to_string())),
+        )
+    };
+    let extent = VoxelExtent::new(1, 1, 1);
+    let oversized =
+        derive_raster_residency(frontend.clone(), &view, selection(1, maximum + 1)?, extent);
+    assert!(matches!(
+        oversized.as_ref().map_err(|error| error.cause_detail()),
+        Err(RasterArtifactBuildCause::ResidencySelectionTooLarge { maximum: 25 })
+    ));
+    let full = selection(2, maximum)?;
+    let mut path = RasterRenderPath::new();
+    path.install_artifact(derive_raster_residency(
+        frontend.clone(),
+        &view,
+        full.clone(),
+        extent,
+    )?);
+    assert_eq!(path.installed_residency(), Some(&full));
+    assert!(matches!(
+        path.accept_residency_selection(selection(3, maximum + 1)?),
+        Err(RasterConvergenceError::ResidencySelectionTooLarge { maximum: 25 })
+    ));
+    assert!(path.accept_residency_selection(selection(4, maximum)?)?);
     Ok(())
 }

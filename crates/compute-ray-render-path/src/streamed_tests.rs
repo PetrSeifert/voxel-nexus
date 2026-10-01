@@ -119,9 +119,19 @@ fn volume(index: usize) -> VoxelVolumeId {
 
 impl Fixture {
     fn new(gate: Option<Arc<GenerationGate>>) -> Result<Self, Box<dyn std::error::Error>> {
-        let frontend = Arc::new(VoxelFrontend::new());
+        Self::with_limits(gate, 9, 20)
+    }
+
+    fn with_limits(
+        gate: Option<Arc<GenerationGate>>,
+        maximum_selection_volumes: usize,
+        count: usize,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let frontend = Arc::new(VoxelFrontend::with_residency_limits(
+            VoxelResidencyLimits::new(maximum_selection_volumes)?,
+        ));
         let scene = VoxelSceneId::new("streamed-compute");
-        let generations: Vec<_> = (0..20).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+        let generations: Vec<_> = (0..count).map(|_| Arc::new(AtomicUsize::new(0))).collect();
         let volumes = generations
             .iter()
             .enumerate()
@@ -149,8 +159,10 @@ impl Fixture {
             vec![VoxelMaterial::new(VoxelMaterialId::new("stone"), [1.0; 4])],
             volumes,
         ))?;
-        let selection =
-            view.residency_selection(VoxelResidencySelectionId::new(1), (0..9).map(volume))?;
+        let selection = view.residency_selection(
+            VoxelResidencySelectionId::new(1),
+            (0..maximum_selection_volumes).map(volume),
+        )?;
         let adapter = ComputeRayRenderPathAdapter::new_streamed(
             frontend.clone(),
             selection,
@@ -566,7 +578,7 @@ fn streamed_selection_rejections_preserve_requirements_and_the_nine_volume_bound
             .render_path
             .convergence
             .accept_residency_selection(fixture.selection(2, 9..19)?),
-        Err(ComputeConvergenceError::ResidencyVolumeLimit)
+        Err(ComputeConvergenceError::ResidencyVolumeLimit { maximum: 9 })
     ));
     fixture
         .adapter
@@ -595,11 +607,51 @@ fn streamed_selection_rejections_preserve_requirements_and_the_nine_volume_bound
                 budget_bytes: 1_000_000
             },
         ),
-        Err(ComputeSceneBuildError::ResidencyVolumeLimit)
+        Err(ComputeSceneBuildError::ResidencyVolumeLimit { maximum: 9 })
     ));
     assert_eq!(
         fixture.frontend.materialization_cache_stats()?.peak_copies,
         9
     );
+    Ok(())
+}
+
+#[test]
+fn a_configured_maximum_selection_size_bounds_brickmap_selections() -> TestResult {
+    let maximum = 25;
+    let mut fixture = Fixture::with_limits(None, maximum, maximum + 2)?;
+    assert_eq!(
+        fixture
+            .adapter
+            .scene_bundle()
+            .residency_selection()
+            .map(|selection| selection.volumes().len()),
+        Some(maximum)
+    );
+    assert!(matches!(
+        fixture
+            .adapter
+            .render_path
+            .convergence
+            .accept_residency_selection(fixture.selection(2, 0..maximum + 1)?),
+        Err(ComputeConvergenceError::ResidencyVolumeLimit { maximum: 25 })
+    ));
+    fixture
+        .adapter
+        .render_path
+        .convergence
+        .accept_residency_selection(fixture.selection(3, 2..maximum + 2)?)?;
+    assert!(matches!(
+        ComputeRayRenderPathAdapter::new_streamed(
+            fixture.frontend.clone(),
+            fixture.selection(4, 0..maximum + 1)?,
+            fixture.adapter.camera_state(),
+            CameraStateRevision::new(1),
+            ComputeRepresentation::Brickmap {
+                budget_bytes: 1_000_000
+            },
+        ),
+        Err(ComputeSceneBuildError::ResidencyVolumeLimit { maximum: 25 })
+    ));
     Ok(())
 }
