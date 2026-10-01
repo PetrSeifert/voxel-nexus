@@ -1,5 +1,28 @@
 use thiserror::Error;
 
+/// Presentation-only shading that changes how a frame looks, never which voxel a pixel shows.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct PresentationStyle {
+    /// Fades contacts toward the background before the far plane so the clip edge is hidden.
+    pub distance_fog: bool,
+    /// Darkens each voxel face near its edges so adjacent same-material voxels stay distinct.
+    pub voxel_edge_shading: bool,
+}
+
+impl PresentationStyle {
+    /// Both Render Paths fog toward, and clear to, this colour so switching does not jump.
+    /// The shaders repeat it as `DISTANCE_FOG_COLOR`.
+    pub const DISTANCE_FOG_LINEAR_COLOR: [f32; 3] = [0.42, 0.56, 0.74];
+
+    pub const SCENIC: Self = Self {
+        distance_fog: true,
+        voxel_edge_shading: true,
+    };
+}
+
+/// Fraction of the far plane at which distance fog begins.
+const DISTANCE_FOG_START: f32 = 0.55;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CameraState {
     eye: [f32; 3],
@@ -9,6 +32,7 @@ pub struct CameraState {
     near_plane: f32,
     far_plane: f32,
     radial_far_clip: bool,
+    presentation_style: PresentationStyle,
 }
 
 impl CameraState {
@@ -75,6 +99,7 @@ impl CameraState {
             near_plane,
             far_plane,
             radial_far_clip: false,
+            presentation_style: PresentationStyle::default(),
         };
         // Only the horizontal projection scale depends on extent. Its largest
         // magnitude occurs at the narrowest supported aspect ratio.
@@ -116,6 +141,55 @@ impl CameraState {
         self.radial_far_clip
     }
 
+    pub fn with_presentation_style(mut self, style: PresentationStyle) -> Self {
+        self.presentation_style = style;
+        self
+    }
+
+    pub fn presentation_style(self) -> PresentationStyle {
+        self.presentation_style
+    }
+
+    /// The eye distances over which fog rises from none to the full background colour.
+    pub fn distance_fog_range(self) -> Option<(f32, f32)> {
+        self.presentation_style
+            .distance_fog
+            .then_some((self.far_plane * DISTANCE_FOG_START, self.far_plane))
+    }
+
+    /// Shader constants shared by every Render Path: fog start, fog end (zero when fog is
+    /// off), an edge-shading flag and padding to a whole vector.
+    pub fn presentation_constants(self) -> [f32; 4] {
+        let (fog_start, fog_end) = self.distance_fog_range().unwrap_or((0.0, 0.0));
+        let edge_shading = if self.presentation_style.voxel_edge_shading {
+            1.0
+        } else {
+            0.0
+        };
+        [fog_start, fog_end, edge_shading, 0.0]
+    }
+
+    /// Replaces both clip planes while keeping the far clipping mode and presentation style.
+    pub fn with_clip_planes(
+        self,
+        near_plane: f32,
+        far_plane: f32,
+    ) -> Result<Self, CameraConfigurationError> {
+        let camera = Self::new(
+            self.eye,
+            self.target,
+            self.up,
+            self.field_of_view_degrees,
+            near_plane,
+            far_plane,
+        )?;
+        Ok(Self {
+            radial_far_clip: self.radial_far_clip,
+            presentation_style: self.presentation_style,
+            ..camera
+        })
+    }
+
     pub fn view_projection(
         self,
         drawable_dimensions: [u32; 2],
@@ -150,6 +224,7 @@ impl Default for CameraState {
             near_plane: 0.1,
             far_plane: 100.0,
             radial_far_clip: false,
+            presentation_style: PresentationStyle::default(),
         }
     }
 }
@@ -172,6 +247,9 @@ impl DeterministicCameraMove {
         }
         if start.radial_far_clip() != end.radial_far_clip() {
             return Err(CameraConfigurationError::DifferentFarClipModes);
+        }
+        if start.presentation_style() != end.presentation_style() {
+            return Err(CameraConfigurationError::DifferentPresentationStyles);
         }
         Ok(Self {
             start,
@@ -204,6 +282,7 @@ impl DeterministicCameraMove {
             interpolate_scalar(self.start.near_plane(), self.end.near_plane(), progress),
             interpolate_scalar(self.start.far_plane(), self.end.far_plane(), progress),
         )?;
+        let camera = camera.with_presentation_style(self.start.presentation_style());
         Ok(if self.start.radial_far_clip() {
             camera.with_radial_far_clip()
         } else {
@@ -248,6 +327,8 @@ pub enum CameraConfigurationError {
     ZeroMoveSteps,
     #[error("a deterministic camera move requires the same far clipping mode at both endpoints")]
     DifferentFarClipModes,
+    #[error("a deterministic camera move requires the same presentation style at both endpoints")]
+    DifferentPresentationStyles,
     #[error("camera move step {step} exceeds the final step {total_steps}")]
     MoveStepOutOfRange { step: u32, total_steps: u32 },
 }

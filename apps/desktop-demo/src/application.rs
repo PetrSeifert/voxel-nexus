@@ -106,6 +106,8 @@ pub(super) struct DesktopRuntime {
     pub(super) pending_camera: Option<(CameraPose, CameraStateRevision)>,
     residency_identity: u64,
     residency_revision: Option<VoxelSceneRevision>,
+    pub(super) streamed_crossing: super::streamed_crossing::StreamedCrossingLatency,
+    pub(super) peak_residency_bytes: usize,
     pub(super) published_revision: Option<VoxelSceneRevision>,
     pub(super) drawable_extent: ash::vk::Extent2D,
     last_drawable_extent: ash::vk::Extent2D,
@@ -172,26 +174,23 @@ impl DesktopRuntime {
     }
 
     pub(super) fn update_streamed_residency(&mut self, pose: CameraPose) -> Result<(), String> {
-        if !matches!(
-            self.render_configuration.scene,
-            DesktopSceneSelection::StreamedWorld
-        ) {
+        let Some(neighbourhood) = self.render_configuration.streamed_neighbourhood() else {
             return Ok(());
-        }
+        };
+        let requested_at = Instant::now();
         let frontend = self
             .frontend
             .as_ref()
             .ok_or("the Voxel Frontend is unavailable")?;
-        let volumes = super::streamed_world::residency_volumes(pose);
+        let volumes = super::streamed_world::residency_volumes(pose, neighbourhood);
         let required = frontend
             .required_residency()
             .map_err(|error| error.to_string())?;
         let view = self.latest_scene_view()?;
-        if required
+        let crossing = required
             .as_ref()
-            .is_some_and(|selection| selection.volumes() == volumes)
-            && self.residency_revision == Some(view.revision())
-        {
+            .is_none_or(|selection| selection.volumes() != volumes);
+        if !crossing && self.residency_revision == Some(view.revision()) {
             return Ok(());
         }
         let identity = self
@@ -219,7 +218,61 @@ impl DesktopRuntime {
             .map_err(|error| error.to_string())?;
         self.residency_identity = identity;
         self.residency_revision = Some(view.revision());
+        if crossing {
+            self.streamed_crossing
+                .crossed(VoxelResidencySelectionId::new(identity), requested_at);
+        }
         Ok(())
+    }
+
+    /// Completes crossings the Presenting Render Path has installed, then summarizes residency.
+    /// Runs after every presented frame, so latency includes the first frame showing coverage.
+    pub(super) fn streamed_report(&mut self) -> Result<Option<String>, String> {
+        let Some(neighbourhood) = self.render_configuration.streamed_neighbourhood() else {
+            return Ok(None);
+        };
+        let residency = self
+            .frontend
+            .as_ref()
+            .ok_or("the Voxel Frontend is unavailable")?
+            .materialization_cache_stats()
+            .map_err(|error| error.to_string())?;
+        self.peak_residency_bytes = self.peak_residency_bytes.max(residency.storage_bytes);
+        if let Some(installed) = self
+            .switch_diagnostics()?
+            .presenting()
+            .installed_selection()
+        {
+            for latency in self.streamed_crossing.installed(installed, Instant::now()) {
+                println!(
+                    "Streamed crossing: neighbourhood={neighbourhood} installed_selection={installed} latency_ms={:.1} worst_ms={:.1} residency_copies={} residency_bytes={} peak_residency_bytes={}",
+                    latency.as_secs_f64() * 1000.0,
+                    self.streamed_crossing
+                        .worst()
+                        .unwrap_or_default()
+                        .as_secs_f64()
+                        * 1000.0,
+                    residency.copies,
+                    residency.storage_bytes,
+                    self.peak_residency_bytes,
+                );
+            }
+        }
+        let milliseconds = |latency: Option<Duration>| {
+            latency.map_or_else(
+                || "none".to_owned(),
+                |latency| format!("{}ms", latency.as_millis()),
+            )
+        };
+        let mebibytes = |bytes: usize| bytes as f64 / (1024.0 * 1024.0);
+        Ok(Some(format!(
+            "Neighbourhood={neighbourhood} Crossing={} WorstCrossing={} MaterializedResidency={}copies/{:.1}MiB PeakMaterializedResidency={:.1}MiB",
+            milliseconds(self.streamed_crossing.last()),
+            milliseconds(self.streamed_crossing.worst()),
+            residency.copies,
+            mebibytes(residency.storage_bytes),
+            mebibytes(self.peak_residency_bytes),
+        )))
     }
 
     pub(super) fn accept_pending_camera(&mut self) -> Result<(), String> {
@@ -275,6 +328,8 @@ impl DesktopApplication {
                 pending_camera: None,
                 residency_identity: 0,
                 residency_revision: None,
+                streamed_crossing: Default::default(),
+                peak_residency_bytes: 0,
                 published_revision: None,
                 drawable_extent: ash::vk::Extent2D::default(),
                 last_drawable_extent: ash::vk::Extent2D::default(),
@@ -397,11 +452,13 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
         self.desktop.drawable_extent = initial_drawable_extent;
         self.desktop.last_drawable_extent = initial_drawable_extent;
         let frontend = Arc::new(match self.desktop.render_configuration.scene {
-            DesktopSceneSelection::StreamedWorld => super::streamed_world::frontend(),
+            DesktopSceneSelection::StreamedWorld(neighbourhood) => {
+                super::streamed_world::frontend(neighbourhood)
+            }
             _ => VoxelFrontend::new(),
         });
         let (publication, occupied_voxels) = match self.desktop.render_configuration.scene {
-            DesktopSceneSelection::StreamedWorld => {
+            DesktopSceneSelection::StreamedWorld(_) => {
                 (frontend.publish_streamed(super::streamed_world::scene()), 0)
             }
             DesktopSceneSelection::LargeSparse => {
@@ -466,10 +523,10 @@ impl ApplicationHandler<DesktopEvent> for DesktopApplication {
             return;
         }
         self.desktop.frontend = Some(frontend.clone());
-        if view.is_streamed() {
+        if let Some(neighbourhood) = self.desktop.render_configuration.streamed_neighbourhood() {
             let initial = view.residency_selection(
                 VoxelResidencySelectionId::new(1),
-                super::streamed_world::residency_volumes(self.desktop.camera_state),
+                super::streamed_world::residency_volumes(self.desktop.camera_state, neighbourhood),
             );
             if let Err(error) = initial.and_then(|selection| {
                 frontend.require_residency(selection)?;
@@ -1084,10 +1141,8 @@ impl DesktopRuntime {
         &mut self,
         drawable_extent: ash::vk::Extent2D,
     ) -> Result<(), String> {
-        if matches!(
-            self.render_configuration.scene,
-            DesktopSceneSelection::StreamedWorld
-        ) && self.backend.is_some()
+        if self.render_configuration.streamed_neighbourhood().is_some()
+            && self.backend.is_some()
             && self.last_drawable_extent.width > 0
             && self.last_drawable_extent.height > 0
             && drawable_extent.width > 0
@@ -1100,15 +1155,9 @@ impl DesktopRuntime {
             // The accepted camera must stay covered even when a newer move is held.
             // Shortening before reconfiguration preserves its previous corner-distance bound.
             let far = camera.far_plane() * (previous_aspect / next_aspect).min(1.0);
-            let pose = CameraPose::new(
-                camera.eye(),
-                camera.target(),
-                camera.up(),
-                camera.field_of_view_degrees(),
-                camera.near_plane().min(far * 0.25),
-                far,
-            )
-            .map_err(|error| error.to_string())?;
+            let pose = camera
+                .with_clip_planes(camera.near_plane().min(far * 0.25), far)
+                .map_err(|error| error.to_string())?;
             let revision = self
                 .pending_camera
                 .map_or(self.camera_state_revision, |(_, revision)| revision)

@@ -133,6 +133,7 @@ impl ScenarioExecution<'_> {
     }
 
     pub(super) fn set_interactive_overlay(&mut self) -> Result<(), String> {
+        let streamed = self.desktop.streamed_report()?;
         let diagnostics = self.desktop.switch_diagnostics()?;
         let material = match self.selected_material() {
             Ok(Some(material)) => format!("{material:?}"),
@@ -147,12 +148,15 @@ impl ScenarioExecution<'_> {
             .as_ref()
             .map(format_pick_target)
             .unwrap_or_else(|| "none".to_owned());
-        let report = format_interactive_overlay(
+        let mut report = format_interactive_overlay(
             &diagnostics,
             &target,
             &material,
             &interactive.control_feedback,
         );
+        if let Some(streamed) = streamed {
+            report = format!("{report} {streamed}");
+        }
         if interactive.last_overlay_report.as_deref() == Some(&report) {
             return Ok(());
         }
@@ -264,10 +268,11 @@ impl ScenarioExecution<'_> {
             KeyCode::Escape => self.release_interactive_capture(),
             KeyCode::Tab => self.request_interactive_mode_switch(),
             KeyCode::KeyR
-                if matches!(
-                    self.desktop.render_configuration.scene,
-                    DesktopSceneSelection::StreamedWorld
-                ) =>
+                if self
+                    .desktop
+                    .render_configuration
+                    .streamed_neighbourhood()
+                    .is_some() =>
             {
                 let feedback = match self.restore_streamed_edits() {
                     Ok(EditPublication::Changed(revision)) => {
@@ -541,13 +546,15 @@ impl ScenarioExecution<'_> {
             }
             interactive.last_movement_at = Some(now);
         }
+        let neighbourhood = self.desktop.render_configuration.streamed_neighbourhood();
         let camera_state = match interactive.camera.camera_state().and_then(|camera| {
-            if matches!(
-                self.desktop.render_configuration.scene,
-                DesktopSceneSelection::StreamedWorld
-            ) {
+            if let Some(neighbourhood) = neighbourhood {
                 let extent = self.desktop.drawable_extent;
-                super::streamed_world::camera_state(camera, [extent.width, extent.height])
+                super::streamed_world::camera_state(
+                    camera,
+                    [extent.width, extent.height],
+                    neighbourhood,
+                )
             } else {
                 Ok(camera)
             }

@@ -151,7 +151,10 @@ fn main() -> ExitCode {
 mod configuration;
 use configuration::*;
 #[cfg(any(target_os = "windows", test))]
+mod streamed_crossing;
+#[cfg(any(target_os = "windows", test))]
 mod streamed_fixture_recipe;
+mod streamed_neighbourhood;
 #[cfg(any(target_os = "windows", test))]
 mod streamed_world;
 

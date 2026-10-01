@@ -580,10 +580,11 @@ impl ScenarioExecution<'_> {
                     return;
                 }
             },
-            None if matches!(
-                self.desktop.render_configuration.scene,
-                DesktopSceneSelection::StreamedWorld
-            ) =>
+            None if self
+                .desktop
+                .render_configuration
+                .streamed_neighbourhood()
+                .is_some() =>
             {
                 match self.desktop.switch_diagnostics() {
                     Ok(diagnostics) if diagnostics.presenting().is_fully_converged() => {

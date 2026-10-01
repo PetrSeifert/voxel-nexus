@@ -6,6 +6,8 @@ mod streamed_qualification;
 mod streamed_qualification_oracle;
 // Preserve the frozen route's type path while supplying coordinates from production selections.
 use streamed_qualification as streamed_residency_source;
+#[allow(dead_code)]
+mod streamed_neighbourhood;
 #[cfg(windows)]
 mod streamed_qualification_observation;
 #[cfg(windows)]

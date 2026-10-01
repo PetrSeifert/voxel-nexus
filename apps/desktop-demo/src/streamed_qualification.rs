@@ -1,6 +1,8 @@
 use super::{
     allocation::{self, Category},
-    streamed_fixture_recipe as recipe, streamed_world,
+    streamed_fixture_recipe as recipe,
+    streamed_neighbourhood::StreamedNeighbourhood,
+    streamed_world,
 };
 use compute_ray_render_path::{ComputeRepresentation, ComputeSceneBundle};
 use raster_render_path::{RasterArtifact, derive_raster_residency};
@@ -103,7 +105,9 @@ pub fn record_fingerprint(
 }
 
 pub fn publish(side: u32) -> Result<Arc<VoxelFrontend>, String> {
-    let frontend = Arc::new(streamed_world::frontend());
+    let frontend = Arc::new(streamed_world::frontend(
+        StreamedNeighbourhood::QUALIFICATION,
+    ));
     allocation::within(Category::Metadata, || {
         frontend.publish_streamed(streamed_world::scene_with_side(side))
     })

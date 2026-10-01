@@ -251,3 +251,90 @@ fn camera_moves_preserve_radial_clipping_and_reject_mixed_modes()
     }
     Ok(())
 }
+
+#[test]
+fn presentation_style_defaults_off_and_derives_fog_from_the_far_plane()
+-> Result<(), Box<dyn std::error::Error>> {
+    use render_backend::PresentationStyle;
+    let plain = CameraState::new(
+        [0.0; 3],
+        [0.0, 0.0, -1.0],
+        [0.0, 1.0, 0.0],
+        60.0,
+        0.1,
+        160.0,
+    )?;
+    assert_eq!(plain.presentation_style(), PresentationStyle::default());
+    assert_eq!(plain.distance_fog_range(), None);
+    assert!(!plain.presentation_style().voxel_edge_shading);
+    let scenic = plain.with_presentation_style(PresentationStyle::SCENIC);
+    assert!(scenic.presentation_style().voxel_edge_shading);
+    let (start, end) = scenic
+        .distance_fog_range()
+        .expect("scenic presentation enables distance fog");
+    assert!(0.0 < start && start < end);
+    assert_eq!(end, scenic.far_plane());
+    Ok(())
+}
+
+#[test]
+fn changing_clip_planes_preserves_far_clipping_and_presentation()
+-> Result<(), Box<dyn std::error::Error>> {
+    use render_backend::PresentationStyle;
+    let camera = CameraState::default()
+        .with_radial_far_clip()
+        .with_presentation_style(PresentationStyle::SCENIC);
+    let clipped = camera.with_clip_planes(0.05, 12.0)?;
+    assert_eq!(clipped.near_plane(), 0.05);
+    assert_eq!(clipped.far_plane(), 12.0);
+    assert!(clipped.radial_far_clip());
+    assert_eq!(clipped.presentation_style(), PresentationStyle::SCENIC);
+    assert_eq!(
+        camera.with_clip_planes(1.0, 1.0),
+        Err(CameraConfigurationError::InvalidClipPlanes)
+    );
+    Ok(())
+}
+
+#[test]
+fn camera_moves_preserve_presentation_and_reject_mixed_styles()
+-> Result<(), Box<dyn std::error::Error>> {
+    use render_backend::{DeterministicCameraMove, PresentationStyle};
+    let plain = CameraState::default();
+    let scenic = plain.with_presentation_style(PresentationStyle::SCENIC);
+    let movement = DeterministicCameraMove::new(scenic, scenic, 2)?;
+    for step in 0..=2 {
+        assert_eq!(
+            movement.pose_at_step(step)?.presentation_style(),
+            PresentationStyle::SCENIC
+        );
+    }
+    assert_eq!(
+        DeterministicCameraMove::new(plain, scenic, 2),
+        Err(CameraConfigurationError::DifferentPresentationStyles)
+    );
+    Ok(())
+}
+
+#[test]
+fn presentation_constants_zero_fog_and_edges_unless_enabled()
+-> Result<(), Box<dyn std::error::Error>> {
+    use render_backend::PresentationStyle;
+    let camera = CameraState::new(
+        [0.0; 3],
+        [0.0, 0.0, -1.0],
+        [0.0, 1.0, 0.0],
+        60.0,
+        0.1,
+        100.0,
+    )?;
+    assert_eq!(camera.presentation_constants(), [0.0; 4]);
+    let edges_only = camera.with_presentation_style(PresentationStyle {
+        distance_fog: false,
+        voxel_edge_shading: true,
+    });
+    assert_eq!(edges_only.presentation_constants(), [0.0, 0.0, 1.0, 0.0]);
+    let scenic = camera.with_presentation_style(PresentationStyle::SCENIC);
+    assert_eq!(scenic.presentation_constants(), [55.0, 100.0, 1.0, 0.0]);
+    Ok(())
+}

@@ -79,7 +79,7 @@ pub const COMPUTE_RAY_STRATEGY: RenderPathStrategy =
 
 const OUTPUT_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
 const WORKGROUP_SIZE: [u32; 3] = [8, 8, 1];
-const CAMERA_WORD_COUNT: usize = 20;
+const CAMERA_WORD_COUNT: usize = 24;
 const CAMERA_BUFFER_SIZE: u32 = (CAMERA_WORD_COUNT * std::mem::size_of::<f32>()) as u32;
 const MAXIMUM_SEMANTIC_RAY_PROBES: usize = 8;
 const SEMANTIC_RAY_INPUT_WORD_COUNT: usize = 8;

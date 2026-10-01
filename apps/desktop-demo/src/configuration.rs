@@ -1,3 +1,4 @@
+use super::streamed_neighbourhood::StreamedNeighbourhood;
 use canonical_inspection::{CanonicalCameraPose, overview_to_cavity_camera_move};
 use canonical_scene::{CanonicalSceneMetadata, CanonicalSceneScale, generate_canonical_scene};
 use raster_render_path::CameraPose;
@@ -43,7 +44,7 @@ pub(super) enum DesktopSceneSelection {
     Canonical(CanonicalSceneScale),
     WindingDiagnostic,
     LargeSparse,
-    StreamedWorld,
+    StreamedWorld(StreamedNeighbourhood),
 }
 
 #[derive(Clone)]
@@ -76,7 +77,7 @@ pub(super) enum ComputeShutdownQualification {
 impl DesktopRenderConfiguration {
     pub(super) fn camera_pose(&self) -> Result<CameraPose, String> {
         match self.scene {
-            DesktopSceneSelection::StreamedWorld => CameraPose::new(
+            DesktopSceneSelection::StreamedWorld(_) => CameraPose::new(
                 [160.0, 42.0, 160.0],
                 [176.0, 28.0, 176.0],
                 [0.0, 1.0, 0.0],
@@ -108,6 +109,13 @@ impl DesktopRenderConfiguration {
         }
     }
 
+    pub(super) fn streamed_neighbourhood(&self) -> Option<StreamedNeighbourhood> {
+        match self.scene {
+            DesktopSceneSelection::StreamedWorld(neighbourhood) => Some(neighbourhood),
+            _ => None,
+        }
+    }
+
     pub(super) fn compute_only(&self) -> bool {
         matches!(self.scene, DesktopSceneSelection::LargeSparse)
     }
@@ -125,7 +133,7 @@ impl DesktopRenderConfiguration {
 
     pub(super) fn camera_identity(&self) -> String {
         match self.scene {
-            DesktopSceneSelection::StreamedWorld => "streamed-world-start".to_owned(),
+            DesktopSceneSelection::StreamedWorld(_) => "streamed-world-start".to_owned(),
             DesktopSceneSelection::LargeSparse => "large-sparse-start".to_owned(),
             DesktopSceneSelection::Canonical(_) => self.camera.report_identity(),
             DesktopSceneSelection::WindingDiagnostic => "winding-diagnostic".to_owned(),
@@ -206,6 +214,7 @@ pub(super) fn parse_render_configuration(
     let mut arguments = arguments.into_iter();
     let mut large_sparse = false;
     let mut streamed_world = false;
+    let mut streamed_neighbourhood = None;
     let mut large_sparse_conflict = false;
     let mut explicit_dense = false;
     let mut compute_representation = compute_ray_render_path::ComputeRepresentation::Dense;
@@ -254,6 +263,10 @@ pub(super) fn parse_render_configuration(
         );
         match argument.as_str() {
             "--streamed-world" => streamed_world = true,
+            "--streamed-neighbourhood" => {
+                streamed_neighbourhood =
+                    Some(StreamedNeighbourhood::parse(arguments.next().as_deref())?);
+            }
             "--large-sparse-scene" => large_sparse = true,
             "--compute-representation" => {
                 compute_representation = match arguments.next().as_deref() {
@@ -440,6 +453,12 @@ pub(super) fn parse_render_configuration(
             unknown => return Err(format!("unknown desktop demo argument {unknown:?}")),
         }
     }
+    if streamed_neighbourhood.is_some() && !streamed_world {
+        return Err(
+            "StreamedNeighbourhoodRequiresStreamedWorld: --streamed-neighbourhood applies only to --streamed-world"
+                .to_owned(),
+        );
+    }
     if streamed_world {
         if explicit_dense {
             return Err(
@@ -447,7 +466,9 @@ pub(super) fn parse_render_configuration(
                     .to_owned(),
             );
         }
-        scene = DesktopSceneSelection::StreamedWorld;
+        scene = DesktopSceneSelection::StreamedWorld(
+            streamed_neighbourhood.unwrap_or(StreamedNeighbourhood::DEFAULT),
+        );
         interactive = true;
         compute_representation = compute_ray_render_path::ComputeRepresentation::Brickmap {
             budget_bytes: brickmap_budget_bytes,
@@ -637,9 +658,9 @@ pub(super) fn report_render_configuration(
     configuration: &DesktopRenderConfiguration,
 ) -> Result<(), String> {
     match configuration.scene {
-        DesktopSceneSelection::StreamedWorld => {
+        DesktopSceneSelection::StreamedWorld(neighbourhood) => {
             println!(
-                "Streamed scene: identity=streamed-qualification-v1 grid=16x16 volume_dimensions=64x64x64 storage=sparse-pages representation=brickmap presenter=raster camera={}",
+                "Streamed scene: identity=streamed-qualification-v1 grid=16x16 volume_dimensions=64x64x64 neighbourhood={neighbourhood} storage=sparse-pages representation=brickmap presenter=raster camera={}",
                 configuration.camera_identity()
             );
         }
@@ -691,7 +712,53 @@ mod tests {
             compute_ray_render_path::ComputeRepresentation::Brickmap { .. }
         ));
         assert_eq!(configuration.camera_identity(), "streamed-world-start");
+        assert_eq!(
+            configuration.streamed_neighbourhood(),
+            Some(StreamedNeighbourhood::DEFAULT)
+        );
         assert!(report);
+        Ok(())
+    }
+
+    #[test]
+    fn streamed_neighbourhood_selects_an_odd_size_and_names_rejections() -> Result<(), String> {
+        for arguments in [
+            ["--streamed-world", "--streamed-neighbourhood", "5"],
+            ["--streamed-neighbourhood", "5", "--streamed-world"],
+        ] {
+            let (configuration, _) = parse(&arguments)?;
+            assert_eq!(
+                configuration.streamed_neighbourhood(),
+                Some(StreamedNeighbourhood::new(5)?)
+            );
+        }
+        for (arguments, reason) in [
+            (
+                vec!["--streamed-world", "--streamed-neighbourhood", "6"],
+                "StreamedNeighbourhoodEven",
+            ),
+            (
+                vec!["--streamed-world", "--streamed-neighbourhood", "1"],
+                "StreamedNeighbourhoodOutOfRange",
+            ),
+            (
+                vec!["--streamed-world", "--streamed-neighbourhood", "large"],
+                "StreamedNeighbourhoodInvalid",
+            ),
+            (
+                vec!["--streamed-world", "--streamed-neighbourhood"],
+                "StreamedNeighbourhoodMissing",
+            ),
+            (
+                vec!["--streamed-neighbourhood", "7"],
+                "StreamedNeighbourhoodRequiresStreamedWorld",
+            ),
+        ] {
+            let error = parse(&arguments)
+                .err()
+                .expect("the neighbourhood must be rejected");
+            assert!(error.contains(reason), "{arguments:?}: {error}");
+        }
         Ok(())
     }
 

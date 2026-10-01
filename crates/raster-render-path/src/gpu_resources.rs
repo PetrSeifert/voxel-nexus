@@ -407,6 +407,13 @@ impl RasterRenderPath {
                 0.0
             },
         ];
+        self.camera_presentation = state.pose.presentation_constants();
+        self.background = if state.pose.presentation_style().distance_fog {
+            let [red, green, blue] = render_backend::PresentationStyle::DISTANCE_FOG_LINEAR_COLOR;
+            [red, green, blue, 1.0]
+        } else {
+            [0.025, 0.035, 0.06, 1.0]
+        };
         self.acknowledged_camera_revision = state.revision;
         Ok(())
     }
@@ -618,7 +625,7 @@ impl RasterRenderPath {
         let push_constant_range = [vk::PushConstantRange::default()
             .stage_flags(vk::ShaderStageFlags::VERTEX)
             .offset(0)
-            .size(112)];
+            .size(128)];
         let material_layout = create_material_layout(device)?;
         let set_layouts = [material_layout];
         let layout_info = vk::PipelineLayoutCreateInfo::default()
@@ -679,10 +686,11 @@ impl RasterRenderPath {
             .get(framebuffer_index)
             .copied()
             .ok_or(RasterResourceError::MissingFramebuffer)?;
+        self.update_camera_constants(target.extent())?;
         let clear_values = [
             vk::ClearValue {
                 color: vk::ClearColorValue {
-                    float32: [0.025, 0.035, 0.06, 1.0],
+                    float32: self.background,
                 },
             },
             vk::ClearValue {
@@ -692,7 +700,6 @@ impl RasterRenderPath {
                 },
             },
         ];
-        self.update_camera_constants(target.extent())?;
         // LESS keeps the first equal-depth fragment. Match the Semantic Ray oracle's
         // volume-identity tie break even after localized replacements reorder resources.
         self.region_resources.sort_unstable_by(|left, right| {
@@ -717,10 +724,11 @@ impl RasterRenderPath {
                 }
                 frame.bind_vertex_buffer(resources.vertex_buffer);
                 frame.bind_index_buffer(resources.index_buffer);
-                let mut constants = [0; 28];
+                let mut constants = [0; 32];
                 constants[..16].copy_from_slice(&self.camera_constants.map(f32::to_bits));
                 constants[16..24].copy_from_slice(&resources.transform_constants);
-                constants[24..].copy_from_slice(&self.camera_eye_and_far_clip.map(f32::to_bits));
+                constants[24..28].copy_from_slice(&self.camera_eye_and_far_clip.map(f32::to_bits));
+                constants[28..].copy_from_slice(&self.camera_presentation.map(f32::to_bits));
                 frame.bind_descriptor_sets(
                     vk::PipelineBindPoint::GRAPHICS,
                     self.pipeline_layout,

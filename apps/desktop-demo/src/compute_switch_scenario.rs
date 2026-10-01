@@ -170,10 +170,12 @@ impl ScenarioExecution<'_> {
                 );
             }
             if active_switch.replacement == RASTER_STRATEGY {
-                self.desktop.artifact_installer = if matches!(
-                    self.desktop.render_configuration.scene,
-                    DesktopSceneSelection::StreamedWorld
-                ) {
+                self.desktop.artifact_installer = if self
+                    .desktop
+                    .render_configuration
+                    .streamed_neighbourhood()
+                    .is_some()
+                {
                     None
                 } else {
                     Some(

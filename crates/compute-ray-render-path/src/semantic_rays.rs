@@ -360,6 +360,7 @@ pub(super) fn camera_storage_words(
     words[17] = camera.far_plane();
     words[18] = (camera.field_of_view_degrees().to_radians() * 0.5).tan();
     words[19] = extent.width as f32 / extent.height as f32;
+    words[20..24].copy_from_slice(&camera.presentation_constants());
     words
 }
 

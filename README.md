@@ -91,19 +91,26 @@ cargo run --release --locked --package desktop-demo --bin desktop-demo -- --stre
 ```
 
 The scene starts on Raster. Use the interactive camera and editing controls above, and
-Tab to switch between Raster and Brickmap compute while moving. A clipped 3x3 Voxel
-Residency Selection follows the camera without hysteresis. Camera moves wait for
-installed coverage when needed. Visibility is capped by distance from the camera, so rotating in
-place keeps the same terrain visible. The limit is at most 32 voxels and shortens for wide windows so the view
-fits the neighbourhood. The overlay reports Required and Installed selection identities next
-to Required and Visible revisions.
+Tab to switch between Raster and Brickmap compute while moving. A clipped 7x7 Voxel
+Residency Selection follows the camera without hysteresis; `--streamed-neighbourhood <size>`
+chooses another odd size from 3 to 15. Camera moves wait for installed coverage when needed.
+Visibility is capped by distance from the camera, so rotating in place keeps the same terrain
+visible. The limit is the neighbourhood's guaranteed reach divided by the frustum's corner
+length, about 124 voxels for 7x7 in a 16:9 window, and shortens for wide windows so the view
+fits the neighbourhood. Distance fog fades terrain into the sky colour before that limit, and
+voxel face edges are darkened so same-material voxels stay distinct. Both are presentation
+settings that Raster and Brickmap apply identically; qualification and evidence runs keep them
+off. The overlay reports Required and Installed selection identities next to Required and
+Visible revisions, plus the neighbourhood size, last and worst crossing latency, and live and
+peak materialized residency memory. Each completed crossing is also logged.
 
 Edits survive eviction and return. Press R to restore every coordinate edited in this
 session to its generated value, including coordinates in evicted volumes. Restoration
 uses the same admission rule as other edits during replacement preparation.
 
 `--streamed-world` enables interactive mode and defaults to Brickmap compute. It accepts
-`--raster-region-extent`, `--brickmap-budget-bytes`, and explicit Brickmap selection.
+`--streamed-neighbourhood`, `--raster-region-extent`, `--brickmap-budget-bytes`, and explicit
+Brickmap selection.
 Dense compute and canonical-only demo modes are rejected during argument parsing.
 
 ### Compute switch qualification demo

@@ -400,7 +400,9 @@ impl Drop for RenderBackend {
 }
 
 mod camera;
-pub use camera::{CameraConfigurationError, CameraState, DeterministicCameraMove};
+pub use camera::{
+    CameraConfigurationError, CameraState, DeterministicCameraMove, PresentationStyle,
+};
 
 mod configuration;
 pub use configuration::{

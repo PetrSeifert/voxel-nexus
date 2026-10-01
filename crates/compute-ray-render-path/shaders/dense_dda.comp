@@ -13,6 +13,7 @@ layout(std430, set = 0, binding = 3) readonly buffer CameraData {
     vec4 right;
     vec4 upward;
     vec4 clip_projection;
+    vec4 fog_range_and_edge_shading;
 } camera;
 
 layout(std430, set = 0, binding = 4) buffer SemanticRayData {
@@ -322,6 +323,19 @@ void observe_semantic_ray(uint probe_index) {
     semantic_rays.words[output_offset + 7] = normal_code(hit.normal);
 }
 
+// Matches PresentationStyle::DISTANCE_FOG_LINEAR_COLOR and the raster path's copy.
+const vec3 DISTANCE_FOG_COLOR = vec3(0.42, 0.56, 0.74);
+
+// Matches the raster path's copy so switching paths does not change a voxel's shade.
+float voxel_edge_shade(vec3 voxel_coordinate, vec3 normal) {
+    vec3 within = fract(voxel_coordinate);
+    vec3 edge_distance = min(within, 1.0 - within);
+    // The face lies on an integer plane along its normal, so only the two tangent axes count.
+    edge_distance = mix(edge_distance, vec3(1.0), abs(normal));
+    float nearest = min(edge_distance.x, min(edge_distance.y, edge_distance.z));
+    return mix(0.7, 1.0, smoothstep(0.0, 0.1, nearest));
+}
+
 vec4 material_color(uint material_word) {
     uint offset = scene.words[2] + (material_word - 1) * 4;
     return vec4(
@@ -365,14 +379,28 @@ void main() {
 
     Hit nearest = trace_scene(camera.eye.xyz, direction, ray_minimum, ray_maximum);
 
-    vec4 color = vec4(0.015, 0.02, 0.03, 1.0);
+    float fog_start = camera.fog_range_and_edge_shading.x;
+    float fog_end = camera.fog_range_and_edge_shading.y;
+    vec4 color = fog_end > 0.0
+        ? vec4(DISTANCE_FOG_COLOR, 1.0)
+        : vec4(0.015, 0.02, 0.03, 1.0);
     if (nearest.found) {
         vec4 base_color = material_color(nearest.material_word);
         vec3 light_direction = normalize(vec3(0.4, 0.7, 0.5));
-        float diffuse = all(equal(nearest.normal, vec3(0.0)))
+        bool started_inside = all(equal(nearest.normal, vec3(0.0)));
+        float diffuse = started_inside
             ? 0.35
             : 0.35 + 0.65 * max(dot(nearest.normal, light_direction), 0.0);
-        color = vec4(base_color.rgb * diffuse, base_color.a);
+        vec3 shaded = base_color.rgb * diffuse;
+        if (camera.fog_range_and_edge_shading.z > 0.0 && !started_inside) {
+            Volume volume = volume_at(nearest.volume_index);
+            vec3 contact = camera.eye.xyz + direction * nearest.distance;
+            shaded *= voxel_edge_shade((contact - volume.origin) / volume.voxel_size, nearest.normal);
+        }
+        if (fog_end > 0.0) {
+            shaded = mix(shaded, DISTANCE_FOG_COLOR, smoothstep(fog_start, fog_end, nearest.distance));
+        }
+        color = vec4(shaded, base_color.a);
     }
     imageStore(output_image, pixel, color);
 }
