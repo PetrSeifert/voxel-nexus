@@ -1,27 +1,27 @@
 {
-  "routes": {
-    "raster": {
-      "probes": 64,
-      "laps": 2,
-      "maximum_crossing_seconds": 0.200114507,
-      "switches": 4,
-      "installations": 16
-    },
-    "brickmap": {
-      "probes": 64,
-      "laps": 2,
-      "maximum_crossing_seconds": 0.291913705,
-      "switches": 4,
-      "installations": 16
-    }
-  },
+  "verdict": "PASS",
   "caps": {
+    "brickmap_gpu": 4760640,
     "raster_cpu": 58242848,
     "raster_gpu": 980640,
     "brickmap_cpu": 8914536,
-    "cpu_materialization": 10300368,
-    "brickmap_gpu": 4760640
+    "cpu_materialization": 10300368
   },
-  "verdict": "PASS",
-  "source_revision": "d6eeda51d43f28641a3dd39f4cae3cee671aa364"
+  "source_revision": "44b7ec252f571012e7d65f344d91e76adf0d98c7",
+  "routes": {
+    "brickmap": {
+      "probes": 64,
+      "installations": 16,
+      "laps": 2,
+      "switches": 4,
+      "maximum_crossing_seconds": 0.243349603
+    },
+    "raster": {
+      "probes": 64,
+      "installations": 16,
+      "laps": 2,
+      "switches": 4,
+      "maximum_crossing_seconds": 0.238438607
+    }
+  }
 }

@@ -1,6 +1,6 @@
 # Streamed fixture production qualification: passed
 
-The production streamed qualification passes on the NVIDIA GeForce RTX 4070, driver `0x94d84000`. All CPU and GPU modes were recaptured on 2026-10-01 from the clean committed source revision `d6eeda51d43f28641a3dd39f4cae3cee671aa364`. Since [#134](https://github.com/PetrSeifert/voxel-nexus/issues/134), every streamed residency limit derives from a caller-chosen maximum selection size N. That revision also gives the interactive streamed demo a 7x7 neighbourhood, distance fog and voxel edge shading ([#135](https://github.com/PetrSeifert/voxel-nexus/issues/135)). The qualification still selects its 3x3 neighbourhood and configures N = 9, so the nineteen-copy, eighteen-copy and nine-volume limits are unchanged. Its cameras keep presentation styling off, and the fixed GPU peak grows by the 16 bytes that the compute camera buffer gained. The [production context](../evidence/streamed-fixture/production/residency-context.json) records the revision, toolchain, device, executable hash and source hashes. The [production summary](../evidence/streamed-fixture/production/residency-summary.json) records `PASS` under the complete verifier contract from [#131](https://github.com/PetrSeifert/voxel-nexus/issues/131).
+The production streamed qualification passes on the NVIDIA GeForce RTX 4070, driver `0x94d84000`. All CPU and GPU modes were recaptured on 2026-10-01 from the clean committed source revision `44b7ec252f571012e7d65f344d91e76adf0d98c7`. Since [#134](https://github.com/PetrSeifert/voxel-nexus/issues/134), every streamed residency limit derives from a caller-chosen maximum selection size N, and since [#135](https://github.com/PetrSeifert/voxel-nexus/issues/135) the interactive streamed demo uses a 7x7 neighbourhood, distance fog and voxel edge shading. That revision also enables demote-to-helper-invocation on the Vulkan device and adds a Render Backend ledger of Render Path GPU memory for the demo overlay ([#133](https://github.com/PetrSeifert/voxel-nexus/issues/133)). The ledger reserves its table when the backend is created, so it adds no allocations inside Render Path CPU scopes. The qualification still selects its 3x3 neighbourhood and configures N = 9, so the nineteen-copy, eighteen-copy and nine-volume limits are unchanged, and its cameras keep presentation styling off. Every category peak matches the previous capture. The [production context](../evidence/streamed-fixture/production/residency-context.json) records the revision, toolchain, device, executable hash and source hashes. The [production summary](../evidence/streamed-fixture/production/residency-summary.json) records `PASS` under the complete verifier contract from [#131](https://github.com/PetrSeifert/voxel-nexus/issues/131).
 
 The byte-cap formulas and numeric caps below were ratified on 2026-09-30 in [#118](https://github.com/PetrSeifert/voxel-nexus/issues/118). The constants, formulas, fixture, route, edit script, crossing clock, coverage rule and probe definitions are unchanged. The verifier checks every live and peak sample against those caps and the plain bounds. The first production capture completed [#132](https://github.com/PetrSeifert/voxel-nexus/issues/132) from revision `03cee4fdc0575d5308c603017c75cc1c94a8acc9`. Later source changes invalidated its recorded source hashes, so it was replaced by this recapture.
 
@@ -66,10 +66,10 @@ Each GPU route starts on its named Render Path and completes two laps. Each reco
 
 | Route | Worst crossing, s | Worst switch, s | Raster GPU peak, bytes | Brickmap GPU peak, bytes | Fixed GPU peak, bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Starting on Raster | 0.200114507 | 0.196516 | 207,520 | 1,512,128 | 17,695,344 |
-| Starting on Brickmap | 0.291913705 | 0.182275 | 239,680 | 1,524,416 | 17,695,344 |
+| Starting on Raster | 0.238438607 | 0.2332729 | 207,520 | 1,512,128 | 17,695,344 |
+| Starting on Brickmap | 0.243349603 | 0.2218772 | 239,680 | 1,524,416 | 17,695,344 |
 
-The verifier checks all 976 CPU/GPU residency samples. The following maxima cover every captured mode. Materialization/generation conservatively sums both category peaks in each sample. The original ratified constants and caps remain unchanged.
+The verifier checks all 987 CPU/GPU residency samples. The following maxima cover every captured mode. Materialization/generation conservatively sums both category peaks in each sample. The original ratified constants and caps remain unchanged.
 
 | Category | Production peak, bytes | Cap or plain bound, bytes |
 | --- | ---: | ---: |
@@ -114,7 +114,7 @@ The earlier isolated-allocation calibration remains as archived `calibration.jso
 
 ## Verify and recapture
 
-The recorded capture command was `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -RunGpu -EvidenceDirectory artifacts/streamed-production-135`. Its verified outputs are committed separately in `docs/evidence/streamed-fixture/production`. Recheck those files without dispatching graphics with `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1`.
+The recorded capture command was `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -RunGpu -EvidenceDirectory artifacts/streamed-production-133`. Its verified outputs are committed separately in `docs/evidence/streamed-fixture/production`. Recheck those files without dispatching graphics with `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1`.
 
 The production verifier defaults to `docs/evidence/streamed-fixture/production`; the prototype evidence above remains archived. Run `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -EvidenceDirectory artifacts/streamed-cpu` to generate and verify CPU residency, fixed caps and the edit lifecycle without creating a window or Vulkan instance. The `cpu-baseline` runner mode remains available as a separate fully resident comparison.
 
