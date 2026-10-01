@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 $workspaceDirectory=Split-Path -Parent $PSScriptRoot
 Push-Location $workspaceDirectory
 try {
-    $caps=@{cpu_materialization=10300368L;raster_cpu=58242848L;brickmap_cpu=8914536L;raster_gpu=980640L;brickmap_gpu=4760640L}
+    $caps=[ordered]@{cpu_materialization=10300368L;raster_cpu=58242848L;brickmap_cpu=8914536L;raster_gpu=980640L;brickmap_gpu=4760640L}
     $coefficients=@{S=413448L;P=2858304L;R=1046656L;H=91072L;R_peak=1176992L;B=100856L;B_peak=385368L;G_raster=18160L;G_brickmap=88160L}
     $formulas=@{cpu_materialization=19*$coefficients.S+$coefficients.P-$coefficients.S;raster_cpu=54*$coefficients.R+6*$coefficients.H+$coefficients.R_peak;brickmap_cpu=54*$coefficients.B+9*$coefficients.B_peak;raster_gpu=54*$coefficients.G_raster;brickmap_gpu=54*$coefficients.G_brickmap}
     foreach ($category in $caps.Keys) {if ($formulas[$category] -ne $caps[$category]) {throw 'Ratified formula changed'}}
@@ -34,7 +34,7 @@ try {
         $start=$probes.IndexOf('        for pixel in');$end=$probes.IndexOf('            let observation',$start)
         if ($start -lt 0 -or $end -le $start) {throw 'Missing frozen probes'}
         $probeHash=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($probes.Substring($start,$end-$start))))
-        @{fixture=$recipe;recipe=$recipe;route=$route;crossing_clock=$route;coverage=$route;probes=$probeHash;edit_script=(Hash 'scripts/streamed-residency-contract.json')}
+        [ordered]@{fixture=$recipe;recipe=$recipe;route=$route;crossing_clock=$route;coverage=$route;probes=$probeHash;edit_script=(Hash 'scripts/streamed-residency-contract.json')}
     }
     function Read([string]$name) { @(Get-Content -LiteralPath (Join-Path $EvidenceDirectory "$name.jsonl") | ForEach-Object {$_ | ConvertFrom-Json}) }
     function Records($rows,[string]$kind) { @($rows | Where-Object kind -eq $kind) }
@@ -77,7 +77,7 @@ try {
         $toolchain=@(rustc -Vv);if ($LASTEXITCODE -ne 0) {throw 'Missing toolchain'}
         $cargoVersion=cargo -V;if ($LASTEXITCODE -ne 0) {throw 'Missing Cargo context'}
         $device=$null;if ($kind -eq 'gpu') {$device=One (Read 'residency-raster') 'device'}
-        @{source_revision=$revision;source_dirty=(@(git status --porcelain).Count -ne 0);capture_kind=$kind;toolchain=$toolchain;cargo=$cargoVersion;gpu_device=$device;frozen_sha256=(Frozen);executable_sha256=(Get-FileHash target/release/streamed-residency-qualification.exe).Hash;source_sha256=@($sourcePaths | ForEach-Object {@{path=$_;sha256=(Hash $_)}})} | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $EvidenceDirectory residency-context.json)
+        [ordered]@{source_revision=$revision;source_dirty=(@(git status --porcelain).Count -ne 0);capture_kind=$kind;toolchain=$toolchain;cargo=$cargoVersion;gpu_device=$device;frozen_sha256=(Frozen);executable_sha256=(Get-FileHash target/release/streamed-residency-qualification.exe).Hash;source_sha256=@($sourcePaths | ForEach-Object {[ordered]@{path=$_;sha256=(Hash $_)}})} | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $EvidenceDirectory residency-context.json)
     }
     if ($RunGpu) {
         if ($DryRun) {throw 'Recorded capture cannot use DryRun'}
@@ -142,13 +142,13 @@ try {
     $first=One $lifecycle 'cpu-residency' 'lap-0-settled';$second=One $lifecycle 'cpu-residency' 'lap-1-settled'
     if ($first.copies -ne 9 -or $second.copies -ne 9 -or -not (Same $first.cpu_live[1..6] $second.cpu_live[1..6]) -or -not (Same $first.cpu_allocations[1..6] $second.cpu_allocations[1..6])) {throw 'CPU allocation plateau differs'}
     if ($CpuOnly -or ($RunCpu -and -not $RunGpu)) {
-        @{verdict='CPU PASS';caps=$caps;source_revision=$context.source_revision} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $EvidenceDirectory cpu-summary.json)
+        [ordered]@{verdict='CPU PASS';caps=$caps;source_revision=$context.source_revision} | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $EvidenceDirectory cpu-summary.json)
         Write-Output 'CPU production residency, lifecycle and fixed caps verified.';return
     }
     if ($context.capture_kind -ne 'gpu' -and -not $DryRun) {throw 'Missing recorded GPU provenance'}
     if ($context.source_dirty -and -not $DryRun) {throw 'Dirty GPU capture source'}
     if (-not $context.gpu_device.name) {throw 'Missing device provenance'}
-    $summaries=@{}
+    $summaries=[ordered]@{}
     foreach ($mode in @('matched-8','matched-16','raster','brickmap')) {
         $rows=Read "residency-$mode";$device=One $rows 'device';True $device.validation_enabled 'Vulkan validation disabled'
         if ($device.name -cne $context.gpu_device.name -or $device.driver_version -ne $context.gpu_device.driver_version -or $device.api_version -ne $context.gpu_device.api_version) {throw 'Device provenance differs'}
@@ -211,8 +211,8 @@ try {
             $first=$settled[0].$field;$second=$settled[1].$field;if ($field -like 'cpu_*') {$first=$first[1..6];$second=$second[1..6]}
             if (-not (Same $first $second)) {throw "Lap allocation plateau differs: $field"}
         }
-        $summaries[$mode]=@{laps=2;installations=16;switches=4;probes=64;maximum_crossing_seconds=($installed.crossing_seconds | Measure-Object -Maximum).Maximum}
+        $summaries[$mode]=[ordered]@{laps=2;installations=16;switches=4;probes=64;maximum_crossing_seconds=($installed.crossing_seconds | Measure-Object -Maximum).Maximum}
     }
-    @{verdict=$(if ($DryRun) {'DRY RUN PASS'} else {'PASS'});caps=$caps;source_revision=$context.source_revision;routes=$summaries} | ConvertTo-Json -Depth 7 | Set-Content (Join-Path $EvidenceDirectory residency-summary.json)
+    [ordered]@{verdict=$(if ($DryRun) {'DRY RUN PASS'} else {'PASS'});caps=$caps;source_revision=$context.source_revision;routes=$summaries} | ConvertTo-Json -Depth 7 | Set-Content (Join-Path $EvidenceDirectory residency-summary.json)
     Write-Output 'Production streamed qualification verified within the fixed caps.'
 } finally {Pop-Location}
