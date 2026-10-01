@@ -1,0 +1,27 @@
+{
+  "verdict": "PASS",
+  "caps": {
+    "cpu_materialization": 10300368,
+    "raster_cpu": 58242848,
+    "brickmap_cpu": 8914536,
+    "raster_gpu": 980640,
+    "brickmap_gpu": 4760640
+  },
+  "source_revision": "cf68f361f374863c46438200871062db2c9b167f",
+  "routes": {
+    "raster": {
+      "laps": 2,
+      "installations": 16,
+      "switches": 4,
+      "probes": 64,
+      "maximum_crossing_seconds": 0.310368607
+    },
+    "brickmap": {
+      "laps": 2,
+      "installations": 16,
+      "switches": 4,
+      "probes": 64,
+      "maximum_crossing_seconds": 0.252685701
+    }
+  }
+}
