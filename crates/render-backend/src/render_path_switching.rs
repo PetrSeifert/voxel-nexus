@@ -1539,11 +1539,14 @@ mod tests {
         }
     }
 
+    static PROOF_GPU_MEMORY: crate::GpuMemoryLedger = crate::GpuMemoryLedger::new();
+
     fn proof_device_context(device: &ash::Device) -> RenderPathDeviceContext<'_> {
         RenderPathDeviceContext {
             device,
             memory_properties: vk::PhysicalDeviceMemoryProperties::default(),
             capabilities: crate::RenderPathDeviceCapabilities::default(),
+            gpu_memory: &PROOF_GPU_MEMORY,
         }
     }
 

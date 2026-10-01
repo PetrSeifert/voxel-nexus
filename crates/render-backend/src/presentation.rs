@@ -1,6 +1,6 @@
 use super::configuration::{
-    BackendError, RenderBackendOptions, RenderPathDeviceCapabilities, SurfaceSupport,
-    SwapchainConfiguration, SwapchainConfigurationError, SwapchainConfigurationState,
+    BackendError, RenderBackendOptions, SurfaceSupport, SwapchainConfiguration,
+    SwapchainConfigurationError, SwapchainConfigurationState,
 };
 use super::device::{InspectedDevice, InstanceSurface, query_surface_support};
 use super::frame_observation::{FrameObservation, FrameObservationBuffer};
@@ -62,8 +62,7 @@ pub(super) fn run_frame_boundary_operations<Operations: FrameBoundaryOperations>
 pub(super) struct VulkanFrameBoundaryOperations<'frame> {
     presentation: &'frame mut PresentationResources,
     path: &'frame mut dyn RenderPath,
-    memory_properties: vk::PhysicalDeviceMemoryProperties,
-    capabilities: RenderPathDeviceCapabilities,
+    device: RenderPathDeviceContext<'frame>,
 }
 
 impl FrameBoundaryOperations for VulkanFrameBoundaryOperations<'_> {
@@ -81,14 +80,8 @@ impl FrameBoundaryOperations for VulkanFrameBoundaryOperations<'_> {
 
     fn advance_render_path(&mut self) -> Result<(), BackendError> {
         run_render_path_phase(RenderPathPhase::AdvanceFrameBoundary, || {
-            self.path.advance_frame_boundary(
-                RenderPathDeviceContext {
-                    device: &self.presentation.device,
-                    memory_properties: self.memory_properties,
-                    capabilities: self.capabilities,
-                },
-                self.presentation.render_path_target(),
-            )
+            self.path
+                .advance_frame_boundary(self.device, self.presentation.render_path_target())
         })
     }
 
@@ -274,8 +267,7 @@ impl PresentationResources {
     pub(super) fn draw_frame(
         &mut self,
         path: &mut dyn RenderPath,
-        memory_properties: vk::PhysicalDeviceMemoryProperties,
-        capabilities: RenderPathDeviceCapabilities,
+        device: RenderPathDeviceContext<'_>,
         graphics_queue: vk::Queue,
         presentation_queue: vk::Queue,
         submitted_frame_sequence: u64,
@@ -284,8 +276,7 @@ impl PresentationResources {
         let acquired_image = run_frame_boundary_operations(&mut VulkanFrameBoundaryOperations {
             presentation: self,
             path,
-            memory_properties,
-            capabilities,
+            device,
         })?;
         let Some((image_index, acquire_suboptimal)) = acquired_image else {
             return Ok(PresentationOutcome::Invalidated);

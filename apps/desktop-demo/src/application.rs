@@ -238,6 +238,11 @@ impl DesktopRuntime {
             .materialization_cache_stats()
             .map_err(|error| error.to_string())?;
         self.peak_residency_bytes = self.peak_residency_bytes.max(residency.storage_bytes);
+        let gpu_memory = self
+            .backend
+            .as_ref()
+            .ok_or("the Render Backend is unavailable")?
+            .render_path_gpu_memory();
         if let Some(installed) = self
             .switch_diagnostics()?
             .presenting()
@@ -245,7 +250,7 @@ impl DesktopRuntime {
         {
             for latency in self.streamed_crossing.installed(installed, Instant::now()) {
                 println!(
-                    "Streamed crossing: neighbourhood={neighbourhood} installed_selection={installed} latency_ms={:.1} worst_ms={:.1} residency_copies={} residency_bytes={} peak_residency_bytes={}",
+                    "Streamed crossing: neighbourhood={neighbourhood} installed_selection={installed} latency_ms={:.1} worst_ms={:.1} residency_copies={} residency_bytes={} peak_residency_bytes={} render_path_gpu_bytes={} peak_render_path_gpu_bytes={}",
                     latency.as_secs_f64() * 1000.0,
                     self.streamed_crossing
                         .worst()
@@ -255,6 +260,8 @@ impl DesktopRuntime {
                     residency.copies,
                     residency.storage_bytes,
                     self.peak_residency_bytes,
+                    gpu_memory.live_bytes,
+                    gpu_memory.peak_bytes,
                 );
             }
         }
@@ -264,14 +271,16 @@ impl DesktopRuntime {
                 |latency| format!("{}ms", latency.as_millis()),
             )
         };
-        let mebibytes = |bytes: usize| bytes as f64 / (1024.0 * 1024.0);
+        let mebibytes = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
         Ok(Some(format!(
-            "Neighbourhood={neighbourhood} Crossing={} WorstCrossing={} MaterializedResidency={}copies/{:.1}MiB PeakMaterializedResidency={:.1}MiB",
+            "Neighbourhood={neighbourhood} Crossing={} WorstCrossing={} MaterializedResidency={}copies/{:.1}MiB PeakMaterializedResidency={:.1}MiB RenderPathGpuMemory={:.1}MiB PeakRenderPathGpuMemory={:.1}MiB",
             milliseconds(self.streamed_crossing.last()),
             milliseconds(self.streamed_crossing.worst()),
             residency.copies,
-            mebibytes(residency.storage_bytes),
-            mebibytes(self.peak_residency_bytes),
+            mebibytes(residency.storage_bytes as u64),
+            mebibytes(self.peak_residency_bytes as u64),
+            mebibytes(gpu_memory.live_bytes),
+            mebibytes(gpu_memory.peak_bytes),
         )))
     }
 

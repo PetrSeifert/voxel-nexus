@@ -39,6 +39,7 @@ pub struct RenderBackend {
     path_is_shutdown: bool,
     memory_properties: vk::PhysicalDeviceMemoryProperties,
     render_path_device_capabilities: RenderPathDeviceCapabilities,
+    gpu_memory: GpuMemoryLedger,
     options: RenderBackendOptions,
 }
 
@@ -71,6 +72,11 @@ impl RenderBackend {
             rendering.render_path_target().attachments().count()
         })
     }
+    /// Device memory that Render Paths currently hold, and the most they have held at once.
+    pub fn render_path_gpu_memory(&self) -> RenderPathGpuMemory {
+        self.gpu_memory.usage()
+    }
+
     pub fn initialize(
         application_name: &CStr,
         adapter: &impl PresentationAdapter,
@@ -158,6 +164,7 @@ impl RenderBackend {
             path_is_shutdown: false,
             memory_properties,
             render_path_device_capabilities,
+            gpu_memory: GpuMemoryLedger::new(),
             options,
         };
         backend.configure_path()?;
@@ -275,8 +282,12 @@ impl RenderBackend {
         let submitted_frame_sequence = self.frame_sequences.pending();
         let outcome = match rendering.draw_frame(
             self.path.as_mut(),
-            self.memory_properties,
-            self.render_path_device_capabilities,
+            RenderPathDeviceContext {
+                device: &self.device,
+                memory_properties: self.memory_properties,
+                capabilities: self.render_path_device_capabilities,
+                gpu_memory: &self.gpu_memory,
+            },
             self.graphics_queue,
             self.presentation_queue,
             submitted_frame_sequence,
@@ -328,6 +339,7 @@ impl RenderBackend {
                     device: &self.device,
                     memory_properties: self.memory_properties,
                     capabilities: self.render_path_device_capabilities,
+                    gpu_memory: &self.gpu_memory,
                 },
                 rendering.render_path_target(),
             )
@@ -344,6 +356,7 @@ impl RenderBackend {
                 device: &self.device,
                 memory_properties: self.memory_properties,
                 capabilities: self.render_path_device_capabilities,
+                gpu_memory: &self.gpu_memory,
             })
         })?;
         self.path_is_configured = false;
@@ -359,6 +372,7 @@ impl RenderBackend {
                 device: &self.device,
                 memory_properties: self.memory_properties,
                 capabilities: self.render_path_device_capabilities,
+                gpu_memory: &self.gpu_memory,
             })
         })?;
         self.path_is_shutdown = true;
@@ -420,6 +434,10 @@ pub use render_path::{
     RenderPathEditError, RenderPathFrameContext, RenderPathFrameTarget, RenderPathPhase,
     RenderPathResult, RenderPathTarget, run_render_path_phase,
 };
+
+mod gpu_memory;
+use gpu_memory::GpuMemoryLedger;
+pub use gpu_memory::RenderPathGpuMemory;
 
 mod frame_observation;
 pub use frame_observation::{

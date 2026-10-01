@@ -1,5 +1,6 @@
 use super::camera::CameraState;
 use super::configuration::{BackendError, RenderPathDeviceCapabilities};
+use super::gpu_memory::GpuMemoryLedger;
 use super::render_path_switching::{
     CameraStateRevision, RenderPathSwitchDiagnostics, RenderPathSwitchRequestError,
     SwitchableRenderPath,
@@ -136,6 +137,7 @@ pub struct RenderPathDeviceContext<'device> {
     pub(super) device: &'device ash::Device,
     pub(super) memory_properties: vk::PhysicalDeviceMemoryProperties,
     pub(super) capabilities: RenderPathDeviceCapabilities,
+    pub(super) gpu_memory: &'device GpuMemoryLedger,
 }
 
 impl RenderPathDeviceContext<'_> {
@@ -189,6 +191,8 @@ impl RenderPathDeviceContext<'_> {
         let memory = unsafe { self.device.allocate_memory(allocate_info, None) }?;
         #[cfg(feature = "qualification")]
         super::allocation_qualification::allocated(memory, allocate_info.allocation_size);
+        self.gpu_memory
+            .allocated(memory, allocate_info.allocation_size);
         Ok(memory)
     }
 
@@ -286,6 +290,7 @@ impl RenderPathDeviceContext<'_> {
     pub unsafe fn free_memory(&self, memory: vk::DeviceMemory) {
         #[cfg(feature = "qualification")]
         super::allocation_qualification::freed(memory);
+        self.gpu_memory.freed(memory);
         unsafe { self.device.free_memory(memory, None) };
     }
 

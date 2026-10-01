@@ -32,9 +32,15 @@ impl LogicalDevice {
             })
             .collect();
         let extension_names = [ash::khr::swapchain::NAME.as_ptr()];
+        // SPIR-V 1.6 lowers `discard` to OpDemoteToHelperInvocation. Vulkan 1.3, which device
+        // qualification already requires, guarantees support for the feature, but it must
+        // still be enabled.
+        let mut vulkan_13_features =
+            vk::PhysicalDeviceVulkan13Features::default().shader_demote_to_helper_invocation(true);
         let device_create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)
-            .enabled_extension_names(&extension_names);
+            .enabled_extension_names(&extension_names)
+            .push_next(&mut vulkan_13_features);
         let device = unsafe {
             instance.create_device(selected_device.physical_device, &device_create_info, None)
         }
