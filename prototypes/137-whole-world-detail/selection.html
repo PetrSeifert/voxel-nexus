@@ -1,0 +1,258 @@
+<!doctype html>
+<!-- PROTOTYPE (throwaway, issue #137): Voxel Detail Selection with centre hysteresis. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE · Voxel Detail Selection with centre hysteresis</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; color: #1d232b; background: #f6f7f9; }
+  main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 60px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 22px 0 8px; text-transform: uppercase; letter-spacing: .06em; color: #56606c; }
+  p.lead { margin: 0 0 18px; color: #3d4652; max-width: 900px; }
+  .layout { display: grid; grid-template-columns: 520px 1fr; gap: 28px; align-items: start; }
+  .panel { background: #fff; border: 1px solid #dde1e6; border-radius: 8px; padding: 16px; }
+  canvas { display: block; border-radius: 4px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { padding: 4px 8px; text-align: right; border-bottom: 1px solid #eef0f3; }
+  td:first-child, th:first-child { text-align: left; }
+  button { font: inherit; padding: 6px 12px; margin: 0 6px 6px 0; border: 1px solid #c7ccd3; background: #fff; border-radius: 6px; cursor: pointer; }
+  button:hover { border-color: #2e6bd8; }
+  button.accent { background: #2e6bd8; color: #fff; border-color: #2e6bd8; }
+  button:disabled { opacity: .4; cursor: default; }
+  .tabs button.active { background: #e8f0fd; border-color: #2e6bd8; }
+  .changed { color: #2e6bd8; font-weight: 600; }
+  .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin: 0 4px -1px 12px; }
+  .note { color: #56606c; font-size: 13px; }
+  .bad { color: #c0392b; font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>Voxel Detail Selection: centre hysteresis</h1>
+<p class="lead">
+  <b>Question:</b> if hysteresis moves only the selection's <i>centre volume</i> (a Schmitt trigger per axis, ±16 units),
+  and every detail band is a square of volumes around that centre, do reversals, diagonal moves, edges and teleports ever
+  select more volumes at a level than the fixed maxima? Can the camera churn the selection by wobbling on a boundary?
+  The world is 16×16 volumes of 64 units. Bands: full detail (64³), then 32³, 16³, and 8³ for everything else.
+</p>
+
+<div class="layout">
+<div class="panel">
+  <canvas id="grid" width="488" height="488"></canvas>
+  <div class="legend note" style="margin-top:8px">
+    <span style="background:#1f4fa8"></span>64³ <span style="background:#5b8ee6"></span>32³
+    <span style="background:#a9c5f2"></span>16³ <span style="background:#e7edf6"></span>8³
+    · dot = camera · outlined square = centre volume · dashed = the centre's ±16 deadband
+  </div>
+</div>
+
+<div>
+  <div class="panel">
+    <h2 style="margin-top:0">Current state</h2>
+    <table id="state"></table>
+    <p id="event" class="note"></p>
+  </div>
+
+  <h2>Free play</h2>
+  <div class="panel">
+    <div>
+      <button data-move="-8,0">← 8</button><button data-move="8,0">→ 8</button>
+      <button data-move="0,-8">↑ 8</button><button data-move="0,8">↓ 8</button>
+      <button data-move="8,8">↘ 8</button><button data-move="-8,-8">↖ 8</button>
+      <button data-move="40,0">→ 40</button><button data-move="-40,0">← 40</button>
+    </div>
+    <div>
+      <button id="teleport">Teleport to a random spot</button>
+      <button id="mode">Switch to qualification (3×3)</button>
+      <button id="reset">Start over</button>
+    </div>
+  </div>
+
+  <h2>Guided walkthroughs</h2>
+  <div class="panel">
+    <div class="tabs" id="tabs"></div>
+    <p id="scenario-text"></p>
+    <div id="steps"></div>
+  </div>
+</div>
+</div>
+</main>
+
+<script id="selection-model">
+// Pure model. No DOM. Liftable into the Voxel Frontend selection policy.
+const SelectionModel = (() => {
+  const GRID = 16, EDGE = 64, DEADBAND = 16, TELEPORT = 64;
+  const LEVELS = ["64³", "32³", "16³", "8³"];
+  const CONFIGURATIONS = {
+    demo: { name: "Demo (7×7 full detail)", reaches: [3, 6, 12] },
+    qualification: { name: "Qualification (3×3 full detail)", reaches: [1, 2, 4] },
+  };
+  const clampIndex = (index) => Math.min(Math.max(index, 0), GRID - 1);
+  const nominalIndex = (coordinate) => clampIndex(Math.floor(coordinate / EDGE));
+
+  // Schmitt trigger on one axis: keep the centre while the camera is within DEADBAND of its volume.
+  function axisCentre(previous, coordinate) {
+    const nominal = nominalIndex(coordinate);
+    if (previous === null) return nominal;
+    const low = previous * EDGE - DEADBAND, high = (previous + 1) * EDGE + DEADBAND;
+    return coordinate >= low && coordinate < high ? previous : nominal;
+  }
+
+  function levelOf(volume, centre, reaches) {
+    const distance = Math.max(Math.abs(volume[0] - centre[0]), Math.abs(volume[1] - centre[1]));
+    const level = reaches.findIndex((reach) => distance <= reach);
+    return level === -1 ? reaches.length : level;
+  }
+
+  function selection(centre, reaches) {
+    const levels = [], counts = [0, 0, 0, 0];
+    for (let z = 0; z < GRID; z++) for (let x = 0; x < GRID; x++) {
+      const level = levelOf([x, z], centre, reaches);
+      levels.push(level); counts[level]++;
+    }
+    return { levels, counts };
+  }
+
+  function initial(configuration, camera) {
+    const reaches = CONFIGURATIONS[configuration].reaches;
+    const centre = [nominalIndex(camera[0]), nominalIndex(camera[1])];
+    return { configuration, camera, centre, ...selection(centre, reaches), lastEvent: "initialized at nominal bands" };
+  }
+
+  // Accept a new camera position. Height is ignored: the world is one volume tall.
+  function accept(state, camera) {
+    const reaches = CONFIGURATIONS[state.configuration].reaches;
+    const displacement = Math.hypot(camera[0] - state.camera[0], camera[1] - state.camera[1]);
+    if (displacement > TELEPORT) {
+      return { ...initial(state.configuration, camera), lastEvent: "teleport: reset to nominal bands" };
+    }
+    const centre = [axisCentre(state.centre[0], camera[0]), axisCentre(state.centre[1], camera[1])];
+    const moved = centre[0] !== state.centre[0] || centre[1] !== state.centre[1];
+    return {
+      ...state, camera, centre, ...selection(centre, reaches),
+      lastEvent: moved ? "centre moved: every band shifts together" : "centre held",
+    };
+  }
+
+  // Proven per-level maxima: the largest clipped square annulus over every possible centre.
+  function maxima(configuration) {
+    const reaches = CONFIGURATIONS[configuration].reaches, best = [0, 0, 0, 0];
+    for (let z = 0; z < GRID; z++) for (let x = 0; x < GRID; x++) {
+      selection([x, z], reaches).counts.forEach((count, level) => { best[level] = Math.max(best[level], count); });
+    }
+    return best;
+  }
+
+  return { GRID, EDGE, DEADBAND, LEVELS, CONFIGURATIONS, initial, accept, maxima, nominalIndex };
+})();
+if (typeof module !== "undefined") module.exports = SelectionModel;
+</script>
+
+<script>
+const M = SelectionModel;
+let state, previousCounts, observedMax;
+const START = [480, 480];
+
+function reset(configuration = "demo", camera = START) {
+  state = M.initial(configuration, camera);
+  previousCounts = state.counts.slice();
+  observedMax = state.counts.slice();
+  render();
+}
+function apply(next) {
+  previousCounts = state.counts.slice();
+  state = next;
+  state.counts.forEach((count, level) => { observedMax[level] = Math.max(observedMax[level], count); });
+  render();
+}
+function move(dx, dz) {
+  const clamp = (value) => Math.min(Math.max(value, 0.5), M.GRID * M.EDGE - 0.5);
+  apply(M.accept(state, [clamp(state.camera[0] + dx), clamp(state.camera[1] + dz)]));
+}
+function teleportTo(point) { apply(M.accept(state, point)); }
+
+const COLORS = ["#1f4fa8", "#5b8ee6", "#a9c5f2", "#e7edf6"];
+function render() {
+  const canvas = document.getElementById("grid"), context = canvas.getContext("2d");
+  const cell = canvas.width / M.GRID, scale = cell / M.EDGE;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  state.levels.forEach((level, index) => {
+    const x = index % M.GRID, z = Math.floor(index / M.GRID);
+    context.fillStyle = COLORS[level];
+    context.fillRect(x * cell + 1, z * cell + 1, cell - 2, cell - 2);
+  });
+  const [cx, cz] = state.centre;
+  context.strokeStyle = "#e0a100"; context.lineWidth = 3;
+  context.strokeRect(cx * cell, cz * cell, cell, cell);
+  context.setLineDash([4, 3]); context.lineWidth = 1.5;
+  const band = M.DEADBAND * scale;
+  context.strokeRect(cx * cell - band, cz * cell - band, cell + 2 * band, cell + 2 * band);
+  context.setLineDash([]);
+  context.fillStyle = "#c0392b";
+  context.beginPath(); context.arc(state.camera[0] * scale, state.camera[1] * scale, 5, 0, 7); context.fill();
+
+  const maxima = M.maxima(state.configuration);
+  let rows = `<tr><th>Configuration</th><td colspan="3">${M.CONFIGURATIONS[state.configuration].name}, band reaches ${M.CONFIGURATIONS[state.configuration].reaches.join(" / ")} volumes</td></tr>`;
+  rows += `<tr><th>Camera (x, z)</th><td colspan="3">${state.camera.map((v) => v.toFixed(1)).join(", ")} · in volume ${state.camera.map(M.nominalIndex).join(", ")}</td></tr>`;
+  rows += `<tr><th>Centre volume</th><td colspan="3">${state.centre.join(", ")}</td></tr>`;
+  rows += `<tr><th>Level</th><th>Volumes now</th><th>Most seen</th><th>Proven maximum</th></tr>`;
+  M.LEVELS.forEach((name, level) => {
+    const changed = state.counts[level] !== previousCounts[level] ? "changed" : "";
+    const over = observedMax[level] > maxima[level] ? "bad" : "";
+    rows += `<tr><td>${name}</td><td class="${changed}">${state.counts[level]}</td><td class="${over}">${observedMax[level]}</td><td>${maxima[level]}</td></tr>`;
+  });
+  document.getElementById("state").innerHTML = rows;
+  document.getElementById("event").textContent = "Last step: " + state.lastEvent;
+  document.getElementById("mode").textContent =
+    state.configuration === "demo" ? "Switch to qualification (3×3)" : "Switch to demo (7×7)";
+}
+
+document.querySelectorAll("[data-move]").forEach((button) => button.addEventListener("click", () => {
+  const [dx, dz] = button.dataset.move.split(",").map(Number); move(dx, dz);
+}));
+document.getElementById("teleport").onclick = () =>
+  teleportTo([Math.random() * 1023 + 0.5, Math.random() * 1023 + 0.5]);
+document.getElementById("mode").onclick = () =>
+  reset(state.configuration === "demo" ? "qualification" : "demo", state.camera);
+document.getElementById("reset").onclick = () => reset(state.configuration);
+
+const SCENARIOS = [
+  { name: "Wobble on a boundary", start: [500, 480],
+    text: "The camera starts 12 units before the edge of its volume and wobbles across it. Watch the centre hold: nothing is reselected until the camera is more than 16 units past the edge.",
+    steps: [["→ 8 (crosses the edge)", 8, 0], ["→ 8 (12 past, still held)", 8, 0], ["← 8", -8, 0], ["→ 8", 8, 0], ["→ 8 (20 past: the centre moves)", 8, 0], ["← 8 (back to 12 past, the new centre holds)", -8, 0], ["← 8", -8, 0], ["← 8 (12 before the old edge: still held)", -8, 0], ["← 8 (20 before: moves back)", -8, 0]] },
+  { name: "Diagonal corner", start: [500, 500],
+    text: "The camera moves diagonally through a corner where four volumes meet. Each axis has its own trigger, so the centre steps diagonally once. Counts never exceed one square's worth.",
+    steps: [["↘ 8", 8, 8], ["↘ 8", 8, 8], ["↘ 8 (both axes past +16)", 8, 8], ["↖ 8 (reverse)", -8, -8], ["↖ 8", -8, -8], ["↖ 8", -8, -8], ["↖ 8 (moves back)", -8, -8]] },
+  { name: "World edge", start: [40, 40],
+    text: "Near the world corner the bands are clipped by the 16×16 grid. The level counts shrink; they never grow past the proven maxima.",
+    steps: [["→ 40", 40, 0], ["→ 40", 40, 0], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8], ["↓ 8", 0, 8]] },
+  { name: "Teleport", start: [508, 480],
+    text: "First the camera pushes the centre into its held state, then jumps more than 64 units. A teleport resets to nominal bands, so no stale hysteresis carries over.",
+    steps: [["→ 8 (held past the edge)", 8, 0], ["Teleport to (100, 900)", "teleport", [100, 900]], ["Teleport back to (516, 480)", "teleport", [516, 480]]] },
+];
+let activeScenario = 0, stepIndex = 0;
+function renderScenario() {
+  const scenario = SCENARIOS[activeScenario];
+  document.getElementById("tabs").innerHTML = SCENARIOS.map((s, i) =>
+    `<button class="${i === activeScenario ? "active" : ""}" data-tab="${i}">${s.name}</button>`).join("");
+  document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => startScenario(Number(b.dataset.tab)));
+  document.getElementById("scenario-text").textContent = scenario.text;
+  document.getElementById("steps").innerHTML = scenario.steps.map((step, i) =>
+    `<button class="${i === stepIndex ? "accent" : ""}" ${i === stepIndex ? "" : "disabled"} data-step="${i}">${i + 1}. ${step[0]}</button>`).join("");
+  const current = document.querySelector(`[data-step="${stepIndex}"]`);
+  if (current) current.onclick = () => {
+    const step = scenario.steps[stepIndex];
+    if (step[1] === "teleport") teleportTo(step[2]); else move(step[1], step[2]);
+    stepIndex++; renderScenario();
+  };
+}
+function startScenario(index) {
+  activeScenario = index; stepIndex = 0;
+  reset(state ? state.configuration : "demo", SCENARIOS[index].start);
+  renderScenario();
+}
+startScenario(0);
+</script>
+</body>
+</html>
