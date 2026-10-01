@@ -1539,7 +1539,8 @@ mod tests {
         }
     }
 
-    static PROOF_GPU_MEMORY: crate::GpuMemoryLedger = crate::GpuMemoryLedger::new();
+    static PROOF_GPU_MEMORY: std::sync::LazyLock<crate::GpuMemoryLedger> =
+        std::sync::LazyLock::new(crate::GpuMemoryLedger::new);
 
     fn proof_device_context(device: &ash::Device) -> RenderPathDeviceContext<'_> {
         RenderPathDeviceContext {

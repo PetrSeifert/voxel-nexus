@@ -1,5 +1,5 @@
 use ash::vk;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::{Mutex, PoisonError};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -9,7 +9,7 @@ pub struct RenderPathGpuMemory {
 }
 
 struct Ledger {
-    allocations: BTreeMap<vk::DeviceMemory, u64>,
+    allocations: HashMap<vk::DeviceMemory, u64>,
     usage: RenderPathGpuMemory,
 }
 
@@ -17,10 +17,17 @@ struct Ledger {
 /// a replacement and the Presenting Render Path while both are alive during a switch.
 pub(super) struct GpuMemoryLedger(Mutex<Ledger>);
 
+// Far above the roughly 1,100 live allocations of the 3x3 streamed qualification. Growing
+// past it stays correct, but reallocates inside whichever Render Path allocation scope is
+// active.
+const RESERVED_ALLOCATIONS: usize = 16_384;
+
 impl GpuMemoryLedger {
-    pub(super) const fn new() -> Self {
+    pub(super) fn new() -> Self {
+        // Reserve up front so recording an allocation never touches the heap inside a Render
+        // Path's CPU allocation scope, where qualification requires stable lap plateaus.
         Self(Mutex::new(Ledger {
-            allocations: BTreeMap::new(),
+            allocations: HashMap::with_capacity(RESERVED_ALLOCATIONS),
             usage: RenderPathGpuMemory {
                 live_bytes: 0,
                 peak_bytes: 0,
