@@ -832,7 +832,7 @@
       "path": "scripts/verify-portable-compute-ray-milestone.ps1"
     },
     {
-      "sha256": "5F62E701699DF09133BE58B1B012BE3BDE921531E5DE04E98DF480484C68054B",
+      "sha256": "7BE07C37459928189FAC92A30CBF7FC4324B859786F4723C99F0B758E00802BC",
       "path": "scripts/verify-streamed-residency.ps1"
     },
     {
@@ -848,7 +848,7 @@
       "path": "Cargo.lock"
     }
   ],
-  "source_revision": "44b7ec252f571012e7d65f344d91e76adf0d98c7",
+  "source_revision": "35cde3a41610332cb8893ab6033843fdc3c791a1",
   "source_dirty": false,
   "executable_sha256": "ED01A946D7CA265D804C8DC739EB1755BAB0C2F8B23E049DC0D0664881D6FBFF"
 }
