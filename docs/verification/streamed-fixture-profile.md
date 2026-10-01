@@ -1,8 +1,8 @@
 # Streamed fixture production qualification: passed
 
-The production streamed qualification passes on the NVIDIA GeForce RTX 4070, driver `0x94d84000`. All CPU and GPU modes were captured on 2026-09-30 from the clean committed source revision `03cee4fdc0575d5308c603017c75cc1c94a8acc9`. The [production context](../evidence/streamed-fixture/production/residency-context.json) records the revision, toolchain, device, executable hash and source hashes. The [production summary](../evidence/streamed-fixture/production/residency-summary.json) records `PASS` under the complete verifier contract from [#131](https://github.com/PetrSeifert/voxel-nexus/issues/131).
+The production streamed qualification passes on the NVIDIA GeForce RTX 4070, driver `0x94d84000`. All CPU and GPU modes were recaptured on 2026-10-01 from the clean committed source revision `328c83fbe0ff725cbb4a923340bab174120fa6b8`. That revision derives every streamed residency limit from a caller-chosen maximum selection size N ([#134](https://github.com/PetrSeifert/voxel-nexus/issues/134)); the qualification configures N = 9, so the nineteen-copy, eighteen-copy and nine-volume limits are unchanged. The [production context](../evidence/streamed-fixture/production/residency-context.json) records the revision, toolchain, device, executable hash and source hashes. The [production summary](../evidence/streamed-fixture/production/residency-summary.json) records `PASS` under the complete verifier contract from [#131](https://github.com/PetrSeifert/voxel-nexus/issues/131).
 
-The byte-cap formulas and numeric caps below were ratified on 2026-09-30 in [#118](https://github.com/PetrSeifert/voxel-nexus/issues/118). The constants, formulas, fixture, route, edit script, crossing clock, coverage rule and probe definitions are unchanged. The verifier checks every live and peak sample against those caps and the plain bounds. This capture completes [#132](https://github.com/PetrSeifert/voxel-nexus/issues/132).
+The byte-cap formulas and numeric caps below were ratified on 2026-09-30 in [#118](https://github.com/PetrSeifert/voxel-nexus/issues/118). The constants, formulas, fixture, route, edit script, crossing clock, coverage rule and probe definitions are unchanged. The verifier checks every live and peak sample against those caps and the plain bounds. The first production capture completed [#132](https://github.com/PetrSeifert/voxel-nexus/issues/132) from revision `03cee4fdc0575d5308c603017c75cc1c94a8acc9`. Later source changes invalidated its recorded source hashes, so it was replaced by this recapture.
 
 [#117](https://github.com/PetrSeifert/voxel-nexus/issues/117) first recorded a failure: after the Raster-to-Brickmap handoff, GPU frame progress stopped and the host required a restart. #118 traced that to the Brickmap traversal loop. Near an empty-brick corner, a coarse skip could move an untied axis back into the previous cell, so two cells alternated forever in an unbounded loop. Untied axes can no longer retreat, and a per-volume step cap turns any future violation into a miss; see [the compute DDA regression](compute-dda-regression.md). No budget was enlarged, no proof was reduced and no hysteresis was added. `host-failure.json` preserves the original incident.
 
@@ -66,20 +66,20 @@ Each GPU route starts on its named Render Path and completes two laps. Each reco
 
 | Route | Worst crossing, s | Worst switch, s | Raster GPU peak, bytes | Brickmap GPU peak, bytes | Fixed GPU peak, bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Starting on Raster | 0.351752907 | 0.3460059 | 207,520 | 1,512,128 | 17,695,328 |
-| Starting on Brickmap | 0.217307001 | 0.2095046 | 239,680 | 1,524,416 | 17,695,328 |
+| Starting on Raster | 0.197848007 | 0.1906612 | 207,520 | 1,512,128 | 17,695,328 |
+| Starting on Brickmap | 0.199031501 | 0.1917368 | 239,680 | 1,524,416 | 17,695,328 |
 
-The verifier checks all 927 CPU/GPU residency samples. The following maxima cover every captured mode. Materialization/generation conservatively sums both category peaks in each sample. The original ratified constants and caps remain unchanged.
+The verifier checks all 971 CPU/GPU residency samples. The following maxima cover every captured mode. Materialization/generation conservatively sums both category peaks in each sample. The original ratified constants and caps remain unchanged.
 
 | Category | Production peak, bytes | Cap or plain bound, bytes |
 | --- | ---: | ---: |
 | CPU materialization/generation | 9,967,496 | 10,300,368 |
-| Raster CPU artifacts/construction | 15,059,728 | 58,242,848 |
+| Raster CPU artifacts/construction | 15,059,736 | 58,242,848 |
 | Brickmap CPU artifacts/construction | 4,049,600 | 8,914,536 |
 | Raster GPU data | 239,680 | 980,640 |
 | Brickmap GPU data | 1,524,416 | 4,760,640 |
-| Control heap | 8,666,376 | 16,777,216 |
-| Metadata heap | 183,512 | 262,144 |
+| Control heap | 8,666,360 | 16,777,216 |
+| Metadata heap | 183,592 | 262,144 |
 | Source/edit/history heap | 1,184 | 16,384 |
 | Fixed GPU memory | 17,695,328 | 26,543,904 |
 
@@ -114,7 +114,7 @@ The earlier isolated-allocation calibration remains as archived `calibration.jso
 
 ## Verify and recapture
 
-The recorded capture command was `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -RunGpu -EvidenceDirectory artifacts/streamed-production-132-final`. Its verified outputs are committed separately in `docs/evidence/streamed-fixture/production`. Recheck those files without dispatching graphics with `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1`.
+The recorded capture command was `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -RunGpu -EvidenceDirectory artifacts/streamed-production-134`. Its verified outputs are committed separately in `docs/evidence/streamed-fixture/production`. Recheck those files without dispatching graphics with `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1`.
 
 The production verifier defaults to `docs/evidence/streamed-fixture/production`; the prototype evidence above remains archived. Run `pwsh -NoProfile -File scripts/verify-streamed-residency.ps1 -RunCpu -EvidenceDirectory artifacts/streamed-cpu` to generate and verify CPU residency, fixed caps and the edit lifecycle without creating a window or Vulkan instance. The `cpu-baseline` runner mode remains available as a separate fully resident comparison.
 

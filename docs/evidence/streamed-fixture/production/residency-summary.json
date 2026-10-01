@@ -1,21 +1,4 @@
 {
-  "verdict": "PASS",
-  "routes": {
-    "brickmap": {
-      "maximum_crossing_seconds": 0.217307001,
-      "laps": 2,
-      "switches": 4,
-      "probes": 64,
-      "installations": 16
-    },
-    "raster": {
-      "maximum_crossing_seconds": 0.351752907,
-      "laps": 2,
-      "switches": 4,
-      "probes": 64,
-      "installations": 16
-    }
-  },
   "caps": {
     "raster_gpu": 980640,
     "raster_cpu": 58242848,
@@ -23,5 +6,22 @@
     "brickmap_cpu": 8914536,
     "brickmap_gpu": 4760640
   },
-  "source_revision": "03cee4fdc0575d5308c603017c75cc1c94a8acc9"
+  "routes": {
+    "raster": {
+      "maximum_crossing_seconds": 0.197848007,
+      "laps": 2,
+      "probes": 64,
+      "switches": 4,
+      "installations": 16
+    },
+    "brickmap": {
+      "maximum_crossing_seconds": 0.199031501,
+      "laps": 2,
+      "probes": 64,
+      "switches": 4,
+      "installations": 16
+    }
+  },
+  "source_revision": "328c83fbe0ff725cbb4a923340bab174120fa6b8",
+  "verdict": "PASS"
 }

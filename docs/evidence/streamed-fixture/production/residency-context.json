@@ -1,19 +1,22 @@
 {
-  "gpu_device": {
-    "api_version": 4211017,
-    "driver_version": 2497200128,
-    "kind": "device",
-    "name": "NVIDIA GeForce RTX 4070",
-    "validation_enabled": true
-  },
-  "source_dirty": false,
+  "cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)",
+  "toolchain": [
+    "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
+    "binary: rustc",
+    "commit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8",
+    "commit-date: 2026-07-08",
+    "host: x86_64-pc-windows-msvc",
+    "release: 1.99.0-nightly",
+    "LLVM version: 22.1.8"
+  ],
+  "capture_kind": "gpu",
   "source_sha256": [
     {
-      "sha256": "F097B1E796D81B440158086D9D1B679D5E4C576EA8E8BDD87CEBC056975A73E3",
+      "sha256": "453C536326D6586CB0BF1373E6D6B39D0FB03B1985269960D5BD8853DE91CD67",
       "path": "apps/desktop-demo/Cargo.toml"
     },
     {
-      "sha256": "3DF4FD9287F8DCDE05551625371E6454C5B78A9585A7F358CEE8163731AA26CE",
+      "sha256": "B0665E880CC4934F2AB4725056E09C655FC751B413F7B5433EE964B0248243FD",
       "path": "apps/desktop-demo/src/application.rs"
     },
     {
@@ -29,7 +32,7 @@
       "path": "apps/desktop-demo/src/compute_switch_scenario.rs"
     },
     {
-      "sha256": "AAC0D0631FD3AEE7256CE02E00D1CFDF1092EA05633499FCAFB97CD26690CEFD",
+      "sha256": "46193DAA79E89EFF9001EA4E59A4E9AFD0F6A280719418D6B43BC65B383BB867",
       "path": "apps/desktop-demo/src/configuration.rs"
     },
     {
@@ -41,11 +44,11 @@
       "path": "apps/desktop-demo/src/evidence.rs"
     },
     {
-      "sha256": "5BD15FE5788E60E111EB1828872552CBC75C668BD3AC26A45D8666514A77A93E",
+      "sha256": "A0DFED9F945AC560A897C20B8023E9D7E238FDEE50298F14AE89CB98C517B1C4",
       "path": "apps/desktop-demo/src/free_fly_camera.rs"
     },
     {
-      "sha256": "6B446D79326D7048A3C432D663AE01B73A641D158C7C3D654E7EA25B05F6C6C0",
+      "sha256": "330DAB74FA1E58997D61FC46896E016256201492D9519A42232276B3146F15CF",
       "path": "apps/desktop-demo/src/interactive_scenario.rs"
     },
     {
@@ -109,7 +112,7 @@
       "path": "apps/desktop-demo/src/streamed_qualification_oracle.rs"
     },
     {
-      "sha256": "5D60C901D59D29F0BE9C760B944A97DEF14946961B703E59FE1AF73EBC5A7398",
+      "sha256": "27FE4C4A02627FE011621C11BDD8F86147633071766967A0A8CC014A570BD935",
       "path": "apps/desktop-demo/src/streamed_qualification.rs"
     },
     {
@@ -129,7 +132,7 @@
       "path": "apps/desktop-demo/src/streamed_residency_runner.rs"
     },
     {
-      "sha256": "448AD0609CBAD1378D97DB225EB50B8003BFCD4A483A2AFA98F8F2C07BA243A9",
+      "sha256": "A48DECBE60D1881DB977C9410E7F5B5D11D5FA1545FA5E1B7F463FECB66D2D2B",
       "path": "apps/desktop-demo/src/streamed_world.rs"
     },
     {
@@ -157,7 +160,7 @@
       "path": "apps/desktop-demo/tests/large_sparse_gpu.rs"
     },
     {
-      "sha256": "B9ABE268B8988361085F5C4B803B233ABEBD989FB22F0F3BF6CAEB10FB92896D",
+      "sha256": "1E54343234265C4B54A50156535F30483CD3C4CB9B51C40F871C315AA1F39356",
       "path": "apps/desktop-demo/tests/overlapping_volumes_gpu.rs"
     },
     {
@@ -261,7 +264,7 @@
       "path": "crates/compute-ray-render-path/shaders/composite.vert"
     },
     {
-      "sha256": "7C06387E987EC24FC712D5880779C05F38ED127EAC684F04F4937C4D6717BF85",
+      "sha256": "1F6A4A1C5FB19054E25FBE97DDF34E642AB0E4F37437829493983435BDE5AA6B",
       "path": "crates/compute-ray-render-path/shaders/dense_dda.comp"
     },
     {
@@ -281,15 +284,15 @@
       "path": "crates/compute-ray-render-path/src/capabilities.rs"
     },
     {
-      "sha256": "8317C28F4D74FDDFA63523BC900A1DEE5787E8DDE7A60E8CEF55B4FD58D01586",
+      "sha256": "33A811F603AFC795EF469363A37BFDB9550AFEBB20485CF27EB7BC738633A002",
       "path": "crates/compute-ray-render-path/src/compute_convergence.rs"
     },
     {
-      "sha256": "4F6B3476AFD6A54CECBA793ABD7AEB51E3B360F9AD63026E8D3CE7B6C6C85698",
+      "sha256": "334A224CE676896C1629269EFCC2EDC2B717DDCB98C208EA7B753EFC759A55C2",
       "path": "crates/compute-ray-render-path/src/compute_ray_render_path.rs"
     },
     {
-      "sha256": "A20AB19EE3D08EA369BF895D46F49E197310046FA32164B9AA2C59FBFD183E09",
+      "sha256": "BBF30538DE6FE5718D841CB30FFA28A2CB0C4DA8EE5F9A6DA8B06299A15B68DD",
       "path": "crates/compute-ray-render-path/src/compute_scene.rs"
     },
     {
@@ -313,11 +316,11 @@
       "path": "crates/compute-ray-render-path/src/scene_words.rs"
     },
     {
-      "sha256": "C6B01CE288DD7595DDB525358FB85345E74903635213CF5A8C45108EAAA52F10",
+      "sha256": "4E5DE7311F7965A9528933C5D1D33196934B8EC299345EC5744D74988F2B50F5",
       "path": "crates/compute-ray-render-path/src/semantic_rays.rs"
     },
     {
-      "sha256": "83F402E30DB8EDB749D9E455343999F139026BF3F40A26DE8E8230E7B88687DC",
+      "sha256": "27C5E28490DC53605641EDEB41B4664C6746B3885E372DC607C2065D1BD631CE",
       "path": "crates/compute-ray-render-path/src/streamed_tests.rs"
     },
     {
@@ -349,7 +352,7 @@
       "path": "crates/compute-ray-render-path/tests/storage_tiers.rs"
     },
     {
-      "sha256": "B5E10A928798A9E45B0BBDED32755C831FD2E1E4715AB08AD25669BC931D2076",
+      "sha256": "5DDB087297F43859F08B93D10D5DF75B9D645D62E355185EF6C70455CC086E1D",
       "path": "crates/compute-ray-render-path/tests/streamed_scene.rs"
     },
     {
@@ -441,23 +444,23 @@
       "path": "crates/raster-render-path/examples/brush_edit.rs"
     },
     {
-      "sha256": "2CA389A725AA76E3904E41F42007895955CC282AF76BBEEAF92E8B98D9FD7DEA",
+      "sha256": "F997D2287CE8DFB9BFEA8047A5E770333F158956A436EB5BCC019256EC068D2C",
       "path": "crates/raster-render-path/shaders/raster.frag"
     },
     {
-      "sha256": "FC4C38619755D06B8EE90212760731F5CC00770CA81B34AB83618904F4D74FD9",
+      "sha256": "272307795E04AEA3ADD023DA98ADBCFC03EC1A888DD3279603EE38BC4880AE06",
       "path": "crates/raster-render-path/shaders/raster.vert"
     },
     {
-      "sha256": "3FAB8E94D2E8EE75B615E491667B5265D4D64B86A2F92F46CC7942AC41E1D918",
+      "sha256": "924F4B1E556BED8E87E15BCFE8AED06C37A09C6E35480ED2790DE3189681284C",
       "path": "crates/raster-render-path/src/convergence_tests.rs"
     },
     {
-      "sha256": "B5360E7142BCF979E92F92B941356F257F290DDBC882D242D001AB15225E6695",
+      "sha256": "772AF94A619FD86CB542060D57CD3B460E76C5555FB988E38EFD9B2B4C701D0E",
       "path": "crates/raster-render-path/src/convergence.rs"
     },
     {
-      "sha256": "90FB1CCC9A51F89035FE8F2F16ABEED110918D53184017132EE7684752B2076F",
+      "sha256": "4A121D4F2EDFB57F5D4CBD5A7A1A6F3C4CAABDE44A5EFE847E2D18B5F6FC3730",
       "path": "crates/raster-render-path/src/gpu_resources.rs"
     },
     {
@@ -473,7 +476,7 @@
       "path": "crates/raster-render-path/src/lifecycle.rs"
     },
     {
-      "sha256": "6614EF9C99E0FF0ED30B1C8530BAACB3F27385CB53AD2453827B9BF86CA4EB0B",
+      "sha256": "94B289DCE81EBAFC36FB79E3D0984967DC2C193CB2736DAE14D1DEB3E7575DEE",
       "path": "crates/raster-render-path/src/meshing.rs"
     },
     {
@@ -485,11 +488,11 @@
       "path": "crates/raster-render-path/src/raster_preparation_barrier.rs"
     },
     {
-      "sha256": "2B13777C73C6E070AE7021A6EC5EB142CB1CA3C3AE9703C417FC5DD620AA241D",
+      "sha256": "2C4A5C2C406A5AF630A30454543B22BEEDB23785E2241D6FB1BE3F8001291841",
       "path": "crates/raster-render-path/src/raster_render_path.rs"
     },
     {
-      "sha256": "BAF2927BE920CC865FBA02406AFBBCA3DF60935BC9F746DFCBA659970C535007",
+      "sha256": "AA8D59952B60D3BE58F82547A3DDB0DA319A80BEBD4022AA4B8C0E843283463C",
       "path": "crates/raster-render-path/src/residency.rs"
     },
     {
@@ -537,7 +540,7 @@
       "path": "crates/raster-render-path/tests/regions.rs"
     },
     {
-      "sha256": "C6B8BBC39C1718A446B8D6C2BEBD41B62BD48929913A1561DFCE0134C6B36DBA",
+      "sha256": "A96FAEF5ADF187BF89C0C42B68847C0CE096496B160BE8F0C8CD15F5B59CB640",
       "path": "crates/raster-render-path/tests/residency.rs"
     },
     {
@@ -545,7 +548,7 @@
       "path": "crates/raster-render-path/tests/semantic_qualification.rs"
     },
     {
-      "sha256": "5CA602DF59EFC55BA9B2860D122932D48B396E597F41D05C71B379CE486D1ED1",
+      "sha256": "07AF6FDBC4AB8D44890A6DB52369ED53F6459DCD2B6E7A8AF145C4906F636D3D",
       "path": "crates/raster-render-path/tests/switching_adapter.rs"
     },
     {
@@ -557,7 +560,7 @@
       "path": "crates/render-backend/src/allocation_qualification.rs"
     },
     {
-      "sha256": "6CDB2B71520D64B63D0FA75EC2E61A6C5A4CD6CE76EF04F33B2C6A6AD1A4EB5B",
+      "sha256": "9745C4A05B5E6B7068F629798621E3DD22B3EF4D26C7648D2CC28A3020CC6B58",
       "path": "crates/render-backend/src/camera.rs"
     },
     {
@@ -597,7 +600,7 @@
       "path": "crates/render-backend/src/tests.rs"
     },
     {
-      "sha256": "9CE5B714ECA8E264E3768B892B4162755AC21F1D8B6CD16F55ED24AA105D1516",
+      "sha256": "8A7A36C69E264F1BC1331A33C245676C84112096F501C4B415AA1B3D742629E4",
       "path": "crates/render-backend/tests/camera.rs"
     },
     {
@@ -669,7 +672,7 @@
       "path": "crates/voxel-frontend/src/qualification_views.rs"
     },
     {
-      "sha256": "647F312C2034DF4A0810F8783C45E66840EB21AD89AF36A07738081B05F298FB",
+      "sha256": "AA1104809690204D61ABE098D0184F2253C3AD3053E66699A28F8432778073AA",
       "path": "crates/voxel-frontend/src/residency.rs"
     },
     {
@@ -697,11 +700,11 @@
       "path": "crates/voxel-frontend/src/streamed_edits.rs"
     },
     {
-      "sha256": "F71774CB2AEBEBD17E9522DE2A8E595255B4781D696F11E3C3C703B37A32DDF4",
+      "sha256": "0865317AED84309DB89F3CBB23A27E563E82CBBB1DAD522B3B48564DFE4A2FA5",
       "path": "crates/voxel-frontend/src/streamed_publication.rs"
     },
     {
-      "sha256": "CFB41187C5E27AC6071FD9C6C5E0ABCA4B4F2A5607B4FDBC15C5CCF813B8D863",
+      "sha256": "AC70B0B8B1C9E951B6D50CD63BDB9A4BB8B4FF88704415E89D0FDEB724C999C5",
       "path": "crates/voxel-frontend/src/voxel_frontend.rs"
     },
     {
@@ -721,7 +724,7 @@
       "path": "crates/voxel-frontend/tests/publication.rs"
     },
     {
-      "sha256": "B167133E84B5ECD82CA6C910DF0906E8A96EBE0B32FB08536511F9E416943E81",
+      "sha256": "E8CC1DEF7F113137E86CB06FB1CB13A7968E6F2693CF99733F96DC414F2BBB03",
       "path": "crates/voxel-frontend/tests/residency.rs"
     },
     {
@@ -733,11 +736,11 @@
       "path": "crates/voxel-frontend/tests/storage_tiers.rs"
     },
     {
-      "sha256": "AE84E886B2DE51A0F743B0D0F99649CDCCB7B71A99BF2B6D3C04EDBF662AD7D9",
+      "sha256": "499F417CA38810E32641A05CE8C95E9AA9E7A01D130D3E4234EEC16DF78C4C23",
       "path": "crates/voxel-frontend/tests/streamed_edits.rs"
     },
     {
-      "sha256": "B796ABDF9273DC6C777D2350A45B65A0765E04C41D2355F8C199596470A0CEEB",
+      "sha256": "4F314E30090FF713E9E385F87A9C3CE886D5A84023020D4482E5A6302255F164",
       "path": "crates/voxel-frontend/tests/streamed_publication.rs"
     },
     {
@@ -817,26 +820,23 @@
       "path": "Cargo.lock"
     }
   ],
-  "toolchain": [
-    "rustc 1.99.0-nightly (14cae6813 2026-07-08)",
-    "binary: rustc",
-    "commit-hash: 14cae681329a63c622a6e1fbe1d30f9374bc51d8",
-    "commit-date: 2026-07-08",
-    "host: x86_64-pc-windows-msvc",
-    "release: 1.99.0-nightly",
-    "LLVM version: 22.1.8"
-  ],
+  "source_revision": "328c83fbe0ff725cbb4a923340bab174120fa6b8",
   "frozen_sha256": {
-    "probes": "1D7859D8991737C70EC81358B487C63DC511880898AC5E2E647E2FD5F4EE5F25",
-    "fixture": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
-    "recipe": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
     "route": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
-    "edit_script": "0B71FE36C681FEE783346E8A0ECF719C0C8EFC638664F53189FF28502FFD5EC7",
+    "coverage": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
+    "recipe": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5",
     "crossing_clock": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882",
-    "coverage": "BBD1E108A5A06C51A932D0BFA86091E9CD0F5ADFBB24719860C0931447567882"
+    "probes": "1D7859D8991737C70EC81358B487C63DC511880898AC5E2E647E2FD5F4EE5F25",
+    "edit_script": "0B71FE36C681FEE783346E8A0ECF719C0C8EFC638664F53189FF28502FFD5EC7",
+    "fixture": "CA0D11E9101012DBD5BBC984DF52303F86988003BF5CA21DA1E2D561214F08F5"
   },
-  "source_revision": "03cee4fdc0575d5308c603017c75cc1c94a8acc9",
-  "capture_kind": "gpu",
-  "executable_sha256": "28C2A8C0E8A36133BEA687B47515269EEC7A14E8B55A2A90DFBD1807490A5A55",
-  "cargo": "cargo 1.99.0-nightly (59800466c 2026-07-07)"
+  "source_dirty": false,
+  "executable_sha256": "C71F509952CFF4E0BFAF02CCAD44533F47D2FB8AACFA69C6AF0EA31749D3F7BD",
+  "gpu_device": {
+    "api_version": 4211017,
+    "driver_version": 2497200128,
+    "kind": "device",
+    "name": "NVIDIA GeForce RTX 4070",
+    "validation_enabled": true
+  }
 }
