@@ -204,7 +204,12 @@ fn build_scene(
         }
     }
     SparseVoxelScene::new(
-        VoxelSceneId::new(format!("whole-world-detail-{revision}")),
+        // PROTOTYPE (issue #140): a switch in place requires one scene identity.
+        VoxelSceneId::new(if std::env::var_os("PROBE_SWITCH_IN_PLACE").is_some() {
+            "whole-world-detail".to_owned()
+        } else {
+            format!("whole-world-detail-{revision}")
+        }),
         VoxelSceneRevision::new(1),
         materials(),
         volumes,
@@ -215,6 +220,7 @@ fn build_path(
     kind: PathKind,
     scene: SparseVoxelScene,
     camera: CameraState,
+    camera_revision: u64,
 ) -> RunResult<(
     Box<dyn SwitchableRenderPath>,
     Option<raster_render_path::RasterArtifactInstaller>,
@@ -226,7 +232,7 @@ fn build_path(
             Box::new(ComputeRayRenderPathAdapter::new_with_representation(
                 view,
                 camera,
-                CameraStateRevision::new(1),
+                CameraStateRevision::new(camera_revision),
                 ComputeRepresentation::Brickmap {
                     budget_bytes: 256 << 20,
                 },
@@ -237,7 +243,7 @@ fn build_path(
             let (path, installer, _) =
                 RasterRenderPathAdapter::awaiting_artifact_with_camera_control(
                     camera,
-                    CameraStateRevision::new(1),
+                    CameraStateRevision::new(camera_revision),
                     view.scene_id().clone(),
                     view.revision(),
                 );
@@ -248,8 +254,17 @@ fn build_path(
     })
 }
 
+// PROTOTYPE (issue #140): burst attribution probes.
+fn probe(name: &str) -> bool {
+    std::env::var_os(name).is_some()
+}
+
 fn run(window: &Window, output: &mut File, kind: PathKind, coverage: Coverage) -> RunResult {
     let levels = levels()?;
+    let hold_centre = probe("PROBE_HOLD_CENTRE");
+    let switch_in_place = probe("PROBE_SWITCH_IN_PLACE");
+    let refresh_in_place = probe("PROBE_REFRESH_IN_PLACE");
+    let mut long_lived: Option<(RenderBackend, Instant)> = None;
     let (start, start_direction) = route_position(0.0).ok_or("empty route")?;
     let mut centre = [nominal(start[0]), nominal(start[1])];
     let mut previous_position = start;
@@ -264,33 +279,51 @@ fn run(window: &Window, output: &mut File, kind: PathKind, coverage: Coverage) -
             kind,
             build_scene(&levels, centre, coverage, segment),
             current_camera,
+            camera_revision,
         )?;
         let preparation_ms = rebuild_started.elapsed().as_secs_f64() * 1000.0;
-        let mut backend = RenderBackend::initialize_with_options(
-            c"Whole-world detail prototype",
-            &windows_adapter::WindowsPresentationAdapter::new(window),
-            vk::Extent2D {
-                width: 1920,
-                height: 1080,
-            },
-            RenderPathSwitchOwner::new(path),
-            RenderBackendOptions {
-                validation_enabled: false,
-                presentation_throttling_enabled: false,
-                gpu_timestamps_enabled: true,
-            },
-        )?;
+        let reused = switch_in_place && long_lived.is_some();
+        let (mut backend, initialized_at) =
+            if let Some((mut backend, initialized_at)) = long_lived.take() {
+                backend
+                    .request_render_path_switch(path)
+                    .map_err(|error| format!("{error:?}"))?;
+                (backend, initialized_at)
+            } else {
+                let backend = RenderBackend::initialize_with_options(
+                    c"Whole-world detail prototype",
+                    &windows_adapter::WindowsPresentationAdapter::new(window),
+                    vk::Extent2D {
+                        width: 1920,
+                        height: 1080,
+                    },
+                    RenderPathSwitchOwner::new(path),
+                    RenderBackendOptions {
+                        validation_enabled: false,
+                        presentation_throttling_enabled: probe("PROBE_FIFO"),
+                        gpu_timestamps_enabled: true,
+                    },
+                )?;
+                (backend, Instant::now())
+            };
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut warm = 0;
         while warm < WARMUP_FRAMES {
             backend.draw_frame()?;
-            let installed = installer.as_ref().is_none_or(|installer| {
-                installer
-                    .installed_source_revision()
-                    .ok()
-                    .flatten()
-                    .is_some()
-            });
+            let switched = !reused
+                || backend
+                    .render_path_switch_diagnostics()
+                    .is_none_or(|diagnostics| {
+                        diagnostics.replacement().is_none() && diagnostics.retiring().is_none()
+                    });
+            let installed = switched
+                && installer.as_ref().is_none_or(|installer| {
+                    installer
+                        .installed_source_revision()
+                        .ok()
+                        .flatten()
+                        .is_some()
+                });
             if installed {
                 warm += 1;
             }
@@ -309,10 +342,11 @@ fn run(window: &Window, output: &mut File, kind: PathKind, coverage: Coverage) -
             output,
             "{}",
             json!({"kind": "segment", "segment": segment, "centre": centre,
-                "route_seconds": route_seconds, "preparation_ms": preparation_ms,
+                "route_seconds": route_seconds, "preparation_ms": preparation_ms, "reused": reused,
+                "since_init_s": initialized_at.elapsed().as_secs_f64(),
                 "device": backend.runtime_context().device_name})
         )?;
-        let mut pending = std::collections::VecDeque::<(u64, f64, f32)>::new();
+        let mut pending = std::collections::VecDeque::<(u64, f64, f32, f64)>::new();
         let segment_clock = Instant::now();
         let segment_start_seconds = route_seconds;
         let finished = loop {
@@ -332,7 +366,17 @@ fn run(window: &Window, output: &mut File, kind: PathKind, coverage: Coverage) -
                 ]
             };
             previous_position = position;
-            if next_centre != centre {
+            if next_centre != centre && refresh_in_place {
+                centre = next_centre;
+                backend.refresh_render_path()?;
+                writeln!(
+                    output,
+                    "{}",
+                    json!({"kind": "refresh", "since_init_s": initialized_at.elapsed().as_secs_f64()})
+                )?;
+                continue;
+            }
+            if next_centre != centre && !hold_centre {
                 centre = next_centre;
                 position_direction = (position, direction);
                 break false;
@@ -347,10 +391,15 @@ fn run(window: &Window, output: &mut File, kind: PathKind, coverage: Coverage) -
             backend.draw_frame()?;
             let cpu_ms = frame_started.elapsed().as_secs_f64() * 1000.0;
             if let Some(sequence) = backend.last_submitted_frame_sequence() {
-                pending.push_back((sequence, cpu_ms, route_seconds));
+                pending.push_back((
+                    sequence,
+                    cpu_ms,
+                    route_seconds,
+                    initialized_at.elapsed().as_secs_f64(),
+                ));
             }
             if let Some(observation) = backend.take_frame_observation() {
-                while let Some(&(sequence, cpu_ms, seconds)) = pending.front() {
+                while let Some(&(sequence, cpu_ms, seconds, since_init)) = pending.front() {
                     if sequence > observation.sequence {
                         break;
                     }
@@ -360,15 +409,20 @@ fn run(window: &Window, output: &mut File, kind: PathKind, coverage: Coverage) -
                             output,
                             "{}",
                             json!({"kind": "frame", "segment": segment, "route_seconds": seconds,
-                                "cpu_frame_ms": cpu_ms,
+                                "cpu_frame_ms": cpu_ms, "since_init_s": since_init,
+                                "unix_s": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0),
                                 "gpu_frame_ms": observation.gpu_frame_milliseconds})
                         )?;
                     }
                 }
             }
         };
-        backend.shutdown()?;
-        drop(backend);
+        if switch_in_place && !finished {
+            long_lived = Some((backend, initialized_at));
+        } else {
+            backend.shutdown()?;
+            drop(backend);
+        }
         // PROTOTYPE (issue #138): tests whether the post-rebuild burst is deferred teardown of
         // the previous backend overlapping the next segment's measurement.
         if let Some(settle) = std::env::var("PROTOTYPE_SETTLE_MS")
