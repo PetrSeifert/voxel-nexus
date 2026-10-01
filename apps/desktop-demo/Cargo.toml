@@ -50,3 +50,15 @@ required-features = ["qualification"]
 name = "streamed-fixture-profile"
 path = "src/streamed_fixture_profile.rs"
 required-features = ["qualification"]
+
+# PROTOTYPE (issue #137): throwaway detail-level calibration.
+[[bin]]
+name = "whole-world-detail-profile"
+path = "src/whole_world_detail_profile.rs"
+required-features = ["qualification"]
+
+# PROTOTYPE (issue #137): throwaway whole-world frame-time profile.
+[[bin]]
+name = "whole-world-detail-frames"
+path = "src/whole_world_detail_frames.rs"
+required-features = ["qualification"]
