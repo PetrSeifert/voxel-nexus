@@ -43,6 +43,11 @@ fn compile_shader(
         shaderc::EnvVersion::Vulkan1_3 as u32,
     );
     options.set_target_spirv(shaderc::SpirvVersion::V1_6);
+    // PROTOTYPE (issue #138): selects a traversal variant in dense_dda.comp.
+    println!("cargo:rerun-if-env-changed=PROTOTYPE_TRAVERSAL");
+    if let Ok(variant) = env::var("PROTOTYPE_TRAVERSAL") {
+        options.add_macro_definition(&variant, None);
+    }
     let artifact =
         compiler.compile_into_spirv(&source, shader_kind, source_path, "main", Some(&options))?;
     fs::write(output_path, artifact.as_binary_u8())?;

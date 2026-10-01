@@ -369,8 +369,19 @@ fn run(window: &Window, output: &mut File, kind: PathKind, coverage: Coverage) -
         };
         backend.shutdown()?;
         drop(backend);
+        // PROTOTYPE (issue #138): tests whether the post-rebuild burst is deferred teardown of
+        // the previous backend overlapping the next segment's measurement.
+        if let Some(settle) = std::env::var("PROTOTYPE_SETTLE_MS")
+            .ok()
+            .and_then(|settle| settle.parse::<u64>().ok())
+        {
+            std::thread::sleep(Duration::from_millis(settle));
+        }
         segment += 1;
-        if finished {
+        let segment_limit = std::env::var("PROTOTYPE_SEGMENTS")
+            .ok()
+            .and_then(|limit| limit.parse::<u64>().ok());
+        if finished || segment_limit.is_some_and(|limit| segment >= limit) {
             return Ok(());
         }
     }
