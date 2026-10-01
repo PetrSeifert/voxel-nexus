@@ -1,27 +1,27 @@
 {
+  "source_revision": "d6eeda51d43f28641a3dd39f4cae3cee671aa364",
   "caps": {
-    "raster_gpu": 980640,
+    "brickmap_cpu": 8914536,
     "raster_cpu": 58242848,
     "cpu_materialization": 10300368,
-    "brickmap_cpu": 8914536,
-    "brickmap_gpu": 4760640
+    "brickmap_gpu": 4760640,
+    "raster_gpu": 980640
   },
   "routes": {
-    "raster": {
-      "maximum_crossing_seconds": 0.197848007,
-      "laps": 2,
-      "probes": 64,
-      "switches": 4,
-      "installations": 16
-    },
     "brickmap": {
-      "maximum_crossing_seconds": 0.199031501,
+      "installations": 16,
+      "switches": 4,
       "laps": 2,
       "probes": 64,
+      "maximum_crossing_seconds": 0.291913705
+    },
+    "raster": {
+      "installations": 16,
       "switches": 4,
-      "installations": 16
+      "laps": 2,
+      "probes": 64,
+      "maximum_crossing_seconds": 0.200114507
     }
   },
-  "source_revision": "328c83fbe0ff725cbb4a923340bab174120fa6b8",
   "verdict": "PASS"
 }
