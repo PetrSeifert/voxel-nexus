@@ -62,3 +62,15 @@ required-features = ["qualification"]
 name = "whole-world-detail-frames"
 path = "src/whole_world_detail_frames.rs"
 required-features = ["qualification"]
+
+# PROTOTYPE (issue #139): throwaway whole-world laps with one long-lived Render Backend.
+[[bin]]
+name = "whole-world-laps"
+path = "src/whole_world_laps.rs"
+required-features = ["qualification"]
+
+# PROTOTYPE (issue #139): throwaway configured ownership and whole-world overhead.
+[[bin]]
+name = "whole-world-ownership"
+path = "src/whole_world_ownership.rs"
+required-features = ["qualification"]

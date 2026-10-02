@@ -924,6 +924,78 @@ fn populate_volume_words(
     Ok(())
 }
 
+// PROTOTYPE (issue #139): when every volume occupies one cell of a single-layer regular grid,
+// a grid block sits between the volume headers and the materials: origin xyz, cell size, cell
+// counts x and z, then one volume index per cell (x-major rows along z, u32::MAX for an empty
+// cell). The shader detects the block from the gap before the material offset; any other scene
+// gets no block and keeps the linear scan.
+const EMPTY_GRID_CELL: u32 = u32::MAX;
+
+fn grid_table_words(headers: &[ComputeVolumeHeader]) -> Vec<u32> {
+    let Some(first) = headers.first() else {
+        return Vec::new();
+    };
+    let world_edge = |header: &ComputeVolumeHeader| {
+        let [width, height, depth] = header.extent.dimensions();
+        [
+            width as f32 * header.voxel_size,
+            height as f32 * header.voxel_size,
+            depth as f32 * header.voxel_size,
+        ]
+    };
+    let [cell, layer_height, cell_depth] = world_edge(first);
+    if cell <= 0.0 || cell != cell_depth {
+        return Vec::new();
+    }
+    let origin_y = first.scene_origin[1];
+    let origin_x = headers
+        .iter()
+        .map(|header| header.scene_origin[0])
+        .fold(f32::INFINITY, f32::min);
+    let origin_z = headers
+        .iter()
+        .map(|header| header.scene_origin[2])
+        .fold(f32::INFINITY, f32::min);
+    let mut cells = Vec::with_capacity(headers.len());
+    for header in headers {
+        if world_edge(header) != [cell, layer_height, cell] || header.scene_origin[1] != origin_y {
+            return Vec::new();
+        }
+        let index_x = (header.scene_origin[0] - origin_x) / cell;
+        let index_z = (header.scene_origin[2] - origin_z) / cell;
+        if index_x.fract() != 0.0 || index_z.fract() != 0.0 {
+            return Vec::new();
+        }
+        cells.push((index_x as usize, index_z as usize));
+    }
+    let count_x = cells.iter().map(|(x, _)| x + 1).max().unwrap_or(0);
+    let count_z = cells.iter().map(|(_, z)| z + 1).max().unwrap_or(0);
+    // A sparse placement would make the table larger than the scan it replaces.
+    if count_x * count_z > headers.len().saturating_mul(4) {
+        return Vec::new();
+    }
+    let mut table = vec![EMPTY_GRID_CELL; count_x * count_z];
+    for (volume_index, (x, z)) in cells.into_iter().enumerate() {
+        let slot = table
+            .get_mut(z * count_x + x)
+            .expect("cell indices lie inside the counted grid");
+        if *slot != EMPTY_GRID_CELL {
+            return Vec::new();
+        }
+        *slot = volume_index as u32;
+    }
+    let mut words = vec![
+        origin_x.to_bits(),
+        origin_y.to_bits(),
+        origin_z.to_bits(),
+        cell.to_bits(),
+        count_x as u32,
+        count_z as u32,
+    ];
+    words.extend(table);
+    words
+}
+
 fn pack_storage_words(
     headers: &[ComputeVolumeHeader],
     material_words: &[u32],
@@ -932,6 +1004,10 @@ fn pack_storage_words(
     let header_words = headers
         .len()
         .checked_mul(VOLUME_HEADER_WORD_COUNT)
+        .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
+    let grid_words = grid_table_words(headers);
+    let header_words = header_words
+        .checked_add(grid_words.len())
         .ok_or(ComputeSceneBuildError::ArithmeticOverflow)?;
     let total_words = SCENE_PREFIX_WORD_COUNT
         .checked_add(header_words)
@@ -951,6 +1027,7 @@ fn pack_storage_words(
     for header in headers {
         words.extend(header.storage_words());
     }
+    words.extend(grid_words);
     words.extend(material_words);
     words.extend(voxel_words);
     Ok(words)

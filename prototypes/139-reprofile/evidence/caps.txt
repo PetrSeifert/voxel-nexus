@@ -1,0 +1,28 @@
+per-level worst: R [1042136, 266176, 81088, 27104] R_peak 1176568 B [102192, 44912, 20720, 12128] B_peak [385048, 127832, 60408, 51816] G [18160, 9936, 7312, 4288] BG [88176, 33136, 10384, 2176] S {32: 133016, 16: 18160, 8: 3824}
+overheads: H_R 303840 H_G 0 H_B 1048 H_BG 1048
+== demo M=[49, 120, 156, 87]
+   summaries     cap   38,568,704  one-assembly observed   16,053,720
+   raster_cpu    cap  591,080,968  one-assembly observed   89,619,320
+   brickmap_cpu  cap  136,250,944  one-assembly observed   33,233,720
+   raster_gpu    cap   21,575,328  one-assembly observed    2,526,320
+   brickmap_gpu  cap   60,643,248  one-assembly observed    8,623,920
+== qualification M=[9, 16, 56, 231]
+   summaries     cap    7,269,376  one-assembly observed    3,514,864
+   raster_cpu    cap  149,639,560  one-assembly observed   21,717,600
+   brickmap_cpu  cap   54,470,624  one-assembly observed    7,793,984
+   raster_gpu    cap   10,334,496  one-assembly observed    1,424,288
+   brickmap_gpu  cap   14,453,808  one-assembly observed    1,989,136
+== demo worst achievable selection
+   summaries     cap   36,062,624
+   raster_cpu    cap  543,362,248
+   brickmap_cpu  cap  112,665,904
+   raster_gpu    cap   16,309,824
+   brickmap_gpu  cap   55,208,400
+   argmax raster selection [49, 120, 87, 0]
+== qualification worst achievable selection
+   summaries     cap    7,269,376
+   raster_cpu    cap  140,532,616
+   brickmap_cpu  cap   47,493,920
+   raster_gpu    cap    8,893,728
+   brickmap_gpu  cap   13,722,672
+   argmax raster selection [9, 16, 56, 175]

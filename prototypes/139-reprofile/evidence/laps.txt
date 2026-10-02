@@ -1,0 +1,16 @@
+== lap-brickmap-1.jsonl start=Brickmap devices={'NVIDIA GeForce RTX 3060 Laptop GPU'}
+   segments=47 stalls=0 switches=2 installs=47 install p50/max s=0.014/1.355 preparation max ms=1413
+   RenderPathStrategy("voxel-nexus.compute-ray"): frames=24988 p99 whole=6.14 crossing=6.17 (15212) switch=7.12 (364) max=416.11 gpu p50=5.19
+   RenderPathStrategy("voxel-nexus.raster"): frames=49818 p99 whole=1.75 crossing=4.13 (15653) switch=1.21 (2158) max=804.02 gpu p50=0.47
+== lap-brickmap-2.jsonl start=Brickmap devices={'NVIDIA GeForce RTX 3060 Laptop GPU'}
+   segments=47 stalls=0 switches=2 installs=47 install p50/max s=0.014/1.266 preparation max ms=1420
+   RenderPathStrategy("voxel-nexus.compute-ray"): frames=21422 p99 whole=7.20 crossing=7.23 (13137) switch=8.70 (303) max=423.72 gpu p50=6.10
+   RenderPathStrategy("voxel-nexus.raster"): frames=49679 p99 whole=1.81 crossing=4.14 (15834) switch=1.20 (2212) max=659.15 gpu p50=0.47
+== lap-raster-1.jsonl start=Raster devices={'NVIDIA GeForce RTX 3060 Laptop GPU'}
+   segments=47 stalls=0 switches=2 installs=47 install p50/max s=0.869/1.512 preparation max ms=1093
+   RenderPathStrategy("voxel-nexus.compute-ray"): frames=10166 p99 whole=7.06 crossing=7.01 (4715) switch=7.80 (332) max=409.67 gpu p50=6.02
+   RenderPathStrategy("voxel-nexus.raster"): frames=102994 p99 whole=1.67 crossing=1.84 (49757) switch=1.15 (2061) max=965.81 gpu p50=0.47
+== lap-raster-2.jsonl start=Raster devices={'NVIDIA GeForce RTX 3060 Laptop GPU'}
+   segments=47 stalls=0 switches=2 installs=47 install p50/max s=0.902/1.035 preparation max ms=1135
+   RenderPathStrategy("voxel-nexus.compute-ray"): frames=9685 p99 whole=7.48 crossing=7.54 (4488) switch=8.49 (305) max=444.88 gpu p50=6.30
+   RenderPathStrategy("voxel-nexus.raster"): frames=99973 p99 whole=1.70 crossing=1.84 (48324) switch=1.15 (2056) max=588.98 gpu p50=0.48

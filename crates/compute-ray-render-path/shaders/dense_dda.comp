@@ -257,17 +257,11 @@ Hit trace_scene_linear(
     float ray_maximum
 );
 
-// PROTOTYPE (issue #138): front-to-back 2D DDA over the fixture's 16x16 volume grid with early
-// exit. Hardcodes the fixture layout (64-unit cells, one layer, identity order x-major) and falls
-// back to the linear scan whenever the scene does not match it.
-const int PROTOTYPE_GRID = 16;
-const float PROTOTYPE_CELL = 64.0;
-
-bool prototype_grid_matches(uint volume_index, int cell_x, int cell_z) {
-    Volume volume = volume_at(volume_index);
-    return volume.origin == vec3(float(cell_x) * PROTOTYPE_CELL, 0.0, float(cell_z) * PROTOTYPE_CELL)
-        && abs(float(volume.extent.x) * volume.voxel_size - PROTOTYPE_CELL) < 0.001;
-}
+// PROTOTYPE (issue #139): front-to-back 2D DDA over the grid block that the scene words carry
+// for single-layer regular grids (see grid_table_words), with early exit. Scenes without the
+// block keep the linear scan.
+const uint GRID_BLOCK_HEADER_WORD_COUNT = 6;
+const uint EMPTY_GRID_CELL = 0xffffffffu;
 
 Hit trace_scene(
     vec3 ray_origin,
@@ -279,10 +273,23 @@ Hit trace_scene(
 #ifdef LINEAR
     return trace_scene_linear(ray_origin, ray_direction, ray_minimum, ray_maximum);
 #endif
-    if (scene.words[0] != uint(PROTOTYPE_GRID * PROTOTYPE_GRID)) {
+    uint grid_offset = SCENE_PREFIX_WORD_COUNT + scene.words[0] * VOLUME_HEADER_WORD_COUNT;
+    if (scene.words[2] <= grid_offset) {
         return trace_scene_linear(ray_origin, ray_direction, ray_minimum, ray_maximum);
     }
-    Volume world = Volume(vec3(0.0), PROTOTYPE_CELL, uvec3(PROTOTYPE_GRID, 1, PROTOTYPE_GRID), 0);
+    vec3 grid_origin = vec3(
+        uintBitsToFloat(scene.words[grid_offset]),
+        uintBitsToFloat(scene.words[grid_offset + 1]),
+        uintBitsToFloat(scene.words[grid_offset + 2])
+    );
+    float cell_size = uintBitsToFloat(scene.words[grid_offset + 3]);
+    ivec2 counts = ivec2(scene.words[grid_offset + 4], scene.words[grid_offset + 5]);
+    uint table = grid_offset + GRID_BLOCK_HEADER_WORD_COUNT;
+    // Every volume shares the grid's layer, so the first header gives the layer height.
+    Volume first = volume_at(0);
+    float layer_cells = float(first.extent.y) * first.voxel_size / cell_size;
+    Volume world = Volume(grid_origin, cell_size,
+        uvec3(uint(counts.x), uint(ceil(layer_cells)), uint(counts.y)), 0);
     float entry;
     float exit;
     vec3 unused_normal;
@@ -290,38 +297,35 @@ Hit trace_scene(
         unused_normal)) {
         return miss;
     }
-    vec2 start = (ray_origin.xz + ray_direction.xz * entry) / PROTOTYPE_CELL;
-    ivec2 cell = clamp(ivec2(floor(start)), ivec2(0), ivec2(PROTOTYPE_GRID - 1));
+    vec2 local_origin = ray_origin.xz - grid_origin.xz;
+    vec2 start = (local_origin + ray_direction.xz * entry) / cell_size;
+    ivec2 cell = clamp(ivec2(floor(start)), ivec2(0), counts - 1);
     vec2 direction = ray_direction.xz;
     ivec2 step_sign = ivec2(sign(direction));
     vec2 boundary_distance = vec2(LARGE_DISTANCE);
     vec2 delta = vec2(LARGE_DISTANCE);
     for (int axis = 0; axis < 2; ++axis) {
         if (direction[axis] != 0.0) {
-            float boundary = float(cell[axis] + (direction[axis] > 0.0 ? 1 : 0)) * PROTOTYPE_CELL;
-            boundary_distance[axis] = (boundary - ray_origin.xz[axis]) / direction[axis];
-            delta[axis] = PROTOTYPE_CELL / abs(direction[axis]);
+            float boundary = float(cell[axis] + (direction[axis] > 0.0 ? 1 : 0)) * cell_size;
+            boundary_distance[axis] = (boundary - local_origin[axis]) / direction[axis];
+            delta[axis] = cell_size / abs(direction[axis]);
         }
     }
-    for (int visited = 0; visited < 2 * PROTOTYPE_GRID; ++visited) {
-        uint volume_index = uint(cell.x * PROTOTYPE_GRID + cell.y);
-        if (!prototype_grid_matches(volume_index, cell.x, cell.y)) {
-#ifdef NO_FALLBACK
-            return miss;
-#endif
-            return trace_scene_linear(ray_origin, ray_direction, ray_minimum, ray_maximum);
-        }
-        Hit candidate = trace_volume(volume_index, ray_origin, ray_direction, ray_minimum,
-            ray_maximum);
-        if (candidate.found) {
-            return candidate;
+    for (int visited = 0; visited < counts.x + counts.y; ++visited) {
+        uint volume_index = scene.words[table + uint(cell.y * counts.x + cell.x)];
+        if (volume_index != EMPTY_GRID_CELL) {
+            Hit candidate = trace_volume(volume_index, ray_origin, ray_direction, ray_minimum,
+                ray_maximum);
+            if (candidate.found) {
+                return candidate;
+            }
         }
         int axis = boundary_distance.x < boundary_distance.y ? 0 : 1;
         if (boundary_distance[axis] > exit) {
             return miss;
         }
         cell[axis] += step_sign[axis];
-        if (cell[axis] < 0 || cell[axis] >= PROTOTYPE_GRID) {
+        if (cell[axis] < 0 || cell[axis] >= counts[axis]) {
             return miss;
         }
         boundary_distance[axis] += delta[axis];
